@@ -522,7 +522,7 @@
 
   /* Type picker mini-panels (wall/linear/area/count settings) */
   .type-panel{
-    display:none;position:absolute;left:64px;top:154px;z-index:30;
+    display:none;position:fixed;left:64px;top:110px;z-index:30;
     background:var(--blueprint-2);border:1px solid var(--cyan-dim);border-radius:3px;
     padding:10px;width:230px;font-family:'IBM Plex Sans',sans-serif;color:#fff;
     box-shadow:0 4px 16px rgba(0,0,0,0.3);
@@ -542,6 +542,33 @@
     background:rgba(0,0,0,0.15);padding:6px 8px;border-radius:2px;line-height:1.5;
   }
   .type-panel .tp-swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle;}
+  /* Collapsed state — the panel shrinks to a one-line chip so it stops covering the sheet
+     while you're drawing. Click the chip (or the ⌄ toggle) to bring the full panel back. */
+  .type-panel .tp-header{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  .type-panel .tp-toggle{
+    flex:none;background:none;border:none;color:var(--cyan);cursor:pointer;
+    font-size:12px;line-height:1;padding:0 2px;
+  }
+  .type-panel.collapsed{width:auto;max-width:230px;padding:6px 8px;cursor:pointer;}
+  .type-panel.collapsed .tp-row,
+  .type-panel.collapsed .tp-summary{display:none;}
+  .type-panel.collapsed .tp-title{margin-bottom:0;}
+  .type-panel .tp-collapsed-name{
+    display:none;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#fff;
+    text-transform:none;letter-spacing:0;margin-left:6px;
+  }
+  .type-panel.collapsed .tp-collapsed-name{display:inline;}
+  /* Highlight tool panel */
+  .hl-swatches{display:flex;gap:6px;margin-bottom:8px;}
+  .hl-swatch{
+    width:26px;height:26px;border-radius:3px;border:2px solid transparent;cursor:pointer;
+  }
+  .hl-swatch.active{border-color:#fff;}
+  .hl-clear-btn{
+    width:100%;background:transparent;border:1px solid var(--cyan-dim);color:var(--cyan);
+    border-radius:2px;padding:5px;font-size:11px;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;
+  }
+  .hl-clear-btn:hover{border-color:var(--danger);color:var(--danger);}
 
   /* Type creation/edit modal */
   .modal-overlay{
@@ -734,6 +761,8 @@
     <button class="tool" data-tool="area" title="Area Measure">▱<span class="tip">Area takeoff (SF)</span></button>
     <button class="tool" data-tool="count" title="Count">●<span class="tip">Count takeoff (EA)</span></button>
     <div class="rail-divider"></div>
+    <button class="tool" data-tool="highlight" title="Highlight">▒<span class="tip">Highlight a region of the sheet</span></button>
+    <div class="rail-divider"></div>
     <button class="tool" data-tool="ai-select" title="AI Select">✦<span class="tip">AI region select</span></button>
   </div>
 
@@ -826,6 +855,8 @@ const state = {
   quickMeasurements:[], // {points, label} - non-committed quick-measure results
   drawing:null, // current in-progress draw
   aiSelection:null, // {x,y,w,h} in native (unzoomed) pixels
+  highlights:[], // {id, pageNum, x, y, w, h, color} — translucent marks that live on a specific sheet
+  highlightColor:'#FFE14D',
   countLabel:'Fixture',
   snapMode:'ortho', // 'free' | 'ortho' — ortho is the default
   shiftHeld:false,
@@ -1181,6 +1212,7 @@ async function serializeProjectState(){
     walls: state.walls,
     areas: state.areas,
     quickMeasurements: state.quickMeasurements,
+    highlights: state.highlights,
     calibration: state.calibration,
     pageNames: state.pageNames,
     pdfBase64, numPages: state.numPages
@@ -1195,6 +1227,7 @@ async function restoreProjectState(data){
   state.walls = data.walls || [];
   state.areas = data.areas || [];
   state.quickMeasurements = data.quickMeasurements || [];
+  state.highlights = data.highlights || [];
   state.calibration = data.calibration || null;
   state.pageNames = data.pageNames || {};
   ['wall','linear','area','count'].forEach(cat=> populateTypeDropdown(cat));
@@ -1269,7 +1302,7 @@ document.getElementById('project-new-btn').addEventListener('click', ()=>{
   if(!confirm('Start a new project? Unsaved changes to the current one will be lost unless you saved already.')) return;
   currentProjectId = null;
   document.getElementById('proj-name').value = 'Untitled Project';
-  state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[];
+  state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[];
   state.calibration=null; state.pageNames={}; state.pdfDoc=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.calibDot.classList.remove('ok'); els.calibLabel.textContent='Not calibrated';
@@ -1444,10 +1477,12 @@ async function renderPage(){
 function openPagesPanel(){
   document.documentElement.style.setProperty('--pages-width', '220px');
   document.getElementById('pages-reopen-tab').classList.remove('show');
+  positionFloatingPanels();
 }
 function collapsePagesPanel(){
   document.documentElement.style.setProperty('--pages-width', '0px');
   document.getElementById('pages-reopen-tab').classList.add('show');
+  positionFloatingPanels();
 }
 document.getElementById('pages-collapse-btn').addEventListener('click', collapsePagesPanel);
 document.getElementById('pages-reopen-tab').addEventListener('click', openPagesPanel);
@@ -1618,13 +1653,21 @@ document.getElementById('rail').addEventListener('click',(e)=>{
   if(state.tool==='wall') showHint('Click to trace the wall centerline. Pick a saved type below, then double-click, <b>Enter</b>, or Finish to end it.');
   if(state.tool==='area') showHint('Click to trace the perimeter. Double-click, <b>Enter</b>, or Finish to close it.');
   if(state.tool==='count') showHint('Click each item to count, using the type selected below.');
+  if(state.tool==='highlight') showHint('Drag a box to highlight part of this sheet. Click an existing highlight to remove it.');
   if((state.tool==='wall'||state.tool==='linear'||state.tool==='area') && !state.calibration){
     showHint('⚠ No scale set yet — open the <b>Scale</b> button (top right) first, or thickness/measurements won\'t calculate.');
   }
   ['wall','linear','area','count'].forEach(cat=>{
     const panel = document.getElementById(cat+'-type-panel');
-    if(panel) panel.style.display = state.tool===cat ? 'block':'none';
+    if(!panel) return;
+    panel.style.display = state.tool===cat ? 'block':'none';
+    // Every time you re-enter a tool the panel opens expanded so you can set the type up,
+    // then it gets out of the way on its own once you've picked one (see collapseTypePanel).
+    if(state.tool===cat) setTypePanelCollapsed(cat, false);
   });
+  const hlPanel = document.getElementById('highlight-panel');
+  if(hlPanel) hlPanel.style.display = state.tool==='highlight' ? 'block':'none';
+  positionFloatingPanels();
   if(state.tool==='ai-select') showHint('Drag a box around the region you want Claude to analyze.');
   updateFinishBtn();
   redrawOverlay();
@@ -1666,12 +1709,15 @@ els.overlay.addEventListener('mousedown',(e)=>{
     if(!state.drawing) state.drawing = {points:[p]};
     else { state.drawing.points.push(p); finishCalibration(); }
   } else if(MEASURE_TOOLS.includes(state.tool)){
+    // First point of a new draw: you're committed, so the type picker collapses.
+    if(!state.drawing && ['wall','linear','area'].includes(state.tool)) setTypePanelCollapsed(state.tool, true);
     if(!state.drawing) state.drawing = {points:[p]};
     else { p = applySnap(state.drawing.points[state.drawing.points.length-1], p); state.drawing.points.push(p); }
     updateFinishBtn();
   } else if(state.tool==='count'){
+    setTypePanelCollapsed('count', true);
     addCountPoint(p);
-  } else if(state.tool==='ai-select'){
+  } else if(state.tool==='ai-select' || state.tool==='highlight'){
     isDown=true;
     state.drawing = {start:p, end:p};
   }
@@ -1694,7 +1740,7 @@ document.addEventListener('mouseup',(e)=>{
 els.overlay.addEventListener('mousemove',(e)=>{
   if(isPanning) return;
   let p = getNativePoint(e);
-  if(state.tool==='ai-select' && isDown && state.drawing){
+  if((state.tool==='ai-select' || state.tool==='highlight') && isDown && state.drawing){
     state.drawing.end = p;
     redrawOverlay();
     return;
@@ -1718,7 +1764,59 @@ els.overlay.addEventListener('mouseup',(e)=>{
     isDown=false;
     finalizeAiSelection();
   }
+  if(state.tool==='highlight' && isDown){
+    isDown=false;
+    finalizeHighlight();
+  }
 });
+
+// ---------- Highlights ----------
+// A highlight is a translucent box tied to one sheet (pageNum), drawn beneath the
+// takeoff geometry so it reads as marker on paper rather than as a measurement.
+const HIGHLIGHT_COLORS = ['#FFE14D','#7CE38B','#7FD3F5','#FF9EC4'];
+const HIGHLIGHT_MIN_PX = 4; // a drag smaller than this counts as a click, not a box
+
+function highlightsOnPage(){
+  return state.highlights.filter(h=>h.pageNum===state.pageNum);
+}
+function highlightAtPoint(p){
+  // topmost first, so clicking overlapping highlights removes the one you can actually see
+  const onPage = highlightsOnPage();
+  for(let i=onPage.length-1;i>=0;i--){
+    const h = onPage[i];
+    if(p.x>=h.x && p.x<=h.x+h.w && p.y>=h.y && p.y<=h.y+h.h) return h;
+  }
+  return null;
+}
+function finalizeHighlight(){
+  if(!state.drawing || !state.drawing.start){ state.drawing=null; return; }
+  const {start,end} = state.drawing;
+  const x = Math.min(start.x,end.x), y = Math.min(start.y,end.y);
+  const w = Math.abs(end.x-start.x), h = Math.abs(end.y-start.y);
+  state.drawing = null;
+
+  if(w < HIGHLIGHT_MIN_PX && h < HIGHLIGHT_MIN_PX){
+    // Treated as a click: remove the highlight under the cursor, if there is one.
+    const hit = highlightAtPoint(start);
+    if(hit) state.highlights = state.highlights.filter(x2=>x2.id!==hit.id);
+    redrawOverlay();
+    return;
+  }
+  state.highlights.push({
+    id:'hl_'+Math.random().toString(36).slice(2,9),
+    pageNum: state.pageNum,
+    x, y, w, h,
+    color: state.highlightColor
+  });
+  redrawOverlay();
+}
+function clearHighlightsOnPage(){
+  const count = highlightsOnPage().length;
+  if(count===0){ alert('There are no highlights on this sheet.'); return; }
+  if(!confirm(`Remove ${count} highlight${count===1?'':'s'} from this sheet?`)) return;
+  state.highlights = state.highlights.filter(h=>h.pageNum!==state.pageNum);
+  redrawOverlay();
+}
 
 // Middle-click now pans (see mousedown above). Right-click, while actively drawing a
 // line/wall/area/measurement, undoes just the last placed point (not the whole thing) —
@@ -2208,8 +2306,40 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
   state.activeType[category] = entry.id;
   populateTypeDropdown(category);
   closeTypeModal();
+  // The type is now designed and armed — collapse the picker so it isn't sitting on the plan.
+  setTypePanelCollapsed(category, true);
   if(category==='wall') redrawOverlay();
 });
+
+// The floating tool panels sit to the RIGHT of the Sheets list, never on top of it.
+// Sheets is collapsible and its width lives in the --pages-width CSS var, so the
+// panels' left edge is computed at runtime rather than hard-coded.
+function positionFloatingPanels(){
+  const rail = document.getElementById('rail');
+  const pages = document.getElementById('pages-panel');
+  const railRight = rail ? rail.getBoundingClientRect().right : 56;
+  const pagesRight = pages ? pages.getBoundingClientRect().right : 0;
+  const left = Math.max(railRight, pagesRight) + 12;
+  document.querySelectorAll('.type-panel').forEach(el=>{ el.style.left = left+'px'; });
+}
+window.addEventListener('resize', positionFloatingPanels);
+
+// Collapsing the type panel rather than hiding it outright: you still see which type is
+// armed (name + colour chip), and one click brings the controls back.
+function setTypePanelCollapsed(category, collapsed){
+  const panel = document.getElementById(category+'-type-panel');
+  if(!panel) return;
+  panel.classList.toggle('collapsed', !!collapsed);
+  const toggle = document.getElementById(category+'-type-toggle');
+  if(toggle) toggle.textContent = collapsed ? '⌃' : '⌄';
+  updateTypeChip(category);
+}
+function updateTypeChip(category){
+  const chip = document.getElementById(category+'-type-chip');
+  if(!chip) return;
+  const t = getActiveType(category);
+  chip.innerHTML = t ? `<span class="tp-swatch" style="background:${t.color}"></span>${escapeHtml(t.name)}` : '';
+}
 
 function populateTypeDropdown(category){
   const sel = document.getElementById(category+'-type-select');
@@ -2227,6 +2357,7 @@ function updateTypeSummary(category){
   if(!el) return;
   const t = getActiveType(category);
   if(!t){ el.textContent=''; return; }
+  updateTypeChip(category);
   if(category==='wall'){
     const measureLabels = {length:'Length (LF)', face_area:'Face Area (SF)', volume:'Volume (CY)', stud_count:'Stud Count (EA)'};
     const kinds = t.measureKinds || (t.measureKind?[t.measureKind]:['length']);
@@ -2360,6 +2491,7 @@ document.getElementById('clear-all').addEventListener('click', ()=>{
   if(state.items.length && !confirm('Clear all takeoff items?')) return;
   state.items = [];
   state.walls = [];
+  state.highlights = [];
   state.areas = [];
   state.quickMeasurements = [];
   renderTakeoffList();
@@ -2474,6 +2606,19 @@ function redrawOverlay(){
   octx.save();
   octx.scale(1,1);
 
+  // Highlights render first so everything else sits on top of them, like marker under ink.
+  // They are scoped to the sheet they were drawn on.
+  highlightsOnPage().forEach(h=>{
+    octx.save();
+    octx.globalAlpha = 0.32;
+    octx.fillStyle = h.color;
+    octx.fillRect(h.x, h.y, h.w, h.h);
+    octx.restore();
+    octx.strokeStyle = h.color;
+    octx.lineWidth = 1;
+    octx.strokeRect(h.x, h.y, h.w, h.h);
+  });
+
   // draw persistent walls (thick, material-styled) — thickness/color looked up live
   // from the current type definition, so editing a type updates every drawn wall.
   state.walls.forEach(w=>{
@@ -2549,6 +2694,13 @@ function redrawOverlay(){
       const areaColor = at ? at.color : '#2E86AB';
       drawAreaPath(previewPts, areaColor);
       pts.forEach(p=>drawDot(p, areaColor));
+    } else if(state.tool==='highlight' && state.drawing.start){
+      const {start,end} = state.drawing;
+      octx.save();
+      octx.globalAlpha = 0.32;
+      octx.fillStyle = state.highlightColor;
+      octx.fillRect(Math.min(start.x,end.x), Math.min(start.y,end.y), Math.abs(end.x-start.x), Math.abs(end.y-start.y));
+      octx.restore();
     } else if(state.tool==='ai-select' && state.drawing.start){
       const {start,end} = state.drawing;
       octx.strokeStyle='#E8722C'; octx.lineWidth=1.5;
@@ -2788,7 +2940,10 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
     wrap.id = cat+'-type-panel';
     wrap.className = 'type-panel';
     wrap.innerHTML = `
-      <div class="tp-title">${title}</div>
+      <div class="tp-header">
+        <div class="tp-title">${title}<span class="tp-collapsed-name" id="${cat}-type-chip"></span></div>
+        <button class="tp-toggle" id="${cat}-type-toggle" title="Collapse / expand">⌄</button>
+      </div>
       <div class="tp-row">
         <select id="${cat}-type-select"></select>
         <button class="tp-icon-btn" id="${cat}-type-edit" title="Edit selected type">✎</button>
@@ -2806,14 +2961,50 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
         state.activeType[cat] = sel.value;
         updateTypeSummary(cat);
         if(cat==='wall') redrawOverlay();
+        // You've picked the type you're about to draw with — get the panel out of the way.
+        setTypePanelCollapsed(cat, true);
       }
     });
-    document.getElementById(cat+'-type-edit').addEventListener('click', ()=>{
+    document.getElementById(cat+'-type-edit').addEventListener('click', (e)=>{
+      e.stopPropagation();
       openTypeModal(cat, state.activeType[cat]);
+    });
+    document.getElementById(cat+'-type-toggle').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      setTypePanelCollapsed(cat, !wrap.classList.contains('collapsed'));
+    });
+    // Clicking the collapsed chip anywhere reopens it.
+    wrap.addEventListener('click', ()=>{
+      if(wrap.classList.contains('collapsed')) setTypePanelCollapsed(cat, false);
     });
 
     populateTypeDropdown(cat);
   });
+
+  // Highlight tool panel — colour choice + a way to wipe this sheet's highlights.
+  const hl = document.createElement('div');
+  hl.id = 'highlight-panel';
+  hl.className = 'type-panel';
+  hl.innerHTML = `
+    <div class="tp-title">Highlight</div>
+    <div class="hl-swatches" id="hl-swatches"></div>
+    <button class="hl-clear-btn" id="hl-clear-btn">Clear highlights on this sheet</button>
+  `;
+  document.querySelector('.app').appendChild(hl);
+  const swatchWrap = document.getElementById('hl-swatches');
+  HIGHLIGHT_COLORS.forEach(c=>{
+    const b = document.createElement('div');
+    b.className = 'hl-swatch' + (c===state.highlightColor ? ' active':'');
+    b.style.background = c;
+    b.dataset.color = c;
+    b.addEventListener('click', ()=>{
+      state.highlightColor = c;
+      swatchWrap.querySelectorAll('.hl-swatch').forEach(el=> el.classList.toggle('active', el.dataset.color===c));
+    });
+    swatchWrap.appendChild(b);
+  });
+  document.getElementById('hl-clear-btn').addEventListener('click', clearHighlightsOnPage);
+  positionFloatingPanels();
 })();
 </script>
 </body>

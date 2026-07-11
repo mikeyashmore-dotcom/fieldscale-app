@@ -17,7 +17,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
   return crypto.randomBytes(32).toString('hex');
 })();
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -27,14 +27,40 @@ if (!ANTHROPIC_API_KEY) {
 
 // ---------- Tiny JSON "database" (fine for a small team; swap for real DB later if needed) ----------
 function loadDB() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], projects: [] }, null, 2));
+  console.log('[fieldscale][diag] DATA_DIR env var is: ' + (process.env.DATA_DIR ? '"' + process.env.DATA_DIR + '"' : 'NOT SET — falling back to a temporary folder!'));
+  console.log('[fieldscale][diag] Database file path: ' + DB_FILE);
+
+  if (!fs.existsSync(DATA_DIR)) {
+    console.log('[fieldscale][diag] Data folder did NOT exist. Creating it: ' + DATA_DIR);
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } else {
+    console.log('[fieldscale][diag] Data folder already exists: ' + DATA_DIR);
   }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+
+  if (!fs.existsSync(DB_FILE)) {
+    console.log('[fieldscale][diag] *** NO EXISTING DATABASE FOUND — creating a brand new empty one. Any previous accounts/projects are gone. ***');
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], projects: [] }, null, 2));
+  } else {
+    console.log('[fieldscale][diag] Found an existing database file. Loading it.');
+  }
+
+  const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  console.log('[fieldscale][diag] Loaded ' + (loaded.users || []).length + ' user account(s) and ' + (loaded.projects || []).length + ' project(s).');
+
+  // Prove the disk is actually writable and that writes survive.
+  try {
+    const marker = path.join(DATA_DIR, 'write-test.txt');
+    fs.writeFileSync(marker, 'last started: ' + new Date().toISOString());
+    console.log('[fieldscale][diag] Write test PASSED — the data folder is writable.');
+  } catch (e) {
+    console.log('[fieldscale][diag] *** WRITE TEST FAILED — cannot write to ' + DATA_DIR + ' — ' + e.message + ' ***');
+  }
+
+  return loaded;
 }
 function saveDB(db) {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  console.log('[fieldscale][diag] Database saved. Now holding ' + db.users.length + ' user(s) and ' + db.projects.length + ' project(s).');
 }
 let db = loadDB();
 

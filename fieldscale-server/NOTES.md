@@ -60,12 +60,49 @@ scale on all sheets" button.
 Because of this, drawn geometry (walls, areas, counts, quick measures) belongs to the
 sheet it was drawn on and only appears there. The CSV export has a Sheet column.
 
+## Starting a project
+
+"＋ New Project" opens a setup page: project name, client/GC, address, plan date, bid due.
+You pick the plan PDF there, then get a sheet list where you **untick sheets you don't
+need**, type in sheet numbers/names, and set each sheet's scale up front. Hidden sheets
+stay in the PDF — the sheet list has a "N hidden sheets" row to bring them back, and the
+◠/◡ icon on any sheet hides or restores it later.
+
+"Skip setup" jumps straight to the file picker if you just want to measure something.
+
+Claude only reads sheet names for sheets you kept and didn't name yourself.
+
+## Drawing
+
+The draw bar appears at the bottom of the sheet whenever a drawing tool is active:
+
+- **Trace vs Box** — Trace clicks corner to corner. **Box** drags a rectangle in one motion
+  (walls and areas only). A boxed wall becomes four walls in a closed loop; a boxed area
+  becomes a four-corner polygon. Identical to tracing it by hand, downstream.
+- **Ortho / Freehand** — snap toggle (Shift temporarily inverts it). Moved here off the top bar.
+- Undo point, Cancel, Finish. Double-click and Enter still finish a run.
+
+## Legend
+
+The **▤ Legend** button stamps a key onto the sheet listing every type taken off on
+**that sheet**, with its colour and running quantity. Drag it with the pan tool to move it
+off the title block. It's per-sheet, and it hides itself when a sheet has nothing on it.
+
+## Export
+
+The CSV opens with the job details (project, client, address, plan date, bid due, export
+timestamp), then the takeoff table with a **Sheet** column.
+
 ## Where we left off
 
 - Backend now has: roles, user management, password change, admin password reset,
   session revocation, sign-up lock, login throttling, per-user AI rate limits.
-- Scales are now per-sheet, geometry is page-scoped, and new projects are named up
-  front (the "＋ New Project" button asks for a name, then opens the file picker).
+- Scales are per-sheet; geometry is page-scoped.
+- New Project setup page (name/client/address/dates + sheet triage + per-sheet scales).
+- Draw bar at the bottom with Trace/Box modes and the snap toggle.
+- On-sheet takeoff legend. Job details on the CSV export.
+- **Auto-detect scale (AI) was removed** — set scale from the printed-scale dropdown or
+  calibrate manually with the 📏 tool. Claude still names sheets and does AI Select.
 - **Not deployed yet.** Next step is putting it on a host (Render is the plan) with
   a persistent disk mounted at the `data/` folder — see README for why that matters.
 - Not built yet: password reset by email (right now only an admin can reset a

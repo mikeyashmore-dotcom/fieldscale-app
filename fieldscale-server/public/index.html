@@ -587,7 +587,7 @@
   }
   .modal-card .modal-body{padding:16px 20px;display:flex;flex-direction:column;gap:12px;}
   .modal-card label{font-size:11.5px;font-weight:600;color:var(--steel);text-transform:uppercase;letter-spacing:0.4px;display:block;margin-bottom:4px;}
-  .modal-card input[type=text], .modal-card input[type=number], .modal-card select{
+  .modal-card input[type=text], .modal-card input[type=password], .modal-card input[type=number], .modal-card select{
     width:100%;font-size:13px;padding:7px 8px;border:1px solid var(--steel-light);border-radius:3px;
     font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);
   }
@@ -643,6 +643,39 @@
   .project-row .pr-date{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--steel);white-space:nowrap;}
   .project-row .pr-delete{color:var(--steel);cursor:pointer;font-size:13px;padding:0 3px;}
   .project-row .pr-delete:hover{color:var(--danger);}
+
+  /* Per-sheet scale indicator in the sheet list */
+  .plr-scale{font-size:10px;color:var(--steel);margin-left:auto;padding-left:6px;flex:0 0 auto;}
+  .plr-scale.ok{color:var(--good);}
+
+  /* Admin — user management */
+  .modal-card.wide{width:min(760px,94vw);}
+  .admin-msg{font-size:12px;padding:8px 10px;border-radius:2px;margin-bottom:2px;display:none;}
+  .admin-msg.error{background:#F7E4E1;border:1px solid var(--danger);color:#8E2C20;display:block;}
+  .admin-msg.ok{background:#E3F1E9;border:1px solid var(--good);color:#2F6B4C;display:block;}
+  .admin-section{border:1px solid var(--paper-line);border-radius:2px;background:var(--paper);padding:12px;}
+  .admin-section h5{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:0.5px;text-transform:uppercase;color:var(--ink-navy);margin:0 0 8px;font-weight:600;}
+  .user-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .user-table th{
+    font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:0.6px;text-transform:uppercase;
+    color:var(--steel);text-align:left;font-weight:500;padding:0 8px 6px 0;border-bottom:1px solid var(--paper-line);
+  }
+  .user-table td{padding:9px 8px 9px 0;border-bottom:1px solid var(--paper-line);vertical-align:middle;color:var(--charcoal);}
+  .user-table tr:last-child td{border-bottom:none;}
+  .user-table .u-name{font-weight:600;}
+  .user-table .u-meta{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--steel);white-space:nowrap;}
+  .tag{
+    display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.5px;
+    text-transform:uppercase;padding:2px 6px;border-radius:2px;border:1px solid var(--steel-light);color:var(--steel);
+  }
+  .tag.admin{background:var(--blueprint-2);border-color:var(--blueprint);color:#fff;}
+  .tag.you{background:var(--cyan);border-color:var(--cyan-dim);color:var(--ink-navy);}
+  .tag.off{background:#F0E2E0;border-color:var(--danger);color:#8E2C20;}
+  .u-actions{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;}
+  .u-actions .btn{padding:4px 8px;font-size:10.5px;}
+  .u-actions .btn.danger{background:transparent;border-color:var(--steel-light);color:var(--steel);}
+  .u-actions .btn.danger:hover{background:var(--danger);border-color:var(--danger);color:#fff;}
+  .admin-empty{font-size:12px;color:var(--steel);padding:10px 0;}
 </style>
 </head>
 <body>
@@ -706,7 +739,9 @@
     <div class="scale-btn-wrap" id="account-wrap">
       <button class="btn" id="account-toggle-btn">👤 <span id="account-username">Account</span></button>
       <div class="scale-popover" id="account-popover" style="width:220px;">
-        <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Signed in as <b id="account-username-2"></b></div>
+        <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Signed in as <b id="account-username-2"></b><span id="account-role-tag"></span></div>
+        <button class="btn" id="manage-users-btn" style="width:100%;margin-bottom:6px;display:none;">👥 Manage Users</button>
+        <button class="btn" id="change-password-btn" style="width:100%;margin-bottom:6px;">🔑 Change Password</button>
         <button class="btn" id="logout-btn" style="width:100%;">Log Out</button>
       </div>
     </div>
@@ -727,8 +762,9 @@
       </button>
       <div class="scale-popover" id="scale-popover">
         <div class="sp-current" id="sp-current">
-          <span class="k">Current scale</span>Not set
+          <span class="k">This sheet's scale</span>Not set
         </div>
+        <div class="sp-note" id="sp-page-context" style="margin-top:0;margin-bottom:8px;"></div>
         <h4>Set from printed scale</h4>
         <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Exact — computed from the sheet's true page size. Use this if the PDF preserves its original plotted page size.</div>
         <div class="sp-row">
@@ -744,6 +780,11 @@
         <div class="sp-divider">
           <h4>Or calibrate manually</h4>
           <div class="sp-note" style="margin-top:0;">Use the 📏 tool on the left to click two points of a known dimension. Best for scans or drawings not printed to true size.</div>
+        </div>
+        <div class="sp-divider">
+          <h4>Every sheet keeps its own scale</h4>
+          <div class="sp-note" style="margin-top:0;margin-bottom:8px;">A scale you set here applies to this sheet only. If the whole set is plotted at one scale, copy it across in one go.</div>
+          <button class="btn" id="scale-apply-all-btn" style="width:100%;display:none;">Use this scale on all sheets</button>
         </div>
       </div>
     </div>
@@ -830,6 +871,113 @@
 
 </div>
 
+<!-- ===== New project (name it up front) ===== -->
+<div class="modal-overlay" id="new-project-overlay">
+  <div class="modal-card">
+    <div class="modal-header">New Project</div>
+    <div class="modal-body">
+      <div class="admin-msg" id="np-msg"></div>
+      <div>
+        <label>Project name</label>
+        <input type="text" id="np-name" placeholder="e.g. Riverside Clinic — Shell" autocomplete="off" />
+      </div>
+      <div class="sp-note" style="margin-top:0;">You can rename it any time from the title bar. Next you'll pick the plan PDF.</div>
+      <div class="checkbox-row" id="np-unsaved-row" style="display:none;">
+        <input type="checkbox" id="np-discard" />
+        <label for="np-discard" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--danger);margin:0;">
+          Discard the project currently open — anything unsaved is lost
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="np-cancel">Cancel</button>
+      <button class="btn primary" id="np-create">Create &amp; Choose Plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Manage Users (administrators only) ===== -->
+<div class="modal-overlay" id="admin-modal-overlay">
+  <div class="modal-card wide">
+    <div class="modal-header">Manage Users</div>
+    <div class="modal-body">
+      <div class="admin-msg" id="admin-msg"></div>
+
+      <div class="admin-section">
+        <h5>Accounts</h5>
+        <div id="admin-user-list"><div class="admin-empty">Loading…</div></div>
+      </div>
+
+      <div class="admin-section">
+        <h5>Add an account</h5>
+        <div class="field-row">
+          <div>
+            <label>Username</label>
+            <input type="text" id="admin-new-username" placeholder="e.g. dave.m" autocomplete="off" />
+          </div>
+          <div>
+            <label>Temporary password</label>
+            <input type="text" id="admin-new-password" placeholder="at least 8 characters" autocomplete="off" />
+          </div>
+          <div style="flex:0 0 130px;">
+            <label>Role</label>
+            <select id="admin-new-role">
+              <option value="member">Member</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <button class="btn primary" id="admin-create-user" style="flex:0 0 auto;">Create</button>
+        </div>
+        <div class="sp-note" style="margin-top:8px;">Give them the temporary password directly — they can change it from their own account menu after logging in.</div>
+      </div>
+
+      <div class="admin-section">
+        <h5>Sign-ups</h5>
+        <div class="checkbox-row">
+          <input type="checkbox" id="admin-allow-signups" />
+          <label for="admin-allow-signups" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--charcoal);margin:0;">
+            Anyone with the link can create their own account
+          </label>
+        </div>
+        <div class="sp-note" style="margin-top:8px;" id="admin-signup-note">
+          Turn this off once your team is set up. Then only you can add people, using the form above.
+        </div>
+        <div class="sp-note" style="margin-top:8px;" id="admin-ai-note"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn primary" id="admin-modal-close">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Change your own password ===== -->
+<div class="modal-overlay" id="pw-modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">Change Password</div>
+    <div class="modal-body">
+      <div class="admin-msg" id="pw-msg"></div>
+      <div>
+        <label>Current password</label>
+        <input type="password" id="pw-current" autocomplete="current-password" />
+      </div>
+      <div>
+        <label>New password</label>
+        <input type="password" id="pw-new" autocomplete="new-password" />
+      </div>
+      <div>
+        <label>Confirm new password</label>
+        <input type="password" id="pw-confirm" autocomplete="new-password" />
+      </div>
+      <div class="sp-note" style="margin-top:0;">Changing your password signs you out everywhere else.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="pw-cancel">Cancel</button>
+      <button class="btn primary" id="pw-save">Change Password</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="type-modal-overlay">
   <div class="modal-card">
     <div class="modal-header" id="type-modal-title">New Type</div>
@@ -848,7 +996,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 const state = {
   pdfDoc:null, pageNum:1, numPages:1, zoom:1.0, renderScale:2, // renderScale = internal PDF render pixel density
   tool:'pan',
-  calibration:null, // {unitsPerNativePixel, unitLabel}
+  calibration:null,  // the CURRENT page's scale — derived from calibrations[pageNum]. Read-only; set it via setCalibration().
+  calibrations:{},   // {pageNum: {unitsPerNativePixel, unitLabel, source}} — every sheet keeps its own scale
   items:[], // {id, label, trade, type, qty, unit, color}
   walls:[], // {id, points, thicknessIn, material} - persistent wall geometry for rendering
   areas:[], // {id, points, typeId} - persistent area geometry for rendering (color resolved live)
@@ -924,6 +1073,8 @@ els.fileInput.addEventListener('change', async (e)=>{
   state.searchHighlightPage = null;
   state.searchHighlights = [];
   state.pageNames = {};
+  state.calibrations = {};   // a new plan set means new sheets, and new scales
+  state.calibration = null;
   openPagesPanel();
   await renderPage();
   indexDocument(); // runs in the background; doesn't block viewing/measuring
@@ -1146,7 +1297,7 @@ async function submitAuth(){
     if(!res.ok) throw new Error(data.error || 'Something went wrong.');
     localStorage.setItem(TOKEN_STORAGE, data.token);
     localStorage.setItem(USERNAME_STORAGE, data.username);
-    onLoggedIn(data.username);
+    onLoggedIn(data.username, data.role);
   }catch(err){
     errEl.textContent = err.message;
     errEl.style.display='block';
@@ -1156,14 +1307,189 @@ document.getElementById('auth-submit-btn').addEventListener('click', submitAuth)
 document.getElementById('auth-password').addEventListener('keydown', e=>{ if(e.key==='Enter') submitAuth(); });
 document.getElementById('auth-username').addEventListener('keydown', e=>{ if(e.key==='Enter') submitAuth(); });
 
-function onLoggedIn(username){
+let currentUserRole = 'member';
+
+function onLoggedIn(username, role){
+  currentUserRole = role || 'member';
   document.getElementById('account-username').textContent = username;
   document.getElementById('account-username-2').textContent = username;
+  document.getElementById('account-role-tag').innerHTML =
+    currentUserRole === 'admin' ? ' <span class="tag admin">Admin</span>' : '';
+  document.getElementById('manage-users-btn').style.display =
+    currentUserRole === 'admin' ? 'block' : 'none';
   hideAuthGate();
   refreshProjectList();
 }
 
 document.getElementById('logout-btn').addEventListener('click', logout);
+
+// ---------- Change your own password ----------
+const pwOverlay = document.getElementById('pw-modal-overlay');
+function showPwMsg(text, kind){
+  const el = document.getElementById('pw-msg');
+  el.textContent = text;
+  el.className = 'admin-msg ' + kind;
+}
+function openPwModal(){
+  ['pw-current','pw-new','pw-confirm'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pw-msg').className = 'admin-msg';
+  accountPopover.classList.remove('open');
+  pwOverlay.classList.add('open');
+  document.getElementById('pw-current').focus();
+}
+document.getElementById('change-password-btn').addEventListener('click', openPwModal);
+document.getElementById('pw-cancel').addEventListener('click', ()=> pwOverlay.classList.remove('open'));
+pwOverlay.addEventListener('click', (e)=>{ if(e.target === pwOverlay) pwOverlay.classList.remove('open'); });
+document.getElementById('pw-save').addEventListener('click', async ()=>{
+  const currentPassword = document.getElementById('pw-current').value;
+  const newPassword = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+  if(newPassword !== confirm){ showPwMsg('The two new passwords don\'t match.', 'error'); return; }
+  try{
+    const data = await apiFetch('/api/password', {
+      method:'POST', body: JSON.stringify({ currentPassword, newPassword })
+    });
+    // The server issued a fresh token — keep this device logged in.
+    if(data.token) localStorage.setItem(TOKEN_STORAGE, data.token);
+    showPwMsg('Password changed.', 'ok');
+    setTimeout(()=> pwOverlay.classList.remove('open'), 900);
+  }catch(err){ showPwMsg(err.message, 'error'); }
+});
+
+// ---------- Manage users (admin only) ----------
+const adminOverlay = document.getElementById('admin-modal-overlay');
+let adminMe = null;
+
+function showAdminMsg(text, kind){
+  const el = document.getElementById('admin-msg');
+  el.textContent = text;
+  el.className = 'admin-msg ' + kind;
+  if(kind === 'ok') setTimeout(()=>{ if(el.textContent === text) el.className = 'admin-msg'; }, 3000);
+}
+function fmtDate(ts){
+  if(!ts) return '—';
+  return new Date(ts).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'2-digit'});
+}
+
+async function refreshUserList(){
+  const listEl = document.getElementById('admin-user-list');
+  try{
+    const data = await apiFetch('/api/admin/users');
+    adminMe = adminMe || (await apiFetch('/api/me'));
+    document.getElementById('admin-allow-signups').checked = !!data.settings.allowSignups;
+    document.getElementById('admin-ai-note').textContent =
+      `Each person is limited to ${data.aiCallsPerHour} AI requests per hour, so a stuck loop can't run up your Anthropic bill.`;
+
+    if(!data.users.length){ listEl.innerHTML = '<div class="admin-empty">No accounts yet.</div>'; return; }
+
+    const rows = data.users.map(u => {
+      const isMe = u.id === adminMe.id;
+      const tags = [
+        u.role === 'admin' ? '<span class="tag admin">Admin</span>' : '',
+        u.disabled ? '<span class="tag off">Disabled</span>' : '',
+        isMe ? '<span class="tag you">You</span>' : ''
+      ].filter(Boolean).join(' ');
+      return `
+        <tr data-id="${u.id}" data-name="${u.username}" data-role="${u.role}" data-disabled="${u.disabled}">
+          <td>
+            <div class="u-name">${u.username} ${tags}</div>
+            <div class="u-meta">Joined ${fmtDate(u.createdAt)} · Last in ${fmtDate(u.lastLoginAt)}</div>
+          </td>
+          <td class="u-meta">${u.projectCount} project${u.projectCount === 1 ? '' : 's'}</td>
+          <td class="u-meta">${u.aiCalls} AI call${u.aiCalls === 1 ? '' : 's'}</td>
+          <td>
+            <div class="u-actions">
+              <button class="btn" data-act="reset">Reset password</button>
+              <button class="btn" data-act="role">${u.role === 'admin' ? 'Make member' : 'Make admin'}</button>
+              <button class="btn" data-act="toggle">${u.disabled ? 'Enable' : 'Disable'}</button>
+              <button class="btn danger" data-act="delete">Delete</button>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    listEl.innerHTML = `
+      <table class="user-table">
+        <thead><tr><th>Account</th><th>Projects</th><th>AI usage</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }catch(err){
+    listEl.innerHTML = `<div class="admin-empty">Couldn't load accounts: ${err.message}</div>`;
+  }
+}
+
+document.getElementById('admin-user-list').addEventListener('click', async (e)=>{
+  const btn = e.target.closest('button[data-act]');
+  if(!btn) return;
+  const row = btn.closest('tr');
+  const id = row.dataset.id;
+  const name = row.dataset.name;
+  const role = row.dataset.role;
+  const disabled = row.dataset.disabled === 'true';
+  const act = btn.dataset.act;
+
+  try{
+    if(act === 'reset'){
+      const password = prompt(`New password for "${name}" (at least 8 characters).\n\nYou'll need to pass this to them yourself — they can change it afterwards.`);
+      if(!password) return;
+      await apiFetch('/api/admin/users/'+id, {method:'PATCH', body: JSON.stringify({password})});
+      showAdminMsg(`Password reset for ${name}. They've been signed out of any open sessions.`, 'ok');
+    }
+    if(act === 'role'){
+      const newRole = role === 'admin' ? 'member' : 'admin';
+      if(!confirm(`Change ${name} to ${newRole === 'admin' ? 'administrator' : 'member'}?${newRole === 'admin' ? '\n\nAdministrators can add, disable, and delete any account — including yours.' : ''}`)) return;
+      await apiFetch('/api/admin/users/'+id, {method:'PATCH', body: JSON.stringify({role: newRole})});
+      showAdminMsg(`${name} is now ${newRole === 'admin' ? 'an administrator' : 'a member'}.`, 'ok');
+    }
+    if(act === 'toggle'){
+      await apiFetch('/api/admin/users/'+id, {method:'PATCH', body: JSON.stringify({disabled: !disabled})});
+      showAdminMsg(disabled
+        ? `${name} can log in again.`
+        : `${name} is disabled — they've been signed out and can't log back in. Their projects are kept.`, 'ok');
+    }
+    if(act === 'delete'){
+      if(!confirm(`Delete "${name}" permanently?\n\nEvery project they saved is deleted too. This cannot be undone.`)) return;
+      const res = await apiFetch('/api/admin/users/'+id, {method:'DELETE'});
+      showAdminMsg(`Deleted ${name} and ${res.removedProjects} of their project${res.removedProjects === 1 ? '' : 's'}.`, 'ok');
+    }
+    refreshUserList();
+  }catch(err){ showAdminMsg(err.message, 'error'); }
+});
+
+document.getElementById('admin-create-user').addEventListener('click', async ()=>{
+  const username = document.getElementById('admin-new-username').value.trim();
+  const password = document.getElementById('admin-new-password').value;
+  const role = document.getElementById('admin-new-role').value;
+  try{
+    await apiFetch('/api/admin/users', {method:'POST', body: JSON.stringify({username, password, role})});
+    document.getElementById('admin-new-username').value = '';
+    document.getElementById('admin-new-password').value = '';
+    document.getElementById('admin-new-role').value = 'member';
+    showAdminMsg(`Created ${username}. Send them the password you just set.`, 'ok');
+    refreshUserList();
+  }catch(err){ showAdminMsg(err.message, 'error'); }
+});
+
+document.getElementById('admin-allow-signups').addEventListener('change', async (e)=>{
+  try{
+    await apiFetch('/api/admin/settings', {method:'PUT', body: JSON.stringify({allowSignups: e.target.checked})});
+    showAdminMsg(e.target.checked
+      ? 'Sign-ups are open — anyone with the link can create an account.'
+      : 'Sign-ups are closed. Only you can add new people now.', 'ok');
+  }catch(err){
+    showAdminMsg(err.message, 'error');
+    e.target.checked = !e.target.checked;
+  }
+});
+
+document.getElementById('manage-users-btn').addEventListener('click', ()=>{
+  accountPopover.classList.remove('open');
+  document.getElementById('admin-msg').className = 'admin-msg';
+  adminOverlay.classList.add('open');
+  refreshUserList();
+});
+document.getElementById('admin-modal-close').addEventListener('click', ()=> adminOverlay.classList.remove('open'));
+adminOverlay.addEventListener('click', (e)=>{ if(e.target === adminOverlay) adminOverlay.classList.remove('open'); });
 const accountToggleBtn = document.getElementById('account-toggle-btn');
 const accountPopover = document.getElementById('account-popover');
 accountToggleBtn.addEventListener('click', (e)=>{ e.stopPropagation(); accountPopover.classList.toggle('open'); });
@@ -1171,13 +1497,31 @@ document.addEventListener('click', (e)=>{
   if(!accountPopover.contains(e.target) && e.target!==accountToggleBtn) accountPopover.classList.remove('open');
 });
 
+// Ask the server whether new people may sign themselves up, and set up the login
+// screen accordingly. On a brand-new install, nudge toward creating the first account —
+// that one becomes the administrator.
+(async function loadAuthConfig(){
+  try{
+    const cfg = await (await fetch('/api/config')).json();
+    const toggle = document.querySelector('.auth-toggle');
+    if(cfg.firstRun){
+      authMode = 'register';
+      document.getElementById('auth-title').textContent = 'Create Admin Account';
+      document.getElementById('auth-submit-btn').textContent = 'Create Account';
+      toggle.innerHTML = '<span>This is the first account on this server, so it becomes the administrator.</span>';
+    } else if(!cfg.allowSignups){
+      toggle.innerHTML = '<span>Accounts are created by an administrator.</span>';
+    }
+  }catch(err){ /* login still works; leave the screen as-is */ }
+})();
+
 // Check for an existing session on load
 (async function checkSession(){
   const token = getToken();
   if(!token){ showAuthGate(); return; }
   try{
     const data = await apiFetch('/api/me');
-    if(data.username) onLoggedIn(data.username);
+    if(data.username) onLoggedIn(data.username, data.role);
     else showAuthGate();
   }catch(err){ showAuthGate(); }
 })();
@@ -1213,7 +1557,7 @@ async function serializeProjectState(){
     areas: state.areas,
     quickMeasurements: state.quickMeasurements,
     highlights: state.highlights,
-    calibration: state.calibration,
+    calibrations: state.calibrations,   // per-sheet scales
     pageNames: state.pageNames,
     pdfBase64, numPages: state.numPages
   };
@@ -1228,12 +1572,32 @@ async function restoreProjectState(data){
   state.areas = data.areas || [];
   state.quickMeasurements = data.quickMeasurements || [];
   state.highlights = data.highlights || [];
-  state.calibration = data.calibration || null;
   state.pageNames = data.pageNames || {};
-  ['wall','linear','area','count'].forEach(cat=> populateTypeDropdown(cat));
-  if(state.calibration){
-    setCalibration(state.calibration.unitsPerNativePixel, state.calibration.source || 'Restored from saved project');
+
+  // Per-sheet scales. Projects saved before scales were per-sheet have a single
+  // `calibration` — that one scale was in force everywhere, so copy it onto every
+  // sheet. Their old measurements stay correct, and they can now change any sheet.
+  if(data.calibrations){
+    state.calibrations = data.calibrations;
+  } else if(data.calibration){
+    state.calibrations = {};
+    const n = data.numPages || 1;
+    for(let p=1; p<=n; p++){
+      state.calibrations[p] = Object.assign({}, data.calibration, {
+        source: (data.calibration.source || 'Restored from saved project')
+      });
+    }
+  } else {
+    state.calibrations = {};
   }
+
+  // Same story for geometry: anything saved before sheets were tracked belongs to sheet 1.
+  [state.walls, state.areas, state.quickMeasurements, state.items].forEach(list=>{
+    list.forEach(o=>{ if(!o.pageNum) o.pageNum = 1; });
+  });
+
+  ['wall','linear','area','count'].forEach(cat=> populateTypeDropdown(cat));
+  syncCalibrationForPage();
   if(data.pdfBase64){
     const byteChars = atob(data.pdfBase64);
     const bytes = new Uint8Array(byteChars.length);
@@ -1298,17 +1662,63 @@ async function refreshProjectList(){
   }
 }
 
-document.getElementById('project-new-btn').addEventListener('click', ()=>{
-  if(!confirm('Start a new project? Unsaved changes to the current one will be lost unless you saved already.')) return;
-  currentProjectId = null;
-  document.getElementById('proj-name').value = 'Untitled Project';
-  state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[];
-  state.calibration=null; state.pageNames={}; state.pdfDoc=null;
-  els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
-  els.calibDot.classList.remove('ok'); els.calibLabel.textContent='Not calibrated';
-  renderTakeoffList();
+// ---------- New project ----------
+const npOverlay = document.getElementById('new-project-overlay');
+
+// A project is "in progress" if there's a plan open or any takeoff on it. Only then do we
+// need to warn about losing it — starting fresh from an empty screen shouldn't nag.
+function projectHasWork(){
+  return !!state.pdfDoc || state.items.length > 0 || state.walls.length > 0 || state.areas.length > 0;
+}
+
+function openNewProjectModal(){
   document.getElementById('projects-popover').classList.remove('open');
-});
+  document.getElementById('np-msg').className = 'admin-msg';
+  document.getElementById('np-name').value = '';
+  document.getElementById('np-discard').checked = false;
+  document.getElementById('np-unsaved-row').style.display = projectHasWork() ? 'flex' : 'none';
+  npOverlay.classList.add('open');
+  document.getElementById('np-name').focus();
+}
+
+function createNewProject(){
+  const name = document.getElementById('np-name').value.trim();
+  const msg = document.getElementById('np-msg');
+  if(!name){
+    msg.textContent = 'Give the project a name so you can find it again later.';
+    msg.className = 'admin-msg error';
+    document.getElementById('np-name').focus();
+    return;
+  }
+  if(projectHasWork() && !document.getElementById('np-discard').checked){
+    msg.textContent = 'A project is already open. Save it first, or tick the box to discard it.';
+    msg.className = 'admin-msg error';
+    return;
+  }
+
+  currentProjectId = null;
+  document.getElementById('proj-name').value = name;
+  state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[];
+  state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
+  state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; state.searchHighlights=[]; state.searchHighlightPage=null;
+  els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
+  els.pageNav.style.display='none';
+  document.getElementById('scale-toggle-btn').disabled = true;
+  refreshCalibrationUI();
+  renderTakeoffList();
+  renderPagesList();
+  npOverlay.classList.remove('open');
+  document.getElementById('project-save-status').textContent = '';
+
+  els.fileInput.value = '';   // so re-picking the same file still fires 'change'
+  els.fileInput.click();      // straight on to choosing the plan
+}
+
+document.getElementById('project-new-btn').addEventListener('click', openNewProjectModal);
+document.getElementById('np-create').addEventListener('click', createNewProject);
+document.getElementById('np-cancel').addEventListener('click', ()=> npOverlay.classList.remove('open'));
+document.getElementById('np-name').addEventListener('keydown', e=>{ if(e.key==='Enter') createNewProject(); });
+npOverlay.addEventListener('click', (e)=>{ if(e.target === npOverlay) npOverlay.classList.remove('open'); });
 
 document.getElementById('project-save-btn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('project-save-status');
@@ -1460,6 +1870,7 @@ document.getElementById('reference-file-input').addEventListener('change', async
 });
 
 async function renderPage(){
+  syncCalibrationForPage();  // measuring must always use the scale of the sheet on screen
   const page = await state.pdfDoc.getPage(state.pageNum);
   const viewport = page.getViewport({scale: state.renderScale});
   els.pdfCanvas.width = viewport.width;
@@ -1508,9 +1919,14 @@ function renderPagesList(){
       tooltip = 'No sheet name/number detected on this page';
     }
     const active = p===state.pageNum ? 'active':'';
+    const cal = state.calibrations[p];
+    const scaleBadge = cal
+      ? `<span class="plr-scale ok" title="Scale: ${escapeHtml(cal.source)}">◆</span>`
+      : `<span class="plr-scale" title="No scale set for this sheet">◇</span>`;
     html += `<div class="page-list-row ${active}" data-page="${p}">
       <span class="plr-num">${p}</span>
       <span class="plr-label${pending?' pending':''}${hasError?' error':''}" title="${escapeHtml(tooltip)}">${escapeHtml(label)}</span>
+      ${scaleBadge}
     </div>`;
   }
   container.innerHTML = html;
@@ -1978,14 +2394,64 @@ function populateScaleSelect(){
 }
 populateScaleSelect();
 
-// Central place that applies a calibration and updates all UI that reflects it
+// Scales belong to a SHEET, not to the document — a plan set routinely mixes 1/4" floor
+// plans with 1/8" site plans and 1"=20' civil sheets. setCalibration() always writes to
+// whichever page you're looking at right now.
 function setCalibration(unitsPerNativePixel, sourceLabel){
-  state.calibration = {unitsPerNativePixel, unitLabel:'ft', source:sourceLabel};
+  state.calibrations[state.pageNum] = {unitsPerNativePixel, unitLabel:'ft', source:sourceLabel};
+  state.calibration = state.calibrations[state.pageNum];
+  refreshCalibrationUI();
+  renderPagesList();  // the sheet thumbnails show which sheets still need a scale
+}
+
+// Points state.calibration at the current sheet's scale (or null if it has none yet).
+// Called on every page change, so measuring always uses the scale of the sheet you're on.
+function syncCalibrationForPage(){
+  state.calibration = state.calibrations[state.pageNum] || null;
+  refreshCalibrationUI();
+}
+
+function refreshCalibrationUI(){
+  const cal = state.calibration;
+  const sheetCount = Object.keys(state.calibrations).length;
+  const applyAllBtn = document.getElementById('scale-apply-all-btn');
+  const pageCtx = document.getElementById('sp-page-context');
+
+  if(pageCtx){
+    pageCtx.textContent = state.pdfDoc
+      ? `Setting the scale for sheet ${state.pageNum} of ${state.numPages}${sheetCount ? ` · ${sheetCount} of ${state.numPages} sheets scaled` : ''}`
+      : '';
+  }
+  if(applyAllBtn) applyAllBtn.style.display = (cal && state.numPages > 1) ? 'block' : 'none';
+
+  if(!cal){
+    els.calibDot.classList.remove('ok');
+    els.calibLabel.textContent = state.pdfDoc ? 'Sheet not scaled' : 'Not calibrated';
+    document.getElementById('sp-current').innerHTML =
+      `<span class="k">This sheet's scale</span>Not set`;
+    return;
+  }
   els.calibDot.classList.add('ok');
-  els.calibLabel.textContent = sourceLabel;
-  const pxPerFt = 1/unitsPerNativePixel;
+  els.calibLabel.textContent = cal.source;
+  const pxPerFt = 1/cal.unitsPerNativePixel;
   document.getElementById('sp-current').innerHTML =
-    `<span class="k">Current scale</span>${sourceLabel} · ${pxPerFt.toFixed(1)} px/ft`;
+    `<span class="k">This sheet's scale</span>${cal.source} · ${pxPerFt.toFixed(1)} px/ft`;
+}
+
+// Copies the current sheet's scale onto every other sheet. Useful when a whole set is
+// plotted at one scale — but it is opt-in, never automatic.
+function applyScaleToAllSheets(){
+  const cal = state.calibration;
+  if(!cal) return;
+  if(!confirm(`Give all ${state.numPages} sheets the scale "${cal.source}"?\n\nAny scale you already set on another sheet will be overwritten. Measurements you've already taken keep the values they were recorded with.`)) return;
+  for(let p=1; p<=state.numPages; p++){
+    state.calibrations[p] = {unitsPerNativePixel: cal.unitsPerNativePixel, unitLabel:'ft', source: cal.source};
+  }
+  refreshCalibrationUI();
+  renderPagesList();
+  const status = document.getElementById('sp-detect-status');
+  status.className = 'sp-detect-status show ok';
+  status.textContent = `All ${state.numPages} sheets now use ${cal.source}.`;
 }
 
 function finishCalibration(){
@@ -2027,6 +2493,8 @@ document.getElementById('scale-apply-btn').addEventListener('click', ()=>{
   status.className = 'sp-detect-status show ok';
   status.textContent = `Applied ${label}. Verify against one known dimension on the sheet if this is your first time using this PDF source.`;
 });
+
+document.getElementById('scale-apply-all-btn').addEventListener('click', applyScaleToAllSheets);
 
 // ---------- Popover toggle ----------
 const scaleToggleBtn = document.getElementById('scale-toggle-btn');
@@ -2073,7 +2541,7 @@ async function autoDetectScale(silent){
       status.className = 'sp-detect-status show err';
       status.textContent = silent
         ? `No scale detected automatically on this sheet — set it manually below.`
-        : `No scale annotation found on this sheet. Use the standard-scale dropdown above or calibrate manually with the 📏 tool.`;
+        : `No scale annotation found on sheet ${state.pageNum}. Use the standard-scale dropdown above or calibrate manually with the 📏 tool.`;
       return;
     }
 
@@ -2115,7 +2583,7 @@ function finishMeasure(){
   for(let i=1;i<pts.length;i++) totalPx += dist(pts[i-1],pts[i]);
   const real = state.calibration ? totalPx*state.calibration.unitsPerNativePixel : null;
   const label = real!==null ? formatFeetInches(real) : `${totalPx.toFixed(0)} px`;
-  state.quickMeasurements.push({points:[...pts], label});
+  state.quickMeasurements.push({pageNum:state.pageNum, points:[...pts], label});
   state.drawing=null;
   els.hud.style.display='none';
   updateFinishBtn();
@@ -2382,7 +2850,7 @@ function finishWall(){
   const wallId = 'wall_'+Math.random().toString(36).slice(2,9);
   // Only geometry + a reference to the type is stored — thickness/color/quantities
   // are looked up live from the type every time, so editing the type updates everything.
-  state.walls.push({id:wallId, points:[...pts], typeId:state.activeType.wall});
+  state.walls.push({id:wallId, pageNum:state.pageNum, points:[...pts], typeId:state.activeType.wall});
 
   ws.measureKinds.forEach(kind=>{
     addTakeoffItem({category:'wall', typeId:state.activeType.wall, wallId, measureKind:kind, raw:lengthFt});
@@ -2417,7 +2885,7 @@ function finishArea(){
   const areaPx = shoelace(pts);
   const real = areaPx*state.calibration.unitsPerNativePixel*state.calibration.unitsPerNativePixel;
   const areaId = 'area_'+Math.random().toString(36).slice(2,9);
-  state.areas.push({id:areaId, points:[...pts], typeId:state.activeType.area});
+  state.areas.push({id:areaId, pageNum:state.pageNum, points:[...pts], typeId:state.activeType.area});
   addTakeoffItem({category:'area', typeId:state.activeType.area, raw:real, areaId});
   state.drawing=null;
   els.hud.style.display='none';
@@ -2484,6 +2952,7 @@ function guessTrade(label){
 // ---------- Takeoff data + table ----------
 function addTakeoffItem(item){
   item.id = 'it_'+Math.random().toString(36).slice(2,9);
+  item.pageNum = item.pageNum || state.pageNum;  // which sheet it was taken off
   state.items.push(item);
   renderTakeoffList();
 }
@@ -2587,10 +3056,15 @@ function renderTakeoffList(){
 
 document.getElementById('export-csv').addEventListener('click', ()=>{
   if(state.items.length===0){ alert('No items to export yet.'); return; }
-  let csv = 'Trade,Label,Type,Quantity,Unit\n';
+  // Sheet is included because quantities from different sheets were measured at
+  // different scales — an estimator checking the numbers needs to know which sheet.
+  let csv = 'Sheet,Trade,Label,Type,Quantity,Unit\n';
   state.items.forEach(it=>{
     const r = resolveItemDisplay(it);
-    csv += `"${r.trade}","${r.label}","${r.type}",${r.qty.toFixed(2)},"${r.unit}"\n`;
+    const p = it.pageNum || 1;
+    const pn = state.pageNames[p];
+    const sheet = (pn && (pn.number || pn.name)) ? [pn.number, pn.name].filter(Boolean).join(' — ') : `Page ${p}`;
+    csv += `"${sheet}","${r.trade}","${r.label}","${r.type}",${r.qty.toFixed(2)},"${r.unit}"\n`;
   });
   const blob = new Blob([csv], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
@@ -2619,9 +3093,14 @@ function redrawOverlay(){
     octx.strokeRect(h.x, h.y, h.w, h.h);
   });
 
+  // Everything below is scoped to the sheet on screen. Geometry belongs to the sheet it
+  // was drawn on — a wall from the floor plan must not reappear on the site plan, where
+  // it would be redrawn at that sheet's (different) scale.
+  const onThisPage = (o)=> (o.pageNum || 1) === state.pageNum;
+
   // draw persistent walls (thick, material-styled) — thickness/color looked up live
   // from the current type definition, so editing a type updates every drawn wall.
-  state.walls.forEach(w=>{
+  state.walls.filter(onThisPage).forEach(w=>{
     const t = state.typeLibrary.wall.find(x=>x.id===w.typeId);
     const thicknessIn = t ? t.thicknessIn : 3.5;
     const color = t ? t.color : '#999999';
@@ -2630,16 +3109,16 @@ function redrawOverlay(){
 
   // draw persistent areas (filled polygon, color looked up live from the current
   // area type — so picking/editing a color always applies to everything drawn with it)
-  state.areas.forEach(a=>{
+  state.areas.filter(onThisPage).forEach(a=>{
     const t = state.typeLibrary.area.find(x=>x.id===a.typeId);
     drawAreaPath(a.points, t?t.color:'#2E86AB');
   });
 
   // draw persistent quick-measurements (dashed teal, not part of takeoff)
-  state.quickMeasurements.forEach(m=> drawQuickMeasure(m.points, m.label));
+  state.quickMeasurements.filter(onThisPage).forEach(m=> drawQuickMeasure(m.points, m.label));
 
   // draw completed count markers (color resolved live from the count type)
-  state.items.filter(it=>it.category==='count' && it.point).forEach(it=>{
+  state.items.filter(it=>it.category==='count' && it.point && onThisPage(it)).forEach(it=>{
     const t = state.typeLibrary.count.find(x=>x.id===it.typeId);
     drawCountMarker(it.point, t?t.color:'#999999');
   });

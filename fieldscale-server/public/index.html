@@ -644,18 +644,32 @@
   .project-row .pr-delete{color:var(--steel);cursor:pointer;font-size:13px;padding:0 3px;}
   .project-row .pr-delete:hover{color:var(--danger);}
 
-  /* Draw bar — small, low, and only there while you're drawing */
+  /* Draw bar — small, low, and only there while you're drawing.
+     position:fixed, not absolute: an absolutely-positioned child of the scrolling
+     stage rides along with the sheet when you pan or zoom. Fixed pins it to the
+     screen instead. JS (positionDrawBar) keeps it centred over the stage. */
   .draw-bar{
-    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
     z-index:60; display:none; align-items:center; gap:8px;
     background:rgba(14,42,71,0.94); border:1px solid var(--cyan-dim); border-radius:4px;
     padding:6px 10px; box-shadow:0 4px 16px rgba(0,0,0,0.3);
-    backdrop-filter:blur(3px); max-width:calc(100% - 32px);
+    backdrop-filter:blur(3px);
   }
   .draw-bar .db-group{display:flex; gap:0;}
   .draw-bar .db-group .db-btn{border-radius:0;}
   .draw-bar .db-group .db-btn:first-child{border-radius:3px 0 0 3px;}
   .draw-bar .db-group .db-btn:last-child{border-radius:0 3px 3px 0; border-left:none;}
+
+  /* Once you drag the bar we pin it by top/left, so the centring transform must go. */
+  .draw-bar.db-moved{transform:none;}
+  .draw-bar.db-dragging{box-shadow:0 6px 22px rgba(0,0,0,0.45); cursor:grabbing;}
+  .db-grip{
+    flex:0 0 auto; cursor:grab; user-select:none;
+    color:var(--steel-light); font-size:13px; line-height:1;
+    padding:3px 3px 3px 1px; letter-spacing:-1px;
+  }
+  .db-grip:hover{color:var(--paper);}
+  .draw-bar.db-dragging .db-grip{cursor:grabbing;}
   .db-btn{
     background:var(--blueprint-2); color:var(--paper);
     border:1px solid var(--cyan-dim); border-radius:3px;
@@ -936,10 +950,11 @@
       <div class="panel-section" id="panel-ai">
         <div class="ai-panel">
           <div class="ai-intro">
-            Select the <b>AI Select</b> tool, drag a box around a region of the plan (a fixture schedule, a cluster of symbols, a room), then analyze it. Claude will read the region and suggest quantities you can add to the takeoff.
+            Select the <b>AI Select</b> tool, drag a box around a region of the plan, then analyze it. Claude finds what's in there and <b>where</b> — symbols get marked on the sheet, wall runs get traced down their centerline. Assign each suggestion to a type from your library (or let it make one), and everything lands as real takeoff geometry. Traced wall lengths are a read of the drawing, not a measurement — check them.
           </div>
           <select class="ai-mode-select" id="ai-mode">
             <option value="count">Count &amp; identify symbols/fixtures</option>
+            <option value="walls">Trace wall centerlines</option>
             <option value="schedule">Read schedule / spec text</option>
             <option value="describe">Describe what's in this region</option>
           </select>
@@ -2431,6 +2446,7 @@ function refreshDrawBar(){
   const drawingTool = MEASURE_TOOLS.includes(state.tool) || state.tool==='calibrate';
   if(!drawingTool || !state.pdfDoc){ bar.style.display='none'; return; }
   bar.style.display='flex';
+  positionDrawBar();
 
   const pts = (state.drawing && state.drawing.points) ? state.drawing.points.length : 0;
   const boxing = state.drawing && state.drawing.box;
@@ -2460,6 +2476,7 @@ function refreshDrawBar(){
   else hint = `${pts} point${pts===1?'':'s'} · double-click or Enter to finish`;
 
   bar.innerHTML = `
+    <span class="db-grip" data-act="grip" title="Drag to move · double-click to snap back to the bottom">⠿</span>
     ${modeCell}
     ${snapCell}
     <span class="db-hint">${hint}</span>
@@ -2470,6 +2487,92 @@ function refreshDrawBar(){
       <button class="db-btn go" data-act="finish" ${canFinish?'':'disabled'}>✓ Finish</button>` : ''}
   `;
 }
+
+// ---------- Draw bar placement ----------
+// Default home is bottom-centre of the stage. Drag the grip and it stays wherever
+// you put it (remembered between sessions). Double-click the grip to send it home.
+// Everything here is in screen coordinates, so panning/zooming the sheet never
+// moves the bar.
+let drawBarPos = null;   // {x,y} of the bar's top-left, in screen coords, or null = home
+try{
+  const saved = localStorage.getItem('fieldscale.drawBarPos');
+  if(saved) drawBarPos = JSON.parse(saved);
+}catch(e){ drawBarPos = null; }
+
+function positionDrawBar(){
+  const bar = document.getElementById('draw-bar');
+  if(!bar || bar.style.display==='none') return;
+  const stage = els.stageWrap.getBoundingClientRect();
+  bar.style.maxWidth = Math.max(120, stage.width - 32) + 'px';
+
+  if(!drawBarPos){                                   // home: bottom-centre of the stage
+    bar.classList.remove('db-moved');
+    bar.style.top    = '';
+    bar.style.left   = (stage.left + stage.width/2) + 'px';
+    bar.style.bottom = (window.innerHeight - stage.bottom + 14) + 'px';
+    return;
+  }
+
+  // Moved: pin by top/left, clamped so it can never be dragged off-screen.
+  const w = bar.offsetWidth, h = bar.offsetHeight;
+  const x = Math.min(Math.max(drawBarPos.x, stage.left + 4), stage.right  - w - 4);
+  const y = Math.min(Math.max(drawBarPos.y, stage.top  + 4), stage.bottom - h - 4);
+  bar.classList.add('db-moved');
+  bar.style.bottom = '';
+  bar.style.left   = x + 'px';
+  bar.style.top    = y + 'px';
+}
+
+function resetDrawBarPos(){
+  drawBarPos = null;
+  try{ localStorage.removeItem('fieldscale.drawBarPos'); }catch(e){}
+  positionDrawBar();
+}
+
+// Drag by the grip. Listeners live on the bar itself, so rebuilding its innards
+// (which happens on every point you place) doesn't detach them.
+(function drawBarDrag(){
+  let dragging = false, offX = 0, offY = 0, bar = null;
+
+  document.addEventListener('mousedown', (e)=>{
+    const grip = e.target.closest('.db-grip');
+    if(!grip) return;
+    bar = grip.closest('.draw-bar');
+    if(!bar) return;
+    const r = bar.getBoundingClientRect();
+    dragging = true;
+    offX = e.clientX - r.left;
+    offY = e.clientY - r.top;
+    bar.classList.add('db-dragging');
+    e.preventDefault();          // don't let the drag start a text selection
+    e.stopPropagation();         // and don't let it reach the sheet underneath
+  });
+
+  document.addEventListener('mousemove', (e)=>{
+    if(!dragging) return;
+    drawBarPos = { x: e.clientX - offX, y: e.clientY - offY };
+    positionDrawBar();
+    e.preventDefault();
+  });
+
+  document.addEventListener('mouseup', ()=>{
+    if(!dragging) return;
+    dragging = false;
+    if(bar) bar.classList.remove('db-dragging');
+    // Save where it actually ended up (post-clamp), not the raw cursor position.
+    const r = bar.getBoundingClientRect();
+    drawBarPos = { x: r.left, y: r.top };
+    try{ localStorage.setItem('fieldscale.drawBarPos', JSON.stringify(drawBarPos)); }catch(e){}
+  });
+
+  document.addEventListener('dblclick', (e)=>{
+    if(e.target.closest('.db-grip')) resetDrawBarPos();
+  });
+})();
+
+// Re-check placement if the window resizes or a side panel opens/collapses/is dragged.
+window.addEventListener('resize', positionDrawBar);
+if(window.ResizeObserver) new ResizeObserver(positionDrawBar).observe(els.stageWrap);
 
 function undoLastPoint(){
   if(!state.drawing || !state.drawing.points) return;
@@ -3954,9 +4057,28 @@ async function analyzeSelection(){
   const mode = els.aiMode.value;
   let promptText;
   if(mode==='count'){
-    promptText = `You are assisting with a construction quantity takeoff. Look at this cropped region of a construction drawing. Identify distinct symbol types (fixtures, doors, outlets, equipment, etc.) and count how many of each appear in the image. Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
-{"items":[{"label":"string, short trade-relevant name","count": number,"note":"short justification, under 15 words"}]}
+    // Coordinates come back normalised 0–1 against the crop, which the model handles
+    // far more reliably than raw pixels. We convert to sheet pixels on the way in.
+    promptText = `You are assisting with a construction quantity takeoff. Look at this cropped region of a construction drawing. Identify distinct symbol types (fixtures, doors, outlets, equipment, etc.). Group them by type, and give the location of EVERY individual instance you see.
+
+Coordinates are normalised to this image: x=0 is the left edge, x=1 the right edge, y=0 the top edge, y=1 the bottom edge. Put each point at the centre of the symbol.
+
+Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
+{"items":[{"label":"string, short trade-relevant name","note":"short justification, under 15 words","points":[{"x":0.12,"y":0.34}]}]}
+The count of each item is the number of points you list for it, so list one point per instance.
 If you truly cannot identify any countable items, return {"items":[]}.`;
+  } else if(mode==='walls'){
+    promptText = `You are assisting with a construction quantity takeoff on a floor plan. Trace the CENTERLINE of each wall run visible in this cropped region. A wall on a plan is drawn as two closely-spaced parallel lines (sometimes hatched between them) — the centerline runs midway between that pair, down the length of the run.
+
+Follow a run through its corners as a single polyline rather than breaking it into separate segments. Do not trace: dimension lines, leader lines, grid lines, door swings, furniture, hatching, or text.
+
+Group runs by the kind of wall they appear to be (e.g. "Exterior wall", "Interior partition", "Demising wall") and describe the basis briefly.
+
+Coordinates are normalised to this image: x=0 is the left edge, x=1 the right edge, y=0 the top edge, y=1 the bottom edge.
+
+Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
+{"items":[{"label":"Interior partition","note":"short basis, under 15 words","lines":[[{"x":0.10,"y":0.20},{"x":0.80,"y":0.20},{"x":0.80,"y":0.60}]]}]}
+Each entry in "lines" is one continuous wall run. If you see no walls, return {"items":[]}.`;
   } else if(mode==='schedule'){
     promptText = `You are assisting with a construction quantity takeoff. This cropped region of a drawing may contain a schedule, legend, or spec callout table. Extract each row/entry as an item with its stated quantity if given (default count 1 if no quantity is stated). Respond ONLY with valid JSON, no markdown fences, in this exact shape:
 {"items":[{"label":"string, e.g. 'Door D-1, 3068 solid core'","count": number,"note":"short note, under 15 words, e.g. unit or spec"}]}
@@ -3970,12 +4092,13 @@ If there is no schedule/text content, return {"items":[]}.`;
   els.aiAnalyzeBtn.disabled = true;
 
   try{
-    const textOut = await callClaudeVision(base64, promptText, 1000);
+    // Wall polylines are a lot of coordinates — they need more room than a name list.
+    const textOut = await callClaudeVision(base64, promptText, mode==='walls' ? 4000 : 2000);
     const cleaned = textOut.replace(/```json|```/g,'').trim();
     let parsed;
     try{ parsed = JSON.parse(cleaned); }
     catch(err){ throw new Error('Could not parse AI response as JSON.'); }
-    renderAiSuggestions(parsed.items||[]);
+    renderAiSuggestions(parsed.items||[], mode);
   }catch(err){
     els.aiResults.innerHTML = `<div class="ai-error">AI analysis failed: ${err.message}</div>`;
   }finally{
@@ -3983,43 +4106,167 @@ If there is no schedule/text content, return {"items":[]}.`;
   }
 }
 
-function renderAiSuggestions(items){
-  if(!items.length){
-    els.aiResults.innerHTML = `<div class="ai-error" style="background:#FFF6E9;border-color:var(--orange);color:var(--orange-dim);">No identifiable items found in that region. Try a tighter or clearer selection.</div>`;
+// Normalised (0–1) coords inside the crop → native sheet pixels.
+function aiPointToSheet(p, sel){
+  return { x: sel.x + (Number(p.x)||0) * sel.w,
+           y: sel.y + (Number(p.y)||0) * sel.h };
+}
+
+// Guess which saved type an AI label is talking about, so the dropdown lands on
+// the right thing most of the time instead of making you pick every row.
+function guessLibraryType(label, category){
+  const lib = state.typeLibrary[category] || [];
+  if(!lib.length) return '';
+  const norm = s => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const target = norm(label);
+  if(!target) return '';
+  let best = '', bestScore = 0;
+  lib.forEach(t=>{
+    const names = [t.name, t.defaultLabel].filter(Boolean).map(norm);
+    names.forEach(n=>{
+      if(!n) return;
+      let score = 0;
+      if(n === target) score = 3;
+      else if(target.includes(n) || n.includes(target)) score = 2;
+      if(score > bestScore){ bestScore = score; best = t.id; }
+    });
+  });
+  return best;
+}
+
+function typeOptionsHtml(category, selectedId){
+  const lib = state.typeLibrary[category] || [];
+  const opts = lib.map(t=>
+    `<option value="${t.id}" ${t.id===selectedId?'selected':''}>${escapeHtml(t.name)}</option>`
+  ).join('');
+  return `<option value="__new__" ${!selectedId?'selected':''}>＋ New type from this name</option>${opts}`;
+}
+
+function renderAiSuggestions(items, mode){
+  const sel = state.aiSelection;
+  const isWalls = mode==='walls';
+  const category = isWalls ? 'wall' : 'count';
+
+  // Each row is one of three shapes: wall runs, placeable points, or a bare quantity
+  // (schedule/describe rows, and count rows that came back without coordinates).
+  const usable = items.filter(it=>{
+    if(isWalls) return Array.isArray(it.lines) && it.lines.some(l=>Array.isArray(l) && l.length>=2);
+    return (Array.isArray(it.points) && it.points.length>0) || (it.count||0) > 0;
+  });
+
+  if(!usable.length){
+    els.aiResults.innerHTML = `<div class="ai-error" style="background:#FFF6E9;border-color:var(--orange);color:var(--orange-dim);">Nothing usable found in that region. Try a tighter or clearer selection.</div>`;
     return;
   }
-  let html = `<div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--steel);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">${items.length} suggestion${items.length===1?'':'s'} — review &amp; add</div>`;
-  items.forEach((it,idx)=>{
+
+  let html = `<div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--steel);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">${usable.length} suggestion${usable.length===1?'':'s'} — assign a type, then add</div>`;
+
+  usable.forEach((it,idx)=>{
+    const hasPoints = !isWalls && Array.isArray(it.points) && it.points.length>0;
+    const n = isWalls ? it.lines.filter(l=>Array.isArray(l)&&l.length>=2).length
+            : hasPoints ? it.points.length
+            : (it.count||1);
+    const noun = isWalls ? (n===1?'wall run':'wall runs')
+               : hasPoints ? (n===1?'marker':'markers')
+               : 'EA';
+    const guess = guessLibraryType(it.label, category);
     html += `<div class="suggestion" data-idx="${idx}">
       <div class="suggestion-row">
         <input type="checkbox" checked data-idx="${idx}" class="s-check"/>
         <span class="s-label">${escapeHtml(it.label||'Item')}</span>
-        <input type="number" class="s-qty" value="${it.count||1}" min="0" step="1" data-idx="${idx}"/>
-        <span class="s-unit">EA</span>
+        ${hasPoints || isWalls
+          ? `<span class="s-unit" style="width:auto;white-space:nowrap;">${n} ${noun}</span>`
+          : `<input type="number" class="s-qty" value="${n}" min="0" step="1"/><span class="s-unit">EA</span>`}
+      </div>
+      <div class="suggestion-row" style="margin-top:6px;padding-left:22px;">
+        <select class="s-type" style="flex:1;font-size:12px;padding:4px;border:1px solid var(--steel-light);border-radius:3px;background:#fff;">
+          ${typeOptionsHtml(category, guess)}
+        </select>
       </div>
       ${it.note? `<div class="s-note">${escapeHtml(it.note)}</div>`:''}
     </div>`;
   });
-  html += `<button class="btn primary" id="add-suggestions" style="width:100%;margin-top:6px;">Add checked to takeoff</button>`;
+
+  html += `<button class="btn primary" id="add-suggestions" style="width:100%;margin-top:6px;">Add checked to the sheet</button>`;
+  if(isWalls){
+    html += `<div class="s-note" style="padding-left:0;margin-top:8px;">Traced lengths are Claude's best read of the drawing, not a measurement. Check them against the plan before you bid off them.</div>`;
+  }
   els.aiResults.innerHTML = html;
-  els.aiResults.dataset.items = JSON.stringify(items);
+
   document.getElementById('add-suggestions').addEventListener('click', ()=>{
-    const checks = els.aiResults.querySelectorAll('.s-check');
-    const qtys = els.aiResults.querySelectorAll('.s-qty');
-    let added=0;
-    checks.forEach((c,i)=>{
-      if(c.checked){
-        const label = items[i].label||'Item';
-        const qty = parseFloat(qtys[i].value)||0;
-        if(qty>0){
-          addTakeoffItem({label, type:'Count', qty, unit:'EA', trade:guessTrade(label)});
-          added++;
-        }
+    if(isWalls && !requireCalibration()) return;
+
+    const rows = [...els.aiResults.querySelectorAll('.suggestion')];
+    let placed = 0, totalLf = 0, markers = 0;
+
+    rows.forEach(row=>{
+      const idx = +row.dataset.idx;
+      if(!row.querySelector('.s-check').checked) return;
+      const it = usable[idx];
+
+      // Resolve the chosen type — creating one on the fly if they left it on "New type".
+      let typeId = row.querySelector('.s-type').value;
+      if(typeId === '__new__') typeId = createTypeFromLabel(it.label||'Item', category);
+      if(!typeId) return;
+
+      if(isWalls){
+        const t = state.typeLibrary.wall.find(x=>x.id===typeId);
+        const kinds = (t && (t.measureKinds || (t.measureKind?[t.measureKind]:null))) || ['length'];
+        it.lines.forEach(line=>{
+          if(!Array.isArray(line) || line.length<2) return;
+          const pts = line.map(p=>aiPointToSheet(p, sel));
+          let px = 0;
+          for(let i=1;i<pts.length;i++) px += dist(pts[i-1], pts[i]);
+          const lengthFt = px * state.calibration.unitsPerNativePixel;
+          if(lengthFt <= 0) return;
+
+          const wallId = 'wall_'+Math.random().toString(36).slice(2,9);
+          state.walls.push({id:wallId, pageNum:state.pageNum, points:pts, typeId, ai:true});
+          kinds.forEach(kind=>{
+            addTakeoffItem({category:'wall', typeId, wallId, measureKind:kind, raw:lengthFt, ai:true});
+          });
+          placed++; totalLf += lengthFt;
+        });
+      } else if(Array.isArray(it.points) && it.points.length){
+        // Locations known — drop a real marker on the sheet for each one.
+        it.points.forEach(p=>{
+          addTakeoffItem({category:'count', typeId, raw:1, point:aiPointToSheet(p, sel), ai:true});
+          placed++; markers++;
+        });
+      } else {
+        // No locations (a schedule row, say) — count it, but nothing to draw.
+        const qty = parseFloat(row.querySelector('.s-qty')?.value) || 0;
+        if(qty > 0){ addTakeoffItem({category:'count', typeId, raw:qty, ai:true}); placed++; }
       }
     });
+
+    redrawOverlay();
     document.querySelector('.panel-tab[data-panel="takeoff"]').click();
-    if(added) alert(`Added ${added} item(s) to the takeoff.`);
+    if(!placed){ alert('Nothing was added — check that a type is selected.'); return; }
+    alert(isWalls
+      ? `Added ${placed} wall run${placed===1?'':'s'} — ${totalLf.toFixed(1)} LF total. Worth spot-checking a few lengths against the plan.`
+      : `Added ${placed} item${placed===1?'':'s'}${markers?` (${markers} marked on the sheet)`:''}.`);
   });
+}
+
+// Makes a saved type out of an AI label, so a first-time symbol doesn't have to be
+// set up by hand before it can be placed. It lands in the library like any other.
+function createTypeFromLabel(label, category){
+  const id = category+'_'+Math.random().toString(36).slice(2,9);
+  const color = state.colorCycle[state.colorIndex++ % state.colorCycle.length];
+  const name = (label||'Item').slice(0,40);
+  if(category==='wall'){
+    state.typeLibrary.wall.push({
+      id, name, color, studKey:'2x4', measureKinds:['length'],
+      thicknessIn:3.5, heightFt:8, studSpacingIn:16, bothFaces:false, material:'wood'
+    });
+  } else {
+    state.typeLibrary.count.push({
+      id, name, color, trade:guessTrade(name), defaultLabel:name
+    });
+  }
+  populateTypeDropdown(category);   // so the new type shows up in the drawing tool's picker too
+  return id;
 }
 function escapeHtml(s){ return (s+'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 

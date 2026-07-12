@@ -30,6 +30,9 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // How many AI calls one user may make per hour. Protects your Anthropic bill.
 const AI_CALLS_PER_HOUR = parseInt(process.env.AI_CALLS_PER_HOUR || '100', 10);
+// Ceiling on the token budget any single AI request may ask for. Wall tracing is the
+// hungry one (a response full of coordinates); 8000 covers it with room to spare.
+const MAX_AI_TOKENS = parseInt(process.env.MAX_AI_TOKENS || '8000', 10);
 const MIN_PASSWORD_LENGTH = 8;
 
 if (!ANTHROPIC_API_KEY) {
@@ -482,6 +485,12 @@ const server = http.createServer(async (req, res) => {
         const { image, prompt, max_tokens } = await readBody(req);
         if (!image || !prompt) return sendJSON(res, 400, { error: 'Missing image or prompt.' });
 
+        // The browser asks for a token budget, but it doesn't get to name any number it
+        // likes — that's our Anthropic bill. The per-hour limit caps how MANY calls a
+        // person can make; this caps how expensive each one is allowed to be.
+        // 8000 comfortably fits a wall-tracing response (lots of coordinates).
+        const tokenBudget = Math.min(Math.max(parseInt(max_tokens, 10) || 500, 1), MAX_AI_TOKENS);
+
         const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -491,7 +500,7 @@ const server = http.createServer(async (req, res) => {
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
-            max_tokens: max_tokens || 500,
+            max_tokens: tokenBudget,
             messages: [{
               role: 'user',
               content: [

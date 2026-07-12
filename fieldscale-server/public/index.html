@@ -644,6 +644,94 @@
   .project-row .pr-delete{color:var(--steel);cursor:pointer;font-size:13px;padding:0 3px;}
   .project-row .pr-delete:hover{color:var(--danger);}
 
+  /* Draw bar — small, low, and only there while you're drawing */
+  .draw-bar{
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    z-index:60; display:none; align-items:center; gap:8px;
+    background:rgba(14,42,71,0.94); border:1px solid var(--cyan-dim); border-radius:4px;
+    padding:6px 10px; box-shadow:0 4px 16px rgba(0,0,0,0.3);
+    backdrop-filter:blur(3px); max-width:calc(100% - 32px);
+  }
+  .draw-bar .db-group{display:flex; gap:0;}
+  .draw-bar .db-group .db-btn{border-radius:0;}
+  .draw-bar .db-group .db-btn:first-child{border-radius:3px 0 0 3px;}
+  .draw-bar .db-group .db-btn:last-child{border-radius:0 3px 3px 0; border-left:none;}
+  .db-btn{
+    background:var(--blueprint-2); color:var(--paper);
+    border:1px solid var(--cyan-dim); border-radius:3px;
+    font-family:'IBM Plex Sans',sans-serif; font-size:11.5px; font-weight:500;
+    padding:5px 9px; cursor:pointer; white-space:nowrap;
+  }
+  .db-btn:hover:not(:disabled){background:var(--cyan-dim);}
+  .db-btn:disabled{opacity:.35; cursor:not-allowed;}
+  .db-btn.on{background:var(--orange); border-color:var(--orange-dim); color:#fff;}
+  .db-btn.go{background:var(--orange); border-color:var(--orange-dim);}
+  .db-btn.go:hover:not(:disabled){background:var(--orange-dim);}
+  .db-btn.danger:hover{background:var(--danger); border-color:var(--danger);}
+  .db-hint{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--steel-light);
+    padding:0 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .db-sep{width:1px; height:18px; background:var(--cyan-dim); opacity:.5; flex:0 0 auto;}
+
+  /* New Project setup page */
+  .modal-card.setup{width:min(860px,95vw); max-height:90vh; display:flex; flex-direction:column;}
+  .modal-card.setup .modal-body{overflow-y:auto;}
+  .modal-card input[type=date]{
+    width:100%; padding:7px 8px; border:1px solid var(--steel-light); border-radius:3px;
+    font-family:'IBM Plex Sans',sans-serif; font-size:13px; color:var(--charcoal); background:#fff;
+  }
+  .np-drop{
+    border:2px dashed var(--steel-light); border-radius:4px; background:var(--paper);
+    padding:22px; text-align:center; cursor:pointer; transition:border-color .12s, background .12s;
+  }
+  .np-drop:hover, .np-drop.over{border-color:var(--orange); background:#EFE9DA;}
+  .np-drop-icon{font-size:22px; color:var(--cyan-dim); line-height:1;}
+  .np-drop-title{font-family:'Oswald',sans-serif; font-size:14px; color:var(--ink-navy); margin-top:6px; font-weight:600;}
+  .np-drop-sub{font-size:11.5px; color:var(--steel); margin-top:2px;}
+  .np-sheets-bar{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px;}
+  .np-sheets-bar h5{font-family:'Oswald',sans-serif; font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--ink-navy);}
+  .np-sheets-actions{display:flex; gap:6px; flex:0 0 auto;}
+  .np-sheets-actions .db-btn, .np-bulk .db-btn{background:var(--blueprint-2);}
+  .np-bulk{
+    display:flex; align-items:center; gap:8px; padding:8px 10px; margin-bottom:10px;
+    background:var(--paper); border:1px solid var(--paper-line); border-radius:2px;
+  }
+  .np-bulk-label{font-size:11.5px; color:var(--steel); white-space:nowrap;}
+  .np-bulk select{flex:1; min-width:0;}
+  .np-sheet-list{max-height:38vh; overflow-y:auto; border:1px solid var(--paper-line); border-radius:2px;}
+  .np-sheet{
+    display:flex; align-items:center; gap:8px; padding:6px 9px;
+    border-bottom:1px solid var(--paper-line); background:#fff;
+  }
+  .np-sheet:last-child{border-bottom:none;}
+  .np-sheet.off{background:#F2F0EA; opacity:.5;}
+  .np-sheet input[type=checkbox]{accent-color:var(--orange); flex:0 0 auto;}
+  .np-sheet .np-pn{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--steel);
+    min-width:20px; text-align:right; flex:0 0 auto;
+  }
+  .np-sheet .np-num{flex:0 0 90px;}
+  .np-sheet .np-nm{flex:1; min-width:0;}
+  .np-sheet .np-scale{flex:0 0 150px;}
+  .np-sheet input[type=text], .np-sheet select{
+    padding:5px 7px; border:1px solid var(--steel-light); border-radius:3px;
+    font-family:'IBM Plex Sans',sans-serif; font-size:12px; color:var(--charcoal);
+  }
+
+  /* Hidden sheets in the sheet list */
+  .page-list-row.hidden-sheet{opacity:.42;}
+  .page-list-row .plr-eye{
+    font-size:11px; color:var(--steel); cursor:pointer; padding:0 3px; flex:0 0 auto; opacity:0;
+  }
+  .page-list-row:hover .plr-eye{opacity:1;}
+  .page-list-row .plr-eye:hover{color:var(--orange);}
+  .plr-hidden-toggle{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--steel);
+    padding:7px 9px; cursor:pointer; border-top:1px solid var(--paper-line); margin-top:4px;
+  }
+  .plr-hidden-toggle:hover{color:var(--orange);}
+
   /* Per-sheet scale indicator in the sheet list */
   .plr-scale{font-size:10px;color:var(--steel);margin-left:auto;padding-left:6px;flex:0 0 auto;}
   .plr-scale.ok{color:var(--good);}
@@ -755,7 +843,7 @@
       <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#fff;min-width:42px;text-align:center;" id="zoom-label">100%</span>
       <button class="btn icon" id="zoom-in">+</button>
     </div>
-    <button class="btn" id="snap-toggle-btn" title="Toggle line snapping" style="display:none;">╱ Freehand</button>
+    <button class="btn" id="legend-toggle-btn" title="Show/hide the takeoff legend on the sheet" style="display:none;">▤ Legend</button>
     <div class="scale-btn-wrap">
       <button class="btn" id="scale-toggle-btn" disabled>
         <span class="dot" id="calib-dot" style="display:inline-block;margin-right:6px;"></span><span id="calib-label">Not calibrated</span> ▾
@@ -771,12 +859,7 @@
           <select id="scale-select"></select>
           <button class="btn primary" id="scale-apply-btn">Apply</button>
         </div>
-        <div class="sp-divider">
-          <h4>Auto-detect from drawing</h4>
-          <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Claude reads the title block / scale annotation on the current sheet and sets the scale automatically.</div>
-          <button class="btn primary" id="auto-detect-btn" style="width:100%;">✦ Auto-Detect Scale (AI)</button>
-          <div class="sp-detect-status" id="sp-detect-status"></div>
-        </div>
+        <div class="sp-detect-status" id="sp-detect-status"></div>
         <div class="sp-divider">
           <h4>Or calibrate manually</h4>
           <div class="sp-note" style="margin-top:0;">Use the 📏 tool on the left to click two points of a known dimension. Best for scans or drawings not printed to true size.</div>
@@ -871,27 +954,93 @@
 
 </div>
 
-<!-- ===== New project (name it up front) ===== -->
+<!-- ===== New project setup ===== -->
 <div class="modal-overlay" id="new-project-overlay">
-  <div class="modal-card">
+  <div class="modal-card setup">
     <div class="modal-header">New Project</div>
     <div class="modal-body">
       <div class="admin-msg" id="np-msg"></div>
-      <div>
-        <label>Project name</label>
-        <input type="text" id="np-name" placeholder="e.g. Riverside Clinic — Shell" autocomplete="off" />
+
+      <!-- Step 1: the job -->
+      <div id="np-step-details">
+        <div class="field-row">
+          <div style="flex:2;">
+            <label>Project name</label>
+            <input type="text" id="np-name" placeholder="e.g. Riverside Clinic — Shell" autocomplete="off" />
+          </div>
+          <div style="flex:1.4;">
+            <label>Client / GC</label>
+            <input type="text" id="np-client" placeholder="e.g. Palmetto Construction" autocomplete="off" />
+          </div>
+        </div>
+        <div>
+          <label>Project address</label>
+          <input type="text" id="np-address" placeholder="e.g. 1400 Ocean Blvd, Myrtle Beach, SC" autocomplete="off" />
+        </div>
+        <div class="field-row">
+          <div>
+            <label>Plan date</label>
+            <input type="date" id="np-plan-date" />
+          </div>
+          <div>
+            <label>Bid due</label>
+            <input type="date" id="np-bid-due" />
+          </div>
+        </div>
+
+        <div class="np-drop" id="np-drop">
+          <input type="file" id="np-file" accept="application/pdf" style="display:none;" />
+          <div id="np-drop-idle">
+            <div class="np-drop-icon">▤</div>
+            <div class="np-drop-title">Choose the plan PDF</div>
+            <div class="np-drop-sub">or drag it here</div>
+          </div>
+          <div id="np-drop-loading" style="display:none;">
+            <span class="spinner"></span> Reading the plan set…
+          </div>
+          <div id="np-drop-done" style="display:none;">
+            <div class="np-drop-title" id="np-file-name"></div>
+            <div class="np-drop-sub" id="np-file-pages"></div>
+          </div>
+        </div>
+
+        <div class="checkbox-row" id="np-unsaved-row" style="display:none;">
+          <input type="checkbox" id="np-discard" />
+          <label for="np-discard" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--danger);margin:0;">
+            Discard the project currently open — anything unsaved is lost
+          </label>
+        </div>
       </div>
-      <div class="sp-note" style="margin-top:0;">You can rename it any time from the title bar. Next you'll pick the plan PDF.</div>
-      <div class="checkbox-row" id="np-unsaved-row" style="display:none;">
-        <input type="checkbox" id="np-discard" />
-        <label for="np-discard" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--danger);margin:0;">
-          Discard the project currently open — anything unsaved is lost
-        </label>
+
+      <!-- Step 2: the sheets -->
+      <div id="np-step-sheets" style="display:none;">
+        <div class="np-sheets-bar">
+          <div>
+            <h5 style="margin:0;">Sheets</h5>
+            <div class="sp-note" style="margin-top:2px;">Untick what you don't need — hidden sheets stay in the file and can be brought back any time. Set each sheet's scale now and you'll land ready to measure.</div>
+          </div>
+          <div class="np-sheets-actions">
+            <button class="db-btn" id="np-all-on">Select all</button>
+            <button class="db-btn" id="np-all-off">Select none</button>
+          </div>
+        </div>
+
+        <div class="np-bulk">
+          <span class="np-bulk-label">Set every included sheet to</span>
+          <select id="np-bulk-scale"></select>
+          <button class="db-btn go" id="np-bulk-apply">Apply to all</button>
+        </div>
+
+        <div class="np-sheet-list" id="np-sheet-list"></div>
       </div>
     </div>
+
     <div class="modal-footer">
+      <button class="btn" id="np-skip" style="margin-right:auto;">Skip setup</button>
+      <button class="btn" id="np-back" style="display:none;">‹ Back</button>
       <button class="btn" id="np-cancel">Cancel</button>
-      <button class="btn primary" id="np-create">Create &amp; Choose Plan</button>
+      <button class="btn primary" id="np-next" disabled>Next: Sheets ›</button>
+      <button class="btn primary" id="np-start" style="display:none;">Start Takeoff</button>
     </div>
   </div>
 </div>
@@ -1007,7 +1156,13 @@ const state = {
   highlights:[], // {id, pageNum, x, y, w, h, color} — translucent marks that live on a specific sheet
   highlightColor:'#FFE14D',
   countLabel:'Fixture',
-  snapMode:'ortho', // 'free' | 'ortho' — ortho is the default
+  snapMode:'ortho',   // 'free' | 'ortho' — ortho is the default
+  drawMode:'polyline',// 'polyline' | 'box' — box drags a rectangle instead of clicking corners (walls & areas)
+  hiddenPages:[],     // sheet numbers the user has hidden from the sheet list and page nav
+  showHiddenPages:false, // reveals them in the list so they can be brought back
+  showLegend:true,    // the on-drawing legend of what's been taken off on this sheet
+  legendPos:null,     // {x,y} in native pixels — dragged by the user; null = default corner
+  projectMeta:{ address:'', client:'', planDate:'', bidDue:'' },
   shiftHeld:false,
   typeLibrary:{ wall:[], linear:[], area:[], count:[] }, // saved reusable presets per category
   activeType:{ wall:null, linear:null, area:null, count:null }, // currently selected type id per category
@@ -1066,7 +1221,6 @@ els.fileInput.addEventListener('change', async (e)=>{
   els.canvasStack.style.display='block';
   els.pageNav.style.display = state.numPages>1 ? 'flex':'none';
   els.zoomControls.style.display='flex';
-  document.getElementById('snap-toggle-btn').style.display='inline-block';
   document.getElementById('scale-toggle-btn').disabled = false;
   document.getElementById('search-toggle-btn').disabled = false;
   state.pdfTextIndex = [];
@@ -1075,10 +1229,12 @@ els.fileInput.addEventListener('change', async (e)=>{
   state.pageNames = {};
   state.calibrations = {};   // a new plan set means new sheets, and new scales
   state.calibration = null;
+  state.hiddenPages = [];    // hidden sheets referred to the old set
+  state.showHiddenPages = false;
+  state.legendPos = null;
   openPagesPanel();
   await renderPage();
   indexDocument(); // runs in the background; doesn't block viewing/measuring
-  autoDetectScale(true); // silent attempt to set scale automatically; skips if multiple scales found
   namePagesWithAI(); // reads each sheet's title/number in the background
 });
 
@@ -1559,6 +1715,10 @@ async function serializeProjectState(){
     highlights: state.highlights,
     calibrations: state.calibrations,   // per-sheet scales
     pageNames: state.pageNames,
+    projectMeta: state.projectMeta,     // address, client, dates
+    hiddenPages: state.hiddenPages,
+    showLegend: state.showLegend,
+    legendPos: state.legendPos,
     pdfBase64, numPages: state.numPages
   };
 }
@@ -1573,6 +1733,10 @@ async function restoreProjectState(data){
   state.quickMeasurements = data.quickMeasurements || [];
   state.highlights = data.highlights || [];
   state.pageNames = data.pageNames || {};
+  state.projectMeta = Object.assign({address:'', client:'', planDate:'', bidDue:''}, data.projectMeta || {});
+  state.hiddenPages = data.hiddenPages || [];
+  state.showLegend = data.showLegend !== false;
+  state.legendPos = data.legendPos || null;
 
   // Per-sheet scales. Projects saved before scales were per-sheet have a single
   // `calibration` — that one scale was in force everywhere, so copy it onto every
@@ -1609,7 +1773,6 @@ async function restoreProjectState(data){
     els.canvasStack.style.display='block';
     els.pageNav.style.display = state.numPages>1 ? 'flex':'none';
     els.zoomControls.style.display='flex';
-    document.getElementById('snap-toggle-btn').style.display='inline-block';
     document.getElementById('scale-toggle-btn').disabled = false;
     document.getElementById('search-toggle-btn').disabled = false;
     state.pdfTextIndex = [];
@@ -1662,8 +1825,11 @@ async function refreshProjectList(){
   }
 }
 
-// ---------- New project ----------
+// ---------- New project setup ----------
 const npOverlay = document.getElementById('new-project-overlay');
+let npDoc = null;        // the PDF loaded in the setup page, before it becomes the live project
+let npBuf = null;        // its raw bytes, so we can hand the same document to the app
+let npSheets = [];       // [{pageNum, include, number, name, scaleFactor, scaleLabel}]
 
 // A project is "in progress" if there's a plan open or any takeoff on it. Only then do we
 // need to warn about losing it — starting fresh from an empty screen shouldn't nag.
@@ -1671,54 +1837,237 @@ function projectHasWork(){
   return !!state.pdfDoc || state.items.length > 0 || state.walls.length > 0 || state.areas.length > 0;
 }
 
+function npMsg(text, kind){
+  const el = document.getElementById('np-msg');
+  el.textContent = text || '';
+  el.className = 'admin-msg' + (kind ? ' ' + kind : '');
+}
+
 function openNewProjectModal(){
   document.getElementById('projects-popover').classList.remove('open');
-  document.getElementById('np-msg').className = 'admin-msg';
-  document.getElementById('np-name').value = '';
+  npMsg('');
+  npDoc = null; npBuf = null; npSheets = [];
+  ['np-name','np-client','np-address','np-plan-date','np-bid-due'].forEach(id=> document.getElementById(id).value = '');
   document.getElementById('np-discard').checked = false;
   document.getElementById('np-unsaved-row').style.display = projectHasWork() ? 'flex' : 'none';
+  document.getElementById('np-drop-idle').style.display = 'block';
+  document.getElementById('np-drop-loading').style.display = 'none';
+  document.getElementById('np-drop-done').style.display = 'none';
+  npShowStep('details');
   npOverlay.classList.add('open');
   document.getElementById('np-name').focus();
 }
 
-function createNewProject(){
-  const name = document.getElementById('np-name').value.trim();
-  const msg = document.getElementById('np-msg');
-  if(!name){
-    msg.textContent = 'Give the project a name so you can find it again later.';
-    msg.className = 'admin-msg error';
-    document.getElementById('np-name').focus();
-    return;
+function npShowStep(step){
+  const onSheets = step === 'sheets';
+  document.getElementById('np-step-details').style.display = onSheets ? 'none' : 'block';
+  document.getElementById('np-step-sheets').style.display  = onSheets ? 'block' : 'none';
+  document.getElementById('np-next').style.display  = onSheets ? 'none' : 'inline-block';
+  document.getElementById('np-start').style.display = onSheets ? 'inline-block' : 'none';
+  document.getElementById('np-back').style.display  = onSheets ? 'inline-block' : 'none';
+  document.getElementById('np-skip').style.display  = onSheets ? 'none' : 'inline-block';
+  document.querySelector('#new-project-overlay .modal-header').textContent =
+    onSheets ? 'New Project — Sheets' : 'New Project';
+}
+
+// --- picking the plan, inside the setup page ---
+const npDrop = document.getElementById('np-drop');
+const npFileInput = document.getElementById('np-file');
+npDrop.addEventListener('click', ()=> npFileInput.click());
+npDrop.addEventListener('dragover', (e)=>{ e.preventDefault(); npDrop.classList.add('over'); });
+npDrop.addEventListener('dragleave', ()=> npDrop.classList.remove('over'));
+npDrop.addEventListener('drop', (e)=>{
+  e.preventDefault();
+  npDrop.classList.remove('over');
+  const file = e.dataTransfer.files[0];
+  if(file && file.type === 'application/pdf') npLoadPlan(file);
+  else npMsg('That needs to be a PDF.', 'error');
+});
+npFileInput.addEventListener('change', (e)=>{ if(e.target.files[0]) npLoadPlan(e.target.files[0]); });
+
+async function npLoadPlan(file){
+  npMsg('');
+  document.getElementById('np-drop-idle').style.display = 'none';
+  document.getElementById('np-drop-done').style.display = 'none';
+  document.getElementById('np-drop-loading').style.display = 'block';
+  try{
+    npBuf = await file.arrayBuffer();
+    // pdf.js takes ownership of the buffer it's handed, so give it a copy and keep ours intact.
+    npDoc = await pdfjsLib.getDocument({data: npBuf.slice(0)}).promise;
+    npSheets = [];
+    for(let p=1; p<=npDoc.numPages; p++){
+      npSheets.push({pageNum:p, include:true, number:'', name:'', scaleFactor:null, scaleLabel:''});
+    }
+    document.getElementById('np-drop-loading').style.display = 'none';
+    document.getElementById('np-drop-done').style.display = 'block';
+    document.getElementById('np-file-name').textContent = file.name;
+    document.getElementById('np-file-pages').textContent =
+      `${npDoc.numPages} sheet${npDoc.numPages===1?'':'s'} — choose which ones you need on the next screen`;
+    if(!document.getElementById('np-name').value.trim()){
+      document.getElementById('np-name').value = file.name.replace(/\.pdf$/i,'');
+    }
+    npRefreshNext();
+  }catch(err){
+    document.getElementById('np-drop-loading').style.display = 'none';
+    document.getElementById('np-drop-idle').style.display = 'block';
+    npMsg("That PDF couldn't be opened: " + err.message, 'error');
   }
-  if(projectHasWork() && !document.getElementById('np-discard').checked){
-    msg.textContent = 'A project is already open. Save it first, or tick the box to discard it.';
-    msg.className = 'admin-msg error';
-    return;
+}
+
+function npRefreshNext(){
+  const hasName = !!document.getElementById('np-name').value.trim();
+  document.getElementById('np-next').disabled = !(hasName && npDoc);
+}
+document.getElementById('np-name').addEventListener('input', npRefreshNext);
+
+// --- the sheet list ---
+function npRenderSheets(){
+  const sel = document.getElementById('np-bulk-scale');
+  if(!sel.options.length){
+    STANDARD_SCALES.forEach(s2=>{
+      const o = document.createElement('option');
+      o.value = s2.factor; o.textContent = s2.label;
+      sel.appendChild(o);
+    });
   }
 
+  const scaleOptions = (chosen)=> STANDARD_SCALES.map(s2=>
+    `<option value="${s2.factor}" ${String(s2.factor)===String(chosen)?'selected':''}>${s2.label}</option>`
+  ).join('');
+
+  document.getElementById('np-sheet-list').innerHTML = npSheets.map(sh=>`
+    <div class="np-sheet ${sh.include?'':'off'}" data-page="${sh.pageNum}">
+      <input type="checkbox" class="np-inc" ${sh.include?'checked':''} title="Include this sheet" />
+      <span class="np-pn">${sh.pageNum}</span>
+      <input type="text" class="np-num" placeholder="A1.01" value="${escapeHtml(sh.number)}" />
+      <input type="text" class="np-nm" placeholder="Sheet name (left blank, Claude will read it)" value="${escapeHtml(sh.name)}" />
+      <select class="np-scale">
+        <option value="">No scale yet</option>
+        ${scaleOptions(sh.scaleFactor)}
+      </select>
+    </div>`).join('');
+}
+
+document.getElementById('np-sheet-list').addEventListener('change', (e)=>{
+  const row = e.target.closest('.np-sheet');
+  if(!row) return;
+  const sh = npSheets.find(x=>x.pageNum === parseInt(row.dataset.page));
+  if(e.target.classList.contains('np-inc')){
+    sh.include = e.target.checked;
+    row.classList.toggle('off', !sh.include);
+  }
+  if(e.target.classList.contains('np-num'))  sh.number = e.target.value.trim();
+  if(e.target.classList.contains('np-nm'))   sh.name   = e.target.value.trim();
+  if(e.target.classList.contains('np-scale')){
+    sh.scaleFactor = e.target.value ? parseFloat(e.target.value) : null;
+    sh.scaleLabel = e.target.value ? e.target.selectedOptions[0].textContent : '';
+  }
+});
+document.getElementById('np-all-on').addEventListener('click', ()=>{
+  npSheets.forEach(s2=> s2.include = true); npRenderSheets();
+});
+document.getElementById('np-all-off').addEventListener('click', ()=>{
+  npSheets.forEach(s2=> s2.include = false); npRenderSheets();
+});
+document.getElementById('np-bulk-apply').addEventListener('click', ()=>{
+  const sel = document.getElementById('np-bulk-scale');
+  const factor = parseFloat(sel.value);
+  const label = sel.options[sel.selectedIndex].text;
+  npSheets.filter(s2=>s2.include).forEach(s2=>{ s2.scaleFactor = factor; s2.scaleLabel = label; });
+  npRenderSheets();
+});
+
+// --- navigation ---
+document.getElementById('np-next').addEventListener('click', ()=>{
+  if(projectHasWork() && !document.getElementById('np-discard').checked){
+    npMsg('A project is already open. Save it first, or tick the box to discard it.', 'error');
+    return;
+  }
+  npMsg('');
+  npRenderSheets();
+  npShowStep('sheets');
+});
+document.getElementById('np-back').addEventListener('click', ()=> npShowStep('details'));
+document.getElementById('np-cancel').addEventListener('click', ()=> npOverlay.classList.remove('open'));
+npOverlay.addEventListener('click', (e)=>{ if(e.target === npOverlay) npOverlay.classList.remove('open'); });
+
+// Skip: for when you just want to measure something and don't care about the paperwork.
+document.getElementById('np-skip').addEventListener('click', ()=>{
+  if(projectHasWork() && !confirm('Start a new project? Anything unsaved in the current one is lost.')) return;
+  npResetToBlank('Untitled Project');
+  npOverlay.classList.remove('open');
+  els.fileInput.value = '';
+  els.fileInput.click();
+});
+
+function npResetToBlank(name){
   currentProjectId = null;
   document.getElementById('proj-name').value = name;
+  state.projectMeta = {address:'', client:'', planDate:'', bidDue:''};
   state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
+  state.hiddenPages=[]; state.legendPos=null;
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; state.searchHighlights=[]; state.searchHighlightPage=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
   document.getElementById('scale-toggle-btn').disabled = true;
   refreshCalibrationUI();
+  refreshLegendBtn();
   renderTakeoffList();
   renderPagesList();
-  npOverlay.classList.remove('open');
   document.getElementById('project-save-status').textContent = '';
-
-  els.fileInput.value = '';   // so re-picking the same file still fires 'change'
-  els.fileInput.click();      // straight on to choosing the plan
 }
 
+// --- start the project for real ---
+document.getElementById('np-start').addEventListener('click', async ()=>{
+  const included = npSheets.filter(s2=>s2.include);
+  if(!included.length){ npMsg('Keep at least one sheet — you can hide the rest.', 'error'); return; }
+
+  npResetToBlank(document.getElementById('np-name').value.trim() || 'Untitled Project');
+  state.projectMeta = {
+    address:  document.getElementById('np-address').value.trim(),
+    client:   document.getElementById('np-client').value.trim(),
+    planDate: document.getElementById('np-plan-date').value,
+    bidDue:   document.getElementById('np-bid-due').value
+  };
+
+  state.pdfDoc = await pdfjsLib.getDocument({data: npBuf.slice(0)}).promise;
+  state.numPages = state.pdfDoc.numPages;
+  state.hiddenPages = npSheets.filter(s2=>!s2.include).map(s2=>s2.pageNum);
+  state.pageNum = included[0].pageNum;   // land on the first sheet you actually kept
+
+  // Names you typed win; blanks get filled in by Claude in the background afterwards.
+  npSheets.forEach(sh=>{
+    if(sh.number || sh.name) state.pageNames[sh.pageNum] = {number: sh.number, name: sh.name};
+  });
+
+  els.emptyState.style.display='none';
+  els.canvasStack.style.display='block';
+  els.pageNav.style.display = state.numPages>1 ? 'flex':'none';
+  els.zoomControls.style.display='flex';
+  document.getElementById('scale-toggle-btn').disabled = false;
+  document.getElementById('search-toggle-btn').disabled = false;
+  openPagesPanel();
+  npOverlay.classList.remove('open');
+
+  await renderPage();
+
+  // Scales are computed from the true page size, so this has to wait until a page is rendered.
+  const remember = state.pageNum;
+  npSheets.filter(s2=>s2.scaleFactor).forEach(sh=>{
+    state.pageNum = sh.pageNum;
+    applyStandardScale(sh.scaleFactor, sh.scaleLabel);
+  });
+  state.pageNum = remember;
+  syncCalibrationForPage();
+  renderPagesList();
+
+  indexDocument();
+  namePagesWithAI();  // only fills sheets you left blank
+  npDoc = null; npBuf = null;
+});
+
 document.getElementById('project-new-btn').addEventListener('click', openNewProjectModal);
-document.getElementById('np-create').addEventListener('click', createNewProject);
-document.getElementById('np-cancel').addEventListener('click', ()=> npOverlay.classList.remove('open'));
-document.getElementById('np-name').addEventListener('keydown', e=>{ if(e.key==='Enter') createNewProject(); });
-npOverlay.addEventListener('click', (e)=>{ if(e.target === npOverlay) npOverlay.classList.remove('open'); });
 
 document.getElementById('project-save-btn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('project-save-status');
@@ -1871,6 +2220,8 @@ document.getElementById('reference-file-input').addEventListener('change', async
 
 async function renderPage(){
   syncCalibrationForPage();  // measuring must always use the scale of the sheet on screen
+  refreshLegendBtn();
+  refreshDrawBar();
   const page = await state.pdfDoc.getPage(state.pageNum);
   const viewport = page.getViewport({scale: state.renderScale});
   els.pdfCanvas.width = viewport.width;
@@ -1903,11 +2254,15 @@ function renderPagesList(){
   if(!state.pdfDoc){ container.innerHTML=''; return; }
   let html='';
   for(let p=1; p<=state.numPages; p++){
+    if(isHidden(p) && !state.showHiddenPages) continue;
     const pn = state.pageNames[p];
     let label, pending=false, hasError=false, tooltip='';
     if(pn && (pn.name||pn.number)){
       label = [pn.number, pn.name].filter(Boolean).join(' — ');
       tooltip = label;
+    } else if(pn===undefined && isHidden(p)){
+      label = `Page ${p}`;                 // hidden sheets are never sent for naming
+      tooltip = 'Hidden sheet';
     } else if(pn===undefined){
       label = `Page ${p}`; pending = true; // AI naming hasn't reached this page yet
       tooltip = 'Reading sheet name…';
@@ -1919,17 +2274,51 @@ function renderPagesList(){
       tooltip = 'No sheet name/number detected on this page';
     }
     const active = p===state.pageNum ? 'active':'';
+    const hidden = isHidden(p);
     const cal = state.calibrations[p];
     const scaleBadge = cal
       ? `<span class="plr-scale ok" title="Scale: ${escapeHtml(cal.source)}">◆</span>`
       : `<span class="plr-scale" title="No scale set for this sheet">◇</span>`;
-    html += `<div class="page-list-row ${active}" data-page="${p}">
+    html += `<div class="page-list-row ${active} ${hidden?'hidden-sheet':''}" data-page="${p}">
       <span class="plr-num">${p}</span>
       <span class="plr-label${pending?' pending':''}${hasError?' error':''}" title="${escapeHtml(tooltip)}">${escapeHtml(label)}</span>
       ${scaleBadge}
+      <span class="plr-eye" data-hide="${p}" title="${hidden?'Bring this sheet back':'Hide this sheet'}">${hidden?'◡':'◠'}</span>
+    </div>`;
+  }
+
+  const hiddenCount = state.hiddenPages.length;
+  if(hiddenCount){
+    html += `<div class="plr-hidden-toggle" id="plr-hidden-toggle">
+      ${state.showHiddenPages ? '▾' : '▸'} ${hiddenCount} hidden sheet${hiddenCount===1?'':'s'}
     </div>`;
   }
   container.innerHTML = html;
+
+  const toggle = document.getElementById('plr-hidden-toggle');
+  if(toggle) toggle.addEventListener('click', ()=>{
+    state.showHiddenPages = !state.showHiddenPages;
+    renderPagesList();
+  });
+
+  container.querySelectorAll('.plr-eye').forEach(eye=>{
+    eye.addEventListener('click', async (e)=>{
+      e.stopPropagation();   // hiding a sheet shouldn't also navigate to it
+      const p = parseInt(eye.dataset.hide);
+      if(isHidden(p)){
+        state.hiddenPages = state.hiddenPages.filter(x=>x!==p);
+      } else {
+        if(visiblePages().length <= 1){ alert('At least one sheet has to stay visible.'); return; }
+        state.hiddenPages.push(p);
+        if(state.pageNum === p){   // don't strand the user on a sheet they just hid
+          state.pageNum = visiblePages()[0];
+          await renderPage();
+        }
+      }
+      renderPagesList();
+    });
+  });
+
   container.querySelectorAll('.page-list-row').forEach(row=>{
     row.addEventListener('click', async ()=>{
       const p = parseInt(row.dataset.page);
@@ -1947,6 +2336,8 @@ function renderPagesList(){
 // even on drawings with no embedded text, since it reads the image directly.
 async function namePagesWithAI(){
   for(let p=1; p<=state.numPages; p++){
+    if(isHidden(p)) continue;                       // don't pay to name sheets you excluded
+    if(state.pageNames[p] && (state.pageNames[p].number || state.pageNames[p].name)) continue; // you named it yourself
     try{
       const page = await state.pdfDoc.getPage(p);
       const viewport = page.getViewport({scale:1.2});
@@ -1988,16 +2379,106 @@ function applyZoomToDom(){
 document.getElementById('zoom-in').addEventListener('click', ()=>{ state.zoom=Math.min(4,state.zoom*1.2); applyZoomToDom(); });
 document.getElementById('zoom-out').addEventListener('click', ()=>{ state.zoom=Math.max(0.2,state.zoom/1.2); applyZoomToDom(); });
 
-// ---------- Snap mode (ortho vs freehand) ----------
-const snapBtn = document.getElementById('snap-toggle-btn');
-function refreshSnapBtn(){
-  snapBtn.textContent = state.snapMode==='ortho' ? '⊥ Ortho Snap' : '╱ Freehand';
+// ---------- Legend toggle ----------
+const legendBtn = document.getElementById('legend-toggle-btn');
+function refreshLegendBtn(){
+  legendBtn.style.display = state.pdfDoc ? 'inline-block' : 'none';
+  legendBtn.classList.toggle('primary', state.showLegend);
+  legendBtn.textContent = state.showLegend ? '▤ Legend' : '▢ Legend';
 }
-refreshSnapBtn();
-snapBtn.addEventListener('click', ()=>{
-  state.snapMode = state.snapMode==='ortho' ? 'free' : 'ortho';
-  refreshSnapBtn();
+legendBtn.addEventListener('click', ()=>{
+  state.showLegend = !state.showLegend;
+  refreshLegendBtn();
+  redrawOverlay();
 });
+
+// ---------- Draw bar ----------
+// A small bar that sits at the bottom of the sheet and only exists while a drawing tool
+// is selected. Everything you need mid-line is here — snap mode, box vs polyline, undo,
+// finish — so your eyes never leave the drawing to hunt the top bar.
+const BOX_TOOLS = ['wall','area'];   // tools where dragging a rectangle makes sense
+
+function toggleSnapMode(){
+  state.snapMode = state.snapMode==='ortho' ? 'free' : 'ortho';
+  refreshDrawBar();
+}
+function setDrawMode(mode){
+  if(state.drawing) return;         // don't switch modes mid-line
+  state.drawMode = mode;
+  refreshDrawBar();
+}
+
+function refreshDrawBar(){
+  let bar = document.getElementById('draw-bar');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'draw-bar';
+    bar.className = 'draw-bar';
+    els.stageWrap.appendChild(bar);
+    bar.addEventListener('click', (e)=>{
+      const btn = e.target.closest('[data-act]');
+      if(!btn) return;
+      const act = btn.dataset.act;
+      if(act==='snap') toggleSnapMode();
+      if(act==='polyline') setDrawMode('polyline');
+      if(act==='box') setDrawMode('box');
+      if(act==='undo') undoLastPoint();
+      if(act==='finish') finishCurrentDrawing();
+      if(act==='cancel'){ state.drawing=null; els.hud.style.display='none'; redrawOverlay(); refreshDrawBar(); }
+    });
+  }
+
+  const drawingTool = MEASURE_TOOLS.includes(state.tool) || state.tool==='calibrate';
+  if(!drawingTool || !state.pdfDoc){ bar.style.display='none'; return; }
+  bar.style.display='flex';
+
+  const pts = (state.drawing && state.drawing.points) ? state.drawing.points.length : 0;
+  const boxing = state.drawing && state.drawing.box;
+  const canBox = BOX_TOOLS.includes(state.tool);
+  const minPts = state.tool==='area' ? 3 : 2;
+  const canFinish = pts >= minPts;
+  const inProgress = !!state.drawing;
+
+  // Ortho is meaningless while dragging a box — the box is already square to the sheet.
+  const snapCell = (state.drawMode==='box' && canBox) ? '' : `
+    <button class="db-btn" data-act="snap" title="Shift temporarily inverts this">
+      ${state.snapMode==='ortho' ? '⊥ Ortho' : '╱ Freehand'}
+    </button>`;
+
+  const modeCell = canBox ? `
+    <div class="db-group">
+      <button class="db-btn ${state.drawMode==='polyline'?'on':''}" data-act="polyline" ${inProgress?'disabled':''}>⌇ Trace</button>
+      <button class="db-btn ${state.drawMode==='box'?'on':''}" data-act="box" ${inProgress?'disabled':''}>▭ Box</button>
+    </div>
+    <span class="db-sep"></span>` : '';
+
+  let hint;
+  if(boxing) hint = 'Release to finish the box';
+  else if(state.drawMode==='box' && canBox) hint = 'Drag a rectangle';
+  else if(state.tool==='calibrate') hint = pts ? 'Click the second end of the known dimension' : 'Click one end of a known dimension';
+  else if(!inProgress) hint = 'Click to place the first point';
+  else hint = `${pts} point${pts===1?'':'s'} · double-click or Enter to finish`;
+
+  bar.innerHTML = `
+    ${modeCell}
+    ${snapCell}
+    <span class="db-hint">${hint}</span>
+    ${inProgress && !boxing ? `
+      <span class="db-sep"></span>
+      <button class="db-btn" data-act="undo" ${pts<1?'disabled':''}>⌫ Undo point</button>
+      <button class="db-btn danger" data-act="cancel">✕ Cancel</button>
+      <button class="db-btn go" data-act="finish" ${canFinish?'':'disabled'}>✓ Finish</button>` : ''}
+  `;
+}
+
+function undoLastPoint(){
+  if(!state.drawing || !state.drawing.points) return;
+  const pts = state.drawing.points;
+  if(pts.length<=1){ state.drawing=null; els.hud.style.display='none'; }
+  else pts.pop();
+  redrawOverlay();
+  refreshDrawBar();
+}
 
 // Snaps a raw point to horizontal/vertical relative to the last placed point.
 // Holding Shift temporarily inverts whichever mode is active (standard CAD convention).
@@ -2050,8 +2531,26 @@ els.stageWrap.addEventListener('wheel', (e)=>{
   els.stageWrap.scrollLeft = cursorX*ratio - (e.clientX-rect.left);
   els.stageWrap.scrollTop = cursorY*ratio - (e.clientY-rect.top);
 }, {passive:false});
-document.getElementById('prev-page').addEventListener('click', ()=>{ if(state.pageNum>1){state.pageNum--; state.searchHighlightPage=null; state.searchHighlights=[]; renderPage();} });
-document.getElementById('next-page').addEventListener('click', ()=>{ if(state.pageNum<state.numPages){state.pageNum++; state.searchHighlightPage=null; state.searchHighlights=[]; renderPage();} });
+// Hidden sheets stay in the PDF — they're just out of the way. Navigation steps over them,
+// so paging through a 90-sheet set only walks the dozen you actually care about.
+function isHidden(p){ return state.hiddenPages.includes(p); }
+function visiblePages(){
+  const out = [];
+  for(let p=1; p<=state.numPages; p++) if(!isHidden(p)) out.push(p);
+  return out.length ? out : [state.pageNum];
+}
+function stepPage(dir){
+  const vis = visiblePages();
+  const i = vis.indexOf(state.pageNum);
+  const next = i === -1 ? vis[0] : vis[i + dir];
+  if(next === undefined) return;
+  state.pageNum = next;
+  state.searchHighlightPage = null;
+  state.searchHighlights = [];
+  renderPage();
+}
+document.getElementById('prev-page').addEventListener('click', ()=> stepPage(-1));
+document.getElementById('next-page').addEventListener('click', ()=> stepPage(1));
 
 // ---------- Tool selection ----------
 document.getElementById('rail').addEventListener('click',(e)=>{
@@ -2106,6 +2605,7 @@ function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 let isDown=false;
 let isPanning=false;
 let panStart=null;
+let legendDrag=null;
 
 const MEASURE_TOOLS = ['linear','wall','area','measure'];
 
@@ -2120,10 +2620,25 @@ els.overlay.addEventListener('mousedown',(e)=>{
   }
   if(e.button!==0) return;
   let p = getNativePoint(e);
-  if(state.tool==='pan') return;
+  if(state.tool==='pan'){
+    // Grab the legend and move it — otherwise it would sit on top of the title block forever.
+    if(pointInLegend(p)){
+      legendDrag = {dx: p.x - legendRect.x, dy: p.y - legendRect.y};
+      els.overlay.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+    return;
+  }
   if(state.tool==='calibrate'){
     if(!state.drawing) state.drawing = {points:[p]};
     else { state.drawing.points.push(p); finishCalibration(); }
+  } else if(BOX_TOOLS.includes(state.tool) && state.drawMode==='box'){
+    // Box mode: press, drag, release — one rectangle. Rectangular rooms and slabs are
+    // most of the work on a plan, and clicking four corners for each is a waste of time.
+    setTypePanelCollapsed(state.tool, true);
+    isDown = true;
+    state.drawing = {box:true, start:p, end:p};
+    updateFinishBtn();
   } else if(MEASURE_TOOLS.includes(state.tool)){
     // First point of a new draw: you're committed, so the type picker collapses.
     if(!state.drawing && ['wall','linear','area'].includes(state.tool)) setTypePanelCollapsed(state.tool, true);
@@ -2156,9 +2671,23 @@ document.addEventListener('mouseup',(e)=>{
 els.overlay.addEventListener('mousemove',(e)=>{
   if(isPanning) return;
   let p = getNativePoint(e);
+  if(legendDrag){
+    state.legendPos = {x: p.x - legendDrag.dx, y: p.y - legendDrag.dy};
+    redrawOverlay();
+    return;
+  }
+  if(state.tool==='pan'){
+    els.overlay.style.cursor = pointInLegend(p) ? 'grab' : 'default';
+  }
   if((state.tool==='ai-select' || state.tool==='highlight') && isDown && state.drawing){
     state.drawing.end = p;
     redrawOverlay();
+    return;
+  }
+  if(state.drawing && state.drawing.box && isDown){
+    state.drawing.end = p;
+    redrawOverlay();
+    updateHudForBox(e);
     return;
   }
   if(MEASURE_TOOLS.includes(state.tool) && state.drawing){
@@ -2176,6 +2705,11 @@ els.overlay.addEventListener('mousemove',(e)=>{
 });
 
 els.overlay.addEventListener('mouseup',(e)=>{
+  if(legendDrag){
+    legendDrag = null;
+    els.overlay.style.cursor = state.tool==='pan' ? 'default' : 'crosshair';
+    return;
+  }
   if(state.tool==='ai-select' && isDown){
     isDown=false;
     finalizeAiSelection();
@@ -2184,7 +2718,59 @@ els.overlay.addEventListener('mouseup',(e)=>{
     isDown=false;
     finalizeHighlight();
   }
+  if(state.drawing && state.drawing.box && isDown){
+    isDown=false;
+    finalizeBox();
+  }
 });
+
+const BOX_MIN_PX = 3; // a click without a drag isn't a box
+
+// Turns the dragged rectangle into the same 4-corner geometry a traced box would produce,
+// then hands off to the normal finish path — so a boxed wall is indistinguishable from a
+// traced one downstream (same type, same quantities, same edit behaviour).
+function finalizeBox(){
+  const {start, end} = state.drawing;
+  const w = Math.abs(end.x-start.x), h = Math.abs(end.y-start.y);
+  if(w < BOX_MIN_PX || h < BOX_MIN_PX){
+    state.drawing = null;
+    els.hud.style.display='none';
+    redrawOverlay();
+    updateFinishBtn();
+    return;
+  }
+  const x1 = Math.min(start.x,end.x), y1 = Math.min(start.y,end.y);
+  const x2 = Math.max(start.x,end.x), y2 = Math.max(start.y,end.y);
+  const corners = [{x:x1,y:y1},{x:x2,y:y1},{x:x2,y:y2},{x:x1,y:y2}];
+
+  // A boxed wall run is a closed loop, so it repeats the first corner: four walls, not three.
+  const points = state.tool==='wall' ? [...corners, {x:x1,y:y1}] : corners;
+  state.drawing = {points};
+  if(state.tool==='wall') finishWall();
+  else if(state.tool==='area') finishArea();
+  refreshDrawBar();
+}
+
+function updateHudForBox(evt){
+  if(!state.drawing || !state.drawing.box) return;
+  const {start,end} = state.drawing;
+  const wPx = Math.abs(end.x-start.x), hPx = Math.abs(end.y-start.y);
+  const rect = els.stageWrap.getBoundingClientRect();
+  els.hud.style.left = (evt.clientX - rect.left + els.stageWrap.scrollLeft + 16)+'px';
+  els.hud.style.top = (evt.clientY - rect.top + els.stageWrap.scrollTop - 34)+'px';
+  els.hud.style.display='block';
+  if(!state.calibration){
+    els.hud.innerHTML = `<b>${wPx.toFixed(0)} × ${hPx.toFixed(0)} px</b><br><span style="color:var(--orange);">Sheet not scaled</span>`;
+    return;
+  }
+  const u = state.calibration.unitsPerNativePixel;
+  const wFt = wPx*u, hFt = hPx*u;
+  const areaFt = wFt*hFt;
+  const perim = 2*(wFt+hFt);
+  els.hud.innerHTML = state.tool==='area'
+    ? `<b>${formatFeetInches(wFt)} × ${formatFeetInches(hFt)}</b><br>${areaFt.toFixed(1)} SF`
+    : `<b>${formatFeetInches(wFt)} × ${formatFeetInches(hFt)}</b><br>${perim.toFixed(1)} LF perimeter`;
+}
 
 // ---------- Highlights ----------
 // A highlight is a translucent box tied to one sheet (pageNum), drawn beneath the
@@ -2275,21 +2861,8 @@ function finishCurrentDrawing(){
   updateFinishBtn();
 }
 
-// Floating "Finish" button — explicit, unambiguous way to end the current run
-function updateFinishBtn(){
-  let btn = document.getElementById('finish-drawing-btn');
-  const active = state.drawing && MEASURE_TOOLS.includes(state.tool) && state.drawing.points && state.drawing.points.length>=2;
-  if(!btn){
-    btn = document.createElement('button');
-    btn.id='finish-drawing-btn';
-    btn.className='btn primary';
-    btn.textContent='✓ Finish (Enter)';
-    btn.style.cssText='position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:60;';
-    btn.addEventListener('click', finishCurrentDrawing);
-    els.stageWrap.appendChild(btn);
-  }
-  btn.style.display = active ? 'inline-block':'none';
-}
+// The draw bar replaced the old floating Finish button; every call site still works.
+function updateFinishBtn(){ refreshDrawBar(); }
 
 function updateHudForDrawing(evt){
   if(!state.calibration && state.tool!=='calibrate' && state.tool!=='measure'){ els.hud.style.display='none'; return; }
@@ -2509,71 +3082,6 @@ document.addEventListener('click', (e)=>{
   }
 });
 
-// ---------- Auto-detect scale via AI ----------
-document.getElementById('auto-detect-btn').addEventListener('click', ()=>autoDetectScale(false));
-
-async function autoDetectScale(silent){
-  if(!state.pdfDoc){ if(!silent) alert('Upload a plan first.'); return; }
-  const status = document.getElementById('sp-detect-status');
-  status.className = 'sp-detect-status show warn';
-  status.innerHTML = `<span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:6px;"></span>${silent?'Auto-detecting scale…':'Reading title block…'}`;
-
-  // Downscale the full sheet for an efficient, still-legible vision request
-  const maxW = 1600;
-  const scaleDown = Math.min(1, maxW/els.pdfCanvas.width);
-  const off = document.createElement('canvas');
-  off.width = els.pdfCanvas.width*scaleDown;
-  off.height = els.pdfCanvas.height*scaleDown;
-  off.getContext('2d').drawImage(els.pdfCanvas, 0,0, off.width, off.height);
-  const base64 = off.toDataURL('image/png').split(',')[1];
-
-  const promptText = `This is a full construction drawing sheet. Find EVERY printed scale annotation on it — there may be more than one (e.g. a main plan at one scale plus detail callouts at different scales). Each can be text near a title block or view label (e.g. "SCALE: 1/4" = 1'-0"" or "1"=20'") or a graphic bar scale (a ruler-like graphic labeled with distances). Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
-{"scales": [{"scale_text": "string as printed", "feet_represented_per_one_printed_inch": number, "confidence": "high"|"medium"|"low"}]}
-"feet_represented_per_one_printed_inch" must be the number of real-world feet that ONE inch on the printed sheet represents (e.g. for "1/4\\"=1'-0\\"" this is 4; for "1\\"=20'" this is 20). If you find no scale annotation anywhere on the sheet, return {"scales": []}. List each DISTINCT scale only once even if it repeats.`;
-
-  try{
-    const textOut = await callClaudeVision(base64, promptText, 500);
-    const cleaned = textOut.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    const scales = (parsed.scales||[]).filter(s=>s.feet_represented_per_one_printed_inch);
-
-    if(scales.length===0){
-      status.className = 'sp-detect-status show err';
-      status.textContent = silent
-        ? `No scale detected automatically on this sheet — set it manually below.`
-        : `No scale annotation found on sheet ${state.pageNum}. Use the standard-scale dropdown above or calibrate manually with the 📏 tool.`;
-      return;
-    }
-
-    if(scales.length===1){
-      const s = scales[0];
-      const scaleFactor = s.feet_represented_per_one_printed_inch*12;
-      applyStandardScale(scaleFactor, s.scale_text || `1" = ${s.feet_represented_per_one_printed_inch}'`);
-      const confNote = s.confidence==='low' ? ' Confidence was low — double-check against a known dimension.' : '';
-      status.className = 'sp-detect-status show ' + (s.confidence==='low' ? 'warn':'ok');
-      status.textContent = `Detected "${s.scale_text}" and applied it automatically.${confNote}`;
-    } else {
-      // Multiple distinct scales on this sheet — don't guess, let the person pick.
-      status.className = 'sp-detect-status show warn';
-      status.innerHTML = `Found ${scales.length} different scales on this sheet — pick the correct one:<br>` +
-        scales.map((s,i)=>`<button class="btn" style="margin:4px 4px 0 0;font-size:11px;" data-idx="${i}">${escapeHtml(s.scale_text||'(scale '+(i+1)+')')}</button>`).join('');
-      status.querySelectorAll('button[data-idx]').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-          const s = scales[parseInt(btn.dataset.idx)];
-          const scaleFactor = s.feet_represented_per_one_printed_inch*12;
-          applyStandardScale(scaleFactor, s.scale_text || `1" = ${s.feet_represented_per_one_printed_inch}'`);
-          status.className = 'sp-detect-status show ok';
-          status.textContent = `Applied "${s.scale_text}".`;
-        });
-      });
-    }
-  }catch(err){
-    status.className = 'sp-detect-status show err';
-    status.textContent = silent
-      ? `Auto-detect couldn't run (${err.message}) — set the scale manually below.`
-      : `Auto-detect failed: ${err.message}`;
-  }
-}
 
 // ---------- Quick Measure (never added to takeoff) ----------
 function finishMeasure(){
@@ -3056,9 +3564,22 @@ function renderTakeoffList(){
 
 document.getElementById('export-csv').addEventListener('click', ()=>{
   if(state.items.length===0){ alert('No items to export yet.'); return; }
+  // The job details ride along on the export — a takeoff that doesn't say which job,
+  // which set, and when it was pulled is a takeoff you can't trust six weeks later.
+  const meta = state.projectMeta || {};
+  const q = (v)=> `"${String(v||'').replace(/"/g,'""')}"`;
+  let csv = '';
+  csv += `Project,${q(document.getElementById('proj-name').value)}\n`;
+  csv += `Client / GC,${q(meta.client)}\n`;
+  csv += `Address,${q(meta.address)}\n`;
+  csv += `Plan date,${q(meta.planDate)}\n`;
+  csv += `Bid due,${q(meta.bidDue)}\n`;
+  csv += `Exported,${q(new Date().toLocaleString())}\n`;
+  csv += '\n';
+
   // Sheet is included because quantities from different sheets were measured at
   // different scales — an estimator checking the numbers needs to know which sheet.
-  let csv = 'Sheet,Trade,Label,Type,Quantity,Unit\n';
+  csv += 'Sheet,Trade,Label,Type,Quantity,Unit\n';
   state.items.forEach(it=>{
     const r = resolveItemDisplay(it);
     const p = it.pageNum || 1;
@@ -3137,8 +3658,28 @@ function redrawOverlay(){
     octx.restore();
   }
 
+  // The legend sits on top of the drawing, like a stamped key on a real sheet.
+  drawLegend();
+
   // draw in-progress
-  if(state.drawing){
+  if(state.drawing && state.drawing.box){
+    const {start,end} = state.drawing;
+    const x = Math.min(start.x,end.x), y = Math.min(start.y,end.y);
+    const w = Math.abs(end.x-start.x), h = Math.abs(end.y-start.y);
+    if(state.tool==='wall'){
+      const ws = getWallSettings();
+      drawWallPath([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h},{x,y}], ws.thicknessIn, ws.color, true);
+    } else {
+      const t = state.typeLibrary.area.find(x2=>x2.id===state.activeType.area);
+      drawAreaPath([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], t?t.color:'#2E86AB', true);
+    }
+    octx.save();
+    octx.setLineDash([5,4]);
+    octx.strokeStyle = '#E8722C';
+    octx.lineWidth = 1.5;
+    octx.strokeRect(x, y, w, h);
+    octx.restore();
+  } else if(state.drawing){
     if(state.tool==='calibrate'){
       const pts = state.drawing.points;
       octx.strokeStyle='#E8722C'; octx.lineWidth=2/1;
@@ -3281,6 +3822,93 @@ function drawWallPath(points, thicknessIn, color, isPreview){
 
 // Draws a filled area polygon using the area type's own color (fill at reduced
 // opacity, stroke at full color) — same live-color pattern as walls.
+// ---------- On-drawing legend ----------
+// A key stamped onto the sheet showing what was taken off ON THIS SHEET: the colour you'll
+// see on the drawing, the type name, and the running quantity. Grouped the way the takeoff
+// itself is, so the sheet and the schedule always agree. Drag it anywhere with the pan tool.
+let legendRect = null;   // last drawn bounds, in native px — used for hit-testing the drag
+
+function legendRowsForPage(){
+  const groups = new Map();
+  state.items.filter(it => (it.pageNum||1) === state.pageNum).forEach(it=>{
+    const r = resolveItemDisplay(it);
+    const key = `${it.category}|${it.typeId}|${r.unit}`;
+    if(!groups.has(key)) groups.set(key, {label:r.label, color:r.color, unit:r.unit, type:r.type, qty:0});
+    groups.get(key).qty += r.qty;
+  });
+  return [...groups.values()].sort((a,b)=> a.label.localeCompare(b.label) || a.unit.localeCompare(b.unit));
+}
+
+function drawLegend(){
+  legendRect = null;
+  if(!state.showLegend || !state.pdfDoc) return;
+  const rows = legendRowsForPage();
+  if(!rows.length) return;   // nothing taken off here yet — don't clutter the sheet
+
+  const pad = 12, rowH = 22, titleH = 26, swatch = 12;
+  const font = "500 13px 'IBM Plex Sans', sans-serif";
+  const monoFont = "500 12px 'IBM Plex Mono', monospace";
+
+  octx.save();
+  octx.font = font;
+  // Width is driven by the longest row, so the box never crops a type name.
+  let maxLabel = 0, maxQty = 0;
+  rows.forEach(r=>{
+    maxLabel = Math.max(maxLabel, octx.measureText(r.label).width);
+    octx.font = monoFont;
+    maxQty = Math.max(maxQty, octx.measureText(`${r.qty.toFixed(1)} ${r.unit}`).width);
+    octx.font = font;
+  });
+  const w = pad + swatch + 8 + maxLabel + 24 + maxQty + pad;
+  const h = titleH + rows.length*rowH + pad;
+
+  // Default seat: top-right of the sheet, clear of most title blocks. Dragged position wins.
+  const x = state.legendPos ? state.legendPos.x : Math.max(10, els.overlay.width - w - 24);
+  const y = state.legendPos ? state.legendPos.y : 24;
+  legendRect = {x, y, w, h};
+
+  octx.fillStyle = 'rgba(246,243,234,0.94)';
+  octx.strokeStyle = '#153A5B';
+  octx.lineWidth = 1.5;
+  octx.fillRect(x, y, w, h);
+  octx.strokeRect(x, y, w, h);
+
+  octx.fillStyle = '#0E2A47';
+  octx.fillRect(x, y, w, titleH);
+  octx.fillStyle = '#F6F3EA';
+  octx.font = "600 12px 'Oswald', sans-serif";
+  const sheetName = state.pageNames[state.pageNum];
+  const sheetLabel = (sheetName && (sheetName.number || sheetName.name))
+    ? [sheetName.number, sheetName.name].filter(Boolean).join(' — ')
+    : `SHEET ${state.pageNum}`;
+  octx.fillText(('TAKEOFF · ' + sheetLabel).toUpperCase().slice(0, 42), x + pad, y + 18);
+
+  rows.forEach((r, i)=>{
+    const ry = y + titleH + i*rowH + 15;
+    octx.fillStyle = r.color;
+    octx.fillRect(x + pad, ry - swatch + 2, swatch, swatch);
+    octx.strokeStyle = 'rgba(0,0,0,0.25)';
+    octx.lineWidth = 1;
+    octx.strokeRect(x + pad, ry - swatch + 2, swatch, swatch);
+
+    octx.fillStyle = '#1C1E22';
+    octx.font = font;
+    octx.fillText(r.label, x + pad + swatch + 8, ry);
+
+    octx.font = monoFont;
+    octx.fillStyle = '#153A5B';
+    const qtyText = `${r.qty.toFixed(1)} ${r.unit}`;
+    octx.fillText(qtyText, x + w - pad - octx.measureText(qtyText).width, ry);
+  });
+  octx.restore();
+}
+
+function pointInLegend(p){
+  if(!legendRect) return false;
+  return p.x>=legendRect.x && p.x<=legendRect.x+legendRect.w &&
+         p.y>=legendRect.y && p.y<=legendRect.y+legendRect.h;
+}
+
 function drawAreaPath(points, color){
   if(points.length<2) return;
   octx.save();

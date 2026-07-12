@@ -1,6 +1,13 @@
 // Fieldscale backend — plain Node.js, zero external dependencies.
-// Handles: user accounts (register/login), private per-user project storage,
-// and a server-side proxy to Claude's API so the Anthropic key never reaches the browser.
+//
+// Handles:
+//   - User accounts (register / login / change password)
+//   - Roles: the FIRST account created becomes the admin. Admins can add, disable,
+//     delete, promote, and reset the password of any account.
+//   - Signup control: admins can close open registration so only they can add people.
+//   - Private per-user project storage (nobody can read anyone else's projects)
+//   - A server-side proxy to Claude's API, so the Anthropic key never reaches the browser
+//   - Per-user rate limiting on AI calls, so one person can't run up a huge bill
 //
 // Run: ANTHROPIC_API_KEY=sk-ant-... SESSION_SECRET=some-long-random-string node server.js
 
@@ -21,46 +28,39 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+// How many AI calls one user may make per hour. Protects your Anthropic bill.
+const AI_CALLS_PER_HOUR = parseInt(process.env.AI_CALLS_PER_HOUR || '100', 10);
+const MIN_PASSWORD_LENGTH = 8;
+
 if (!ANTHROPIC_API_KEY) {
   console.warn('[fieldscale] WARNING: ANTHROPIC_API_KEY not set — AI features (auto-scale, AI select, sheet naming) will not work.');
 }
 
 // ---------- Tiny JSON "database" (fine for a small team; swap for real DB later if needed) ----------
 function loadDB() {
-  console.log('[fieldscale][diag] DATA_DIR env var is: ' + (process.env.DATA_DIR ? '"' + process.env.DATA_DIR + '"' : 'NOT SET — falling back to a temporary folder!'));
-  console.log('[fieldscale][diag] Database file path: ' + DB_FILE);
-
-  if (!fs.existsSync(DATA_DIR)) {
-    console.log('[fieldscale][diag] Data folder did NOT exist. Creating it: ' + DATA_DIR);
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  } else {
-    console.log('[fieldscale][diag] Data folder already exists: ' + DATA_DIR);
-  }
-
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    console.log('[fieldscale][diag] *** NO EXISTING DATABASE FOUND — creating a brand new empty one. Any previous accounts/projects are gone. ***');
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], projects: [] }, null, 2));
-  } else {
-    console.log('[fieldscale][diag] Found an existing database file. Loading it.');
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], projects: [], settings: { allowSignups: true } }, null, 2));
   }
-
-  const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  console.log('[fieldscale][diag] Loaded ' + (loaded.users || []).length + ' user account(s) and ' + (loaded.projects || []).length + ' project(s).');
-
-  // Prove the disk is actually writable and that writes survive.
-  try {
-    const marker = path.join(DATA_DIR, 'write-test.txt');
-    fs.writeFileSync(marker, 'last started: ' + new Date().toISOString());
-    console.log('[fieldscale][diag] Write test PASSED — the data folder is writable.');
-  } catch (e) {
-    console.log('[fieldscale][diag] *** WRITE TEST FAILED — cannot write to ' + DATA_DIR + ' — ' + e.message + ' ***');
-  }
-
-  return loaded;
+  const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  // Fill in anything missing so older db.json files keep working after an upgrade.
+  parsed.users = parsed.users || [];
+  parsed.projects = parsed.projects || [];
+  parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
+  parsed.users.forEach((u, i) => {
+    if (!u.role) u.role = i === 0 ? 'admin' : 'member'; // existing installs: oldest account becomes admin
+    if (typeof u.disabled !== 'boolean') u.disabled = false;
+    if (typeof u.tokenVersion !== 'number') u.tokenVersion = 1;
+    if (typeof u.aiCalls !== 'number') u.aiCalls = 0;
+  });
+  return parsed;
 }
+// Write to a temp file first, then rename. A crash mid-write can't leave a half-written
+// db.json behind — the rename is atomic.
 function saveDB(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-  console.log('[fieldscale][diag] Database saved. Now holding ' + db.users.length + ' user(s) and ' + db.projects.length + ' project(s).');
+  const tmp = DB_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+  fs.renameSync(tmp, DB_FILE);
 }
 let db = loadDB();
 
@@ -72,12 +72,31 @@ function hashPassword(password, salt) {
 }
 function verifyPassword(password, salt, hash) {
   const check = crypto.scryptSync(password, salt, 64).toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
+  const a = Buffer.from(check, 'hex');
+  const b = Buffer.from(hash, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+function validatePassword(pw) {
+  if (!pw || typeof pw !== 'string' || pw.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+  }
+  return null;
+}
+function validateUsername(name) {
+  const uname = (name || '').trim().toLowerCase();
+  if (!/^[a-z0-9._-]{3,32}$/.test(uname)) {
+    return { error: 'Username must be 3–32 characters: letters, numbers, dots, dashes or underscores.' };
+  }
+  return { uname };
 }
 
 // ---------- Session tokens (simple signed tokens — no JWT library needed) ----------
-function createToken(userId) {
-  const payload = JSON.stringify({ uid: userId, exp: Date.now() + 30 * 24 * 3600 * 1000 }); // 30 day session
+// The token carries a "tv" (token version). Bumping a user's tokenVersion instantly
+// invalidates every token they hold — that's how a password reset or a disable kicks
+// someone out of sessions they already have open.
+function createToken(user) {
+  const payload = JSON.stringify({ uid: user.id, tv: user.tokenVersion, exp: Date.now() + 30 * 24 * 3600 * 1000 });
   const payloadB64 = Buffer.from(payload).toString('base64url');
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
   return `${payloadB64}.${sig}`;
@@ -87,23 +106,85 @@ function verifyToken(token) {
   const [payloadB64, sig] = token.split('.');
   if (!payloadB64 || !sig) return null;
   const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
-  if (sig !== expectedSig) return null;
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expectedSig);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
     if (payload.exp < Date.now()) return null;
-    return payload.uid;
+    return payload;
   } catch { return null; }
 }
-function getAuthedUserId(req) {
+// Returns the live user record, or null if the token is bad / expired / revoked / disabled.
+function getAuthedUser(req) {
   const auth = req.headers['authorization'] || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  return verifyToken(token);
+  const payload = verifyToken(token);
+  if (!payload) return null;
+  const user = db.users.find(u => u.id === payload.uid);
+  if (!user) return null;
+  if (user.disabled) return null;
+  if (payload.tv !== user.tokenVersion) return null; // password was reset, or sessions revoked
+  return user;
+}
+function publicUser(u) {
+  return {
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    disabled: !!u.disabled,
+    createdAt: u.createdAt,
+    lastLoginAt: u.lastLoginAt || null,
+    aiCalls: u.aiCalls || 0,
+    projectCount: db.projects.filter(p => p.userId === u.id).length
+  };
+}
+function adminCount() {
+  return db.users.filter(u => u.role === 'admin' && !u.disabled).length;
+}
+
+// ---------- Rate limiting for AI calls (in-memory, per user, rolling hour) ----------
+const aiCallLog = new Map(); // userId -> array of timestamps
+function checkAiRateLimit(userId) {
+  const now = Date.now();
+  const hourAgo = now - 3600 * 1000;
+  const recent = (aiCallLog.get(userId) || []).filter(t => t > hourAgo);
+  if (recent.length >= AI_CALLS_PER_HOUR) {
+    const oldest = recent[0];
+    const minutes = Math.max(1, Math.ceil((oldest + 3600 * 1000 - now) / 60000));
+    return `You've hit the limit of ${AI_CALLS_PER_HOUR} AI requests per hour. Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+  }
+  recent.push(now);
+  aiCallLog.set(userId, recent);
+  return null;
+}
+
+// ---------- Login throttling (slows down password guessing) ----------
+const loginFails = new Map(); // username -> { count, until }
+function loginBlocked(uname) {
+  const rec = loginFails.get(uname);
+  if (rec && rec.until > Date.now()) {
+    const secs = Math.ceil((rec.until - Date.now()) / 1000);
+    return `Too many failed attempts. Try again in ${secs} second${secs === 1 ? '' : 's'}.`;
+  }
+  return null;
+}
+function noteLoginFail(uname) {
+  const rec = loginFails.get(uname) || { count: 0, until: 0 };
+  rec.count += 1;
+  if (rec.count >= 5) { rec.until = Date.now() + 60 * 1000; rec.count = 0; } // 1 minute cool-off
+  loginFails.set(uname, rec);
 }
 
 // ---------- Helpers ----------
 function sendJSON(res, status, obj) {
   const body = JSON.stringify(obj);
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body),
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store'
+  });
   res.end(body);
 }
 function readBody(req) {
@@ -124,7 +205,7 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 
 function serveStatic(req, res, pathname) {
   let filePath = pathname === '/' ? '/index.html' : pathname;
@@ -141,7 +222,7 @@ function serveStatic(req, res, pathname) {
       return;
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff' });
     res.end(content);
   });
 }
@@ -152,44 +233,196 @@ const server = http.createServer(async (req, res) => {
   const pathname = parsed.pathname;
 
   try {
+    // ---- Health check (hosting platforms ping this) ----
+    if (pathname === '/api/health') {
+      return sendJSON(res, 200, { ok: true, users: db.users.length });
+    }
+
+    // ---- Public config: tells the login screen whether to show "Create one" ----
+    if (pathname === '/api/config' && req.method === 'GET') {
+      return sendJSON(res, 200, {
+        allowSignups: db.settings.allowSignups || db.users.length === 0, // first account can always be made
+        firstRun: db.users.length === 0,
+        minPasswordLength: MIN_PASSWORD_LENGTH
+      });
+    }
+
     // ---- Auth: register ----
     if (pathname === '/api/register' && req.method === 'POST') {
-      const { username, password } = await readBody(req);
-      if (!username || !password || password.length < 6) {
-        return sendJSON(res, 400, { error: 'Username and a password of at least 6 characters are required.' });
+      const isFirstUser = db.users.length === 0;
+      if (!db.settings.allowSignups && !isFirstUser) {
+        return sendJSON(res, 403, { error: 'New signups are closed. Ask an administrator to create an account for you.' });
       }
-      const uname = username.trim().toLowerCase();
-      if (db.users.find(u => u.username === uname)) {
+      const { username, password } = await readBody(req);
+      const nameCheck = validateUsername(username);
+      if (nameCheck.error) return sendJSON(res, 400, { error: nameCheck.error });
+      const pwErr = validatePassword(password);
+      if (pwErr) return sendJSON(res, 400, { error: pwErr });
+      if (db.users.find(u => u.username === nameCheck.uname)) {
         return sendJSON(res, 409, { error: 'That username is already taken.' });
       }
       const { salt, hash } = hashPassword(password);
-      const user = { id: 'u_' + crypto.randomBytes(8).toString('hex'), username: uname, salt, hash, createdAt: Date.now() };
+      const user = {
+        id: 'u_' + crypto.randomBytes(8).toString('hex'),
+        username: nameCheck.uname,
+        salt, hash,
+        role: isFirstUser ? 'admin' : 'member', // the very first account runs the place
+        disabled: false,
+        tokenVersion: 1,
+        aiCalls: 0,
+        createdAt: Date.now(),
+        lastLoginAt: Date.now()
+      };
       db.users.push(user);
       saveDB(db);
-      return sendJSON(res, 200, { token: createToken(user.id), username: user.username });
+      return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
     }
 
     // ---- Auth: login ----
     if (pathname === '/api/login' && req.method === 'POST') {
       const { username, password } = await readBody(req);
       const uname = (username || '').trim().toLowerCase();
+      const blocked = loginBlocked(uname);
+      if (blocked) return sendJSON(res, 429, { error: blocked });
+
       const user = db.users.find(u => u.username === uname);
       if (!user || !verifyPassword(password || '', user.salt, user.hash)) {
+        noteLoginFail(uname);
         return sendJSON(res, 401, { error: 'Incorrect username or password.' });
       }
-      return sendJSON(res, 200, { token: createToken(user.id), username: user.username });
+      if (user.disabled) {
+        return sendJSON(res, 403, { error: 'This account has been disabled. Contact an administrator.' });
+      }
+      loginFails.delete(uname);
+      user.lastLoginAt = Date.now();
+      saveDB(db);
+      return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
     }
 
     // ---- Everything past this point requires a valid session ----
     if (pathname.startsWith('/api/')) {
-      const userId = getAuthedUserId(req);
-      if (!userId) return sendJSON(res, 401, { error: 'Not logged in (or session expired) — please log in again.' });
+      const me = getAuthedUser(req);
+      if (!me) return sendJSON(res, 401, { error: 'Not logged in (or session expired) — please log in again.' });
+      const userId = me.id;
 
       // GET /api/me
       if (pathname === '/api/me' && req.method === 'GET') {
-        const user = db.users.find(u => u.id === userId);
-        return sendJSON(res, 200, { username: user ? user.username : null });
+        return sendJSON(res, 200, { username: me.username, role: me.role, id: me.id });
       }
+
+      // POST /api/password — change your own password
+      if (pathname === '/api/password' && req.method === 'POST') {
+        const { currentPassword, newPassword } = await readBody(req);
+        if (!verifyPassword(currentPassword || '', me.salt, me.hash)) {
+          return sendJSON(res, 401, { error: 'Your current password is not correct.' });
+        }
+        const pwErr = validatePassword(newPassword);
+        if (pwErr) return sendJSON(res, 400, { error: pwErr });
+        const { salt, hash } = hashPassword(newPassword);
+        me.salt = salt; me.hash = hash;
+        me.tokenVersion += 1; // log out other devices
+        saveDB(db);
+        return sendJSON(res, 200, { token: createToken(me), changed: true });
+      }
+
+      // ======================= ADMIN =======================
+      if (pathname.startsWith('/api/admin/')) {
+        if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Administrators only.' });
+
+        // GET /api/admin/users — everyone, with activity info
+        if (pathname === '/api/admin/users' && req.method === 'GET') {
+          return sendJSON(res, 200, {
+            users: db.users.map(publicUser).sort((a, b) => a.createdAt - b.createdAt),
+            settings: db.settings,
+            aiCallsPerHour: AI_CALLS_PER_HOUR
+          });
+        }
+
+        // POST /api/admin/users — create an account for someone
+        if (pathname === '/api/admin/users' && req.method === 'POST') {
+          const { username, password, role } = await readBody(req);
+          const nameCheck = validateUsername(username);
+          if (nameCheck.error) return sendJSON(res, 400, { error: nameCheck.error });
+          const pwErr = validatePassword(password);
+          if (pwErr) return sendJSON(res, 400, { error: pwErr });
+          if (db.users.find(u => u.username === nameCheck.uname)) {
+            return sendJSON(res, 409, { error: 'That username is already taken.' });
+          }
+          const { salt, hash } = hashPassword(password);
+          const user = {
+            id: 'u_' + crypto.randomBytes(8).toString('hex'),
+            username: nameCheck.uname, salt, hash,
+            role: role === 'admin' ? 'admin' : 'member',
+            disabled: false, tokenVersion: 1, aiCalls: 0,
+            createdAt: Date.now(), lastLoginAt: null
+          };
+          db.users.push(user);
+          saveDB(db);
+          return sendJSON(res, 200, { user: publicUser(user) });
+        }
+
+        // PATCH/DELETE /api/admin/users/:id
+        const adminUserMatch = pathname.match(/^\/api\/admin\/users\/([a-zA-Z0-9_]+)$/);
+        if (adminUserMatch) {
+          const target = db.users.find(u => u.id === adminUserMatch[1]);
+          if (!target) return sendJSON(res, 404, { error: 'That account no longer exists.' });
+
+          if (req.method === 'PATCH') {
+            const { role, disabled, password } = await readBody(req);
+
+            // Guardrails: don't let an admin lock everyone (including themselves) out.
+            if (target.id === me.id && role === 'member') {
+              return sendJSON(res, 400, { error: "You can't remove your own administrator access. Promote someone else first." });
+            }
+            if (target.id === me.id && disabled === true) {
+              return sendJSON(res, 400, { error: "You can't disable your own account." });
+            }
+            if (target.role === 'admin' && (role === 'member' || disabled === true) && adminCount() <= 1) {
+              return sendJSON(res, 400, { error: 'This is the only administrator. Promote someone else first.' });
+            }
+
+            if (role === 'admin' || role === 'member') target.role = role;
+            if (typeof disabled === 'boolean') {
+              target.disabled = disabled;
+              if (disabled) target.tokenVersion += 1; // kick them out of any open session immediately
+            }
+            if (password !== undefined) {
+              const pwErr = validatePassword(password);
+              if (pwErr) return sendJSON(res, 400, { error: pwErr });
+              const { salt, hash } = hashPassword(password);
+              target.salt = salt; target.hash = hash;
+              target.tokenVersion += 1; // old sessions die with the old password
+            }
+            saveDB(db);
+            return sendJSON(res, 200, { user: publicUser(target) });
+          }
+
+          if (req.method === 'DELETE') {
+            if (target.id === me.id) {
+              return sendJSON(res, 400, { error: "You can't delete your own account." });
+            }
+            if (target.role === 'admin' && adminCount() <= 1) {
+              return sendJSON(res, 400, { error: 'This is the only administrator. Promote someone else first.' });
+            }
+            const removedProjects = db.projects.filter(p => p.userId === target.id).length;
+            db.projects = db.projects.filter(p => p.userId !== target.id); // their projects go too
+            db.users = db.users.filter(u => u.id !== target.id);
+            saveDB(db);
+            return sendJSON(res, 200, { deleted: true, removedProjects });
+          }
+        }
+
+        // PUT /api/admin/settings — e.g. open or close signups
+        if (pathname === '/api/admin/settings' && req.method === 'PUT') {
+          const { allowSignups } = await readBody(req);
+          if (typeof allowSignups === 'boolean') db.settings.allowSignups = allowSignups;
+          saveDB(db);
+          return sendJSON(res, 200, { settings: db.settings });
+        }
+
+        return sendJSON(res, 404, { error: 'Unknown admin route.' });
+      }
+      // ===================== END ADMIN =====================
 
       // GET /api/projects — list this user's projects (metadata only, not full data)
       if (pathname === '/api/projects' && req.method === 'GET') {
@@ -243,6 +476,9 @@ const server = http.createServer(async (req, res) => {
         if (!ANTHROPIC_API_KEY) {
           return sendJSON(res, 500, { error: 'Server has no ANTHROPIC_API_KEY configured — ask whoever deployed this to set one.' });
         }
+        const limited = checkAiRateLimit(userId);
+        if (limited) return sendJSON(res, 429, { error: limited });
+
         const { image, prompt, max_tokens } = await readBody(req);
         if (!image || !prompt) return sendJSON(res, 400, { error: 'Missing image or prompt.' });
 
@@ -267,6 +503,10 @@ const server = http.createServer(async (req, res) => {
         });
         const data = await anthropicRes.json();
         if (data.error) return sendJSON(res, 502, { error: data.error.message || 'Anthropic API error' });
+
+        me.aiCalls = (me.aiCalls || 0) + 1; // so admins can see who's using what
+        saveDB(db);
+
         const textOut = (data.content || []).map(b => b.text || '').join('\n');
         return sendJSON(res, 200, { text: textOut });
       }
@@ -283,4 +523,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[fieldscale] Server running on http://localhost:${PORT}`);
+  if (db.users.length === 0) {
+    console.log('[fieldscale] No accounts yet. The first account you create becomes the administrator.');
+  }
 });

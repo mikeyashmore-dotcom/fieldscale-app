@@ -35,6 +35,79 @@ const AI_CALLS_PER_HOUR = parseInt(process.env.AI_CALLS_PER_HOUR || '100', 10);
 const MAX_AI_TOKENS = parseInt(process.env.MAX_AI_TOKENS || '8000', 10);
 const MIN_PASSWORD_LENGTH = 8;
 
+// ---------- Project storage layout ----------
+// The PDF is ~99.9% of a project's bytes and NEVER changes after upload. The takeoff
+// (walls, areas, counts, types, scales) is a few hundred KB of text and changes constantly.
+// Storing them together meant every autosave rewrote the whole plan set — and because
+// db.json is rewritten whole on every save, it meant rewriting EVERY user's plan set too.
+//
+// So they live apart, on disk, one folder per project:
+//   data/projects/<id>/plan.pdf        the PDF, written once
+//   data/projects/<id>/current.json    the takeoff — small, rewritten on every save
+//   data/projects/<id>/snap-<ts>.json  point-in-time copies of the takeoff
+//
+// db.json now holds only metadata. A snapshot costs a few hundred KB, not 27MB, which is
+// what makes keeping 20 of them affordable.
+const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
+const MAX_SNAPSHOTS = parseInt(process.env.MAX_SNAPSHOTS || '20', 10);
+// Autosave fires every ~20s. Snapshotting every one of those would give you 20 snapshots
+// covering seven minutes — useless. Space them out so the history reaches back hours.
+const SNAPSHOT_MIN_INTERVAL_MS = parseInt(process.env.SNAPSHOT_MIN_INTERVAL_MS || '300000', 10); // 5 min
+
+function projectDir(id){ return path.join(PROJECTS_DIR, id); }
+function ensureProjectDir(id){
+  const d = projectDir(id);
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+function planPath(id){ return path.join(projectDir(id), 'plan.pdf'); }
+function currentPath(id){ return path.join(projectDir(id), 'current.json'); }
+
+function readTakeoff(id){
+  const f = currentPath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+
+// Writes via a temp file then renames. A rename is atomic on POSIX, so a crash mid-write
+// can't leave a half-written current.json — you'd get the old one intact, not a corrupt
+// file where someone's whole takeoff used to be.
+function writeJsonAtomic(file, obj){
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(obj));
+  fs.renameSync(tmp, file);
+}
+
+function listSnapshots(id){
+  const d = projectDir(id);
+  if (!fs.existsSync(d)) return [];
+  return fs.readdirSync(d)
+    .filter(f => f.startsWith('snap-') && f.endsWith('.json'))
+    .map(f => ({ file: f, at: parseInt(f.slice(5, -5), 10) || 0 }))
+    .sort((a, b) => b.at - a.at);
+}
+
+// Copy the CURRENT saved state aside before it gets overwritten. This is the whole point:
+// the thing worth keeping is what was there before this save, not after it.
+function rotateSnapshot(id, force){
+  const cur = currentPath(id);
+  if (!fs.existsSync(cur)) return;
+  const snaps = listSnapshots(id);
+  const newest = snaps.length ? snaps[0].at : 0;
+  if (!force && (Date.now() - newest) < SNAPSHOT_MIN_INTERVAL_MS) return;
+
+  const stamp = Date.now();
+  try {
+    fs.copyFileSync(cur, path.join(projectDir(id), `snap-${stamp}.json`));
+  } catch (e) { return; }
+
+  // Prune the oldest beyond the cap.
+  const all = listSnapshots(id);
+  all.slice(MAX_SNAPSHOTS).forEach(sn => {
+    try { fs.unlinkSync(path.join(projectDir(id), sn.file)); } catch (e) {}
+  });
+}
+
 if (!ANTHROPIC_API_KEY) {
   console.warn('[fieldscale] WARNING: ANTHROPIC_API_KEY not set — AI features (auto-scale, AI select, sheet naming) will not work.');
 }
@@ -56,7 +129,40 @@ function loadDB() {
     if (typeof u.tokenVersion !== 'number') u.tokenVersion = 1;
     if (typeof u.aiCalls !== 'number') u.aiCalls = 0;
   });
+  migrateProjectsToDisk(parsed);
   return parsed;
+}
+
+// Projects saved before the split have their PDF and takeoff sitting inside db.json.
+// Move them out to disk, once, on startup. Runs on every boot but does nothing after the
+// first — a project is migrated when it no longer carries a `data` blob.
+function migrateProjectsToDisk(db) {
+  if (!fs.existsSync(PROJECTS_DIR)) fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+  let moved = 0;
+  db.projects.forEach(p => {
+    if (!p.data) return;              // already migrated
+    ensureProjectDir(p.id);
+    const data = p.data || {};
+    if (data.pdfBase64) {
+      try {
+        fs.writeFileSync(planPath(p.id), Buffer.from(data.pdfBase64, 'base64'));
+        p.hasPdf = true;
+      } catch (e) {
+        console.warn(`[fieldscale] Could not migrate PDF for project ${p.id}: ${e.message}`);
+      }
+      delete data.pdfBase64;
+    }
+    try { writeJsonAtomic(currentPath(p.id), data); } catch (e) {
+      console.warn(`[fieldscale] Could not migrate takeoff for project ${p.id}: ${e.message}`);
+      return;
+    }
+    delete p.data;                    // db.json is metadata only from here on
+    moved++;
+  });
+  if (moved) {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    console.log(`[fieldscale] Migrated ${moved} project(s) out of db.json onto disk. Nothing was lost.`);
+  }
 }
 // Write to a temp file first, then rename. A crash mid-write can't leave a half-written
 // db.json behind — the rename is atomic.
@@ -436,17 +542,85 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, list);
       }
 
-      // POST /api/projects — create a new project
+      // POST /api/projects — create a new project (metadata only; PDF is uploaded separately)
       if (pathname === '/api/projects' && req.method === 'POST') {
         const { name, data } = await readBody(req);
         const project = {
           id: 'p_' + crypto.randomBytes(8).toString('hex'),
-          userId, name: name || 'Untitled Project', data: data || {},
+          userId, name: name || 'Untitled Project',
+          hasPdf: false,
           createdAt: Date.now(), updatedAt: Date.now()
         };
+        ensureProjectDir(project.id);
+        writeJsonAtomic(currentPath(project.id), data || {});
         db.projects.push(project);
         saveDB(db);
         return sendJSON(res, 200, { id: project.id, name: project.name, updatedAt: project.updatedAt });
+      }
+
+      // /api/projects/:id/pdf — the plan set. Written once, read once. Kept out of every
+      // other request so a 27MB payload isn't riding along on a 20-second autosave.
+      const pdfMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)\/pdf$/);
+      if (pdfMatch) {
+        const project = db.projects.find(p => p.id === pdfMatch[1] && p.userId === userId);
+        if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
+
+        if (req.method === 'PUT') {
+          const { pdfBase64 } = await readBody(req);
+          if (!pdfBase64) return sendJSON(res, 400, { error: 'No PDF supplied.' });
+          ensureProjectDir(project.id);
+          fs.writeFileSync(planPath(project.id), Buffer.from(pdfBase64, 'base64'));
+          project.hasPdf = true;
+          project.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { ok: true });
+        }
+        if (req.method === 'GET') {
+          if (!project.hasPdf || !fs.existsSync(planPath(project.id))) {
+            return sendJSON(res, 200, { pdfBase64: null });
+          }
+          const buf = fs.readFileSync(planPath(project.id));
+          return sendJSON(res, 200, { pdfBase64: buf.toString('base64') });
+        }
+      }
+
+      // /api/projects/:id/snapshots — the version history.
+      const snapListMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)\/snapshots$/);
+      if (snapListMatch && req.method === 'GET') {
+        const project = db.projects.find(p => p.id === snapListMatch[1] && p.userId === userId);
+        if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
+        const snaps = listSnapshots(project.id).map(sn => {
+          let counts = null;
+          try {
+            const d = JSON.parse(fs.readFileSync(path.join(projectDir(project.id), sn.file), 'utf8'));
+            counts = {
+              items: (d.items || []).length,
+              walls: (d.walls || []).length,
+              areas: (d.areas || []).length
+            };
+          } catch (e) {}
+          return { at: sn.at, counts };
+        });
+        return sendJSON(res, 200, snaps);
+      }
+
+      // POST /api/projects/:id/restore — roll back to a snapshot. The state being replaced
+      // is snapshotted first, so "restore" is itself undoable. Restoring a bad restore is
+      // exactly the moment you'd want that.
+      const restoreMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)\/restore$/);
+      if (restoreMatch && req.method === 'POST') {
+        const project = db.projects.find(p => p.id === restoreMatch[1] && p.userId === userId);
+        if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
+        const { at } = await readBody(req);
+        const file = path.join(projectDir(project.id), `snap-${parseInt(at, 10)}.json`);
+        if (!fs.existsSync(file)) return sendJSON(res, 404, { error: 'That snapshot no longer exists.' });
+
+        rotateSnapshot(project.id, true);           // keep what we're about to overwrite
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        writeJsonAtomic(currentPath(project.id), data);
+        project.updatedAt = Date.now();
+        saveDB(db);
+        return sendJSON(res, 200, { restored: true, data });
       }
 
       // /api/projects/:id — get / update / delete a single project (must belong to this user)
@@ -457,18 +631,30 @@ const server = http.createServer(async (req, res) => {
         if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
 
         if (req.method === 'GET') {
-          return sendJSON(res, 200, project);
+          // The takeoff only. The PDF comes from /pdf, separately.
+          return sendJSON(res, 200, {
+            id: project.id, name: project.name, hasPdf: !!project.hasPdf,
+            createdAt: project.createdAt, updatedAt: project.updatedAt,
+            data: readTakeoff(project.id)
+          });
         }
         if (req.method === 'PUT') {
-          const { name, data } = await readBody(req);
+          const { name, data, manual } = await readBody(req);
           if (name !== undefined) project.name = name;
-          if (data !== undefined) project.data = data;
+          if (data !== undefined) {
+            ensureProjectDir(project.id);
+            // Snapshot the OUTGOING state before it's overwritten. A manual save is an
+            // intentional checkpoint, so it always snapshots; autosaves are spaced out.
+            rotateSnapshot(project.id, !!manual);
+            writeJsonAtomic(currentPath(project.id), data);
+          }
           project.updatedAt = Date.now();
           saveDB(db);
           return sendJSON(res, 200, { id: project.id, name: project.name, updatedAt: project.updatedAt });
         }
         if (req.method === 'DELETE') {
           db.projects = db.projects.filter(p => p.id !== id);
+          try { fs.rmSync(projectDir(id), { recursive: true, force: true }); } catch (e) {}
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }

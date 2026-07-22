@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Estimating</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2a3140;
+    --text:#e6edf3; --muted:#8b949e; --accent:#3b82f6; --accent2:#2563eb;
+    --green:#2ea043; --danger:#da3633;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--text);font-size:14px}
+  a{color:var(--accent);text-decoration:none}
+  header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border);
+         background:var(--panel);position:sticky;top:0;z-index:5}
+  header .brand{font-weight:700;font-size:16px}
+  header .brand span{color:var(--accent)}
+  header nav{display:flex;gap:14px;margin-left:8px}
+  header nav a{color:var(--muted);padding:4px 2px}
+  header nav a.active{color:var(--text);border-bottom:2px solid var(--accent);padding-bottom:2px}
+  header .spacer{flex:1}
+  header .who{color:var(--muted);font-size:13px}
+  .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 80px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;background:var(--panel2)}
+  td.num,th.num{text-align:right}
+  tr:last-child td{border-bottom:none}
+  input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;
+        padding:7px 8px;font-size:14px;width:100%}
+  input:focus{outline:none;border-color:var(--accent)}
+  input.num{text-align:right}
+  .cell-name input{min-width:180px}
+  .unitcost{color:var(--muted);font-variant-numeric:tabular-nums}
+  .rowdel{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:6px}
+  .rowdel:hover{color:var(--danger);background:rgba(218,54,51,.1)}
+  .toolbar{display:flex;gap:10px;align-items:center;margin:18px 0}
+  .toolbar .spacer{flex:1}
+  button.btn{border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:8px;
+             padding:9px 16px;font-size:14px;cursor:pointer;font-weight:500}
+  button.btn:hover{border-color:var(--accent)}
+  button.btn.primary{background:var(--accent2);border-color:var(--accent2)}
+  button.btn.primary:hover{background:var(--accent)}
+  button.btn.ghost{background:transparent}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;
+         padding:10px 18px;border-radius:8px;font-weight:500;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+  .toast.show{opacity:1}
+  .toast.err{background:var(--danger)}
+  .loading{color:var(--muted);padding:40px;text-align:center}
+  .hint{color:var(--muted);font-size:13px;margin-top:10px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Field<span>scale</span></div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/estimates.html" class="active">Estimating</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+</header>
+
+<div class="wrap">
+  <h1>Price Book</h1>
+  <p class="sub">Your saved work items and what they cost. These prices feed every estimate you build.</p>
+
+  <div id="loading" class="loading">Loading your price book…</div>
+
+  <div id="content" style="display:none">
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th class="cell-name">Item</th>
+            <th>Unit</th>
+            <th class="num">Material&nbsp;$</th>
+            <th class="num">Labor&nbsp;$</th>
+            <th class="num">Waste&nbsp;%</th>
+            <th class="num">Cost / unit</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn ghost" id="addRow">＋ Add item</button>
+      <button class="btn ghost" id="resetStarter">Reset to insulation starter</button>
+      <div class="spacer"></div>
+      <button class="btn primary" id="save">Save price book</button>
+    </div>
+
+    <p class="hint">
+      <strong>Material $</strong> and <strong>Labor $</strong> are the cost per unit (e.g. per square foot).
+      <strong>Cost / unit</strong> is material + labor, with waste applied — it's what an estimate uses before your markup.
+      Edit these to your real numbers; they're private to your account.
+    </p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE = 'fieldscale_token';
+const USERNAME_STORAGE = 'fieldscale_username';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+
+// Same login the takeoff app uses. No token → send them to the login screen on the main app.
+if(!getToken()){ location.href = '/'; }
+
+async function apiFetch(path, options={}){
+  const headers = Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const token = getToken();
+  if(token) headers['Authorization'] = 'Bearer '+token;
+  const res = await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+let items = [];
+
+function unitCost(it){
+  const base = (Number(it.material)||0) + (Number(it.labor)||0);
+  return base * (1 + (Number(it.waste)||0)/100);
+}
+function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
+
+function render(){
+  const tb = document.getElementById('rows');
+  tb.innerHTML = '';
+  items.forEach((it, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="cell-name"><input data-i="${i}" data-f="name" value="${escapeHtml(it.name)}" placeholder="Item name" /></td>
+      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(it.unit)}" placeholder="sqft" style="width:70px" /></td>
+      <td class="num"><input class="num" data-i="${i}" data-f="material" value="${it.material}" inputmode="decimal" style="width:90px" /></td>
+      <td class="num"><input class="num" data-i="${i}" data-f="labor" value="${it.labor}" inputmode="decimal" style="width:90px" /></td>
+      <td class="num"><input class="num" data-i="${i}" data-f="waste" value="${it.waste}" inputmode="decimal" style="width:70px" /></td>
+      <td class="num unitcost" data-cost="${i}">${money(unitCost(it))}</td>
+      <td class="num"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+document.getElementById('rows').addEventListener('input', e => {
+  const el = e.target;
+  const i = el.getAttribute('data-i'), f = el.getAttribute('data-f');
+  if(i===null) return;
+  const num = (f==='material'||f==='labor'||f==='waste');
+  items[i][f] = num ? (parseFloat(el.value)||0) : el.value;
+  if(num){ document.querySelector(`[data-cost="${i}"]`).textContent = money(unitCost(items[i])); }
+});
+document.getElementById('rows').addEventListener('click', e => {
+  const del = e.target.getAttribute && e.target.getAttribute('data-del');
+  if(del!==null && del!==undefined){ items.splice(Number(del),1); render(); }
+});
+
+document.getElementById('addRow').addEventListener('click', () => {
+  items.push({ id:'pi_'+Math.random().toString(16).slice(2,10), name:'', unit:'sqft', material:0, labor:0, waste:10 });
+  render();
+  const inputs = document.querySelectorAll('#rows tr:last-child input');
+  if(inputs[0]) inputs[0].focus();
+});
+
+document.getElementById('resetStarter').addEventListener('click', async () => {
+  if(!confirm('Replace your current price book with the insulation starter set? This overwrites what you have.')) return;
+  try{
+    // Deleting the file server-side isn't exposed; instead we just reload defaults by asking a
+    // fresh account's seed. Simplest: fetch defaults via a throwaway — but we keep it client-side:
+    items = STARTER.map(x => Object.assign({}, x));
+    render();
+    toast('Starter loaded — click Save to keep it.');
+  }catch(err){ toast(err.message, true); }
+});
+
+document.getElementById('save').addEventListener('click', async () => {
+  try{
+    const res = await apiFetch('/api/pricebook', { method:'PUT', body: JSON.stringify({ items }) });
+    items = res.items;
+    render();
+    toast('Price book saved.');
+  }catch(err){ toast(err.message, true); }
+});
+
+let toastTimer;
+function toast(msg, isErr){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (isErr?' err':'');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> t.className='toast', 2200);
+}
+
+// Mirror of the server's insulation seed, for the local "reset to starter" button.
+const STARTER = [
+  { id:'pi_r13batt',  name:'R-13 batt — 2x4 wall',            unit:'sqft', material:0.55, labor:0.45, waste:10 },
+  { id:'pi_r19batt',  name:'R-19 batt — 2x6 wall',            unit:'sqft', material:0.75, labor:0.50, waste:10 },
+  { id:'pi_r21batt',  name:'R-21 batt — 2x6 wall',            unit:'sqft', material:0.95, labor:0.50, waste:10 },
+  { id:'pi_r30batt',  name:'R-30 batt — ceiling',             unit:'sqft', material:1.05, labor:0.55, waste:10 },
+  { id:'pi_r38batt',  name:'R-38 batt — ceiling',             unit:'sqft', material:1.35, labor:0.60, waste:10 },
+  { id:'pi_blownfg',  name:'Blown-in fiberglass — attic R-38',unit:'sqft', material:0.85, labor:0.65, waste:5  },
+  { id:'pi_blowncel', name:'Blown-in cellulose — attic R-30', unit:'sqft', material:0.80, labor:0.60, waste:5  },
+  { id:'pi_ocfoam',   name:'Spray foam — open cell',          unit:'bdft', material:0.55, labor:0.45, waste:8  },
+  { id:'pi_ccfoam',   name:'Spray foam — closed cell',        unit:'bdft', material:1.10, labor:0.55, waste:8  },
+  { id:'pi_soundbatt',name:'Sound batt — interior wall',      unit:'sqft', material:0.65, labor:0.45, waste:10 },
+  { id:'pi_vapor',    name:'Vapor barrier — crawlspace',      unit:'sqft', material:0.35, labor:0.40, waste:8  }
+];
+
+async function init(){
+  try{
+    const me = await apiFetch('/api/me');
+    document.getElementById('who').textContent = me.username;
+  }catch(err){ return; }
+  try{
+    const res = await apiFetch('/api/pricebook');
+    items = res.items || [];
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+    render();
+  }catch(err){
+    document.getElementById('loading').textContent = 'Could not load price book: ' + err.message;
+  }
+}
+init();
+</script>
+</body>
+</html>

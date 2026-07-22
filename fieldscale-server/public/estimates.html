@@ -54,6 +54,12 @@
   .toast.err{background:var(--danger)}
   .loading{color:var(--muted);padding:40px;text-align:center}
   .hint{color:var(--muted);font-size:13px;margin-top:10px;line-height:1.5}
+  .modebar{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .modebar .modelabel{color:var(--muted);font-size:13px;margin-right:2px}
+  .seg{border:1px solid var(--border);background:var(--panel2);color:var(--muted);border-radius:8px;
+       padding:7px 14px;font-size:13px;cursor:pointer;font-weight:500}
+  .seg.active{background:var(--accent2);border-color:var(--accent2);color:#fff}
+  .modehint{color:var(--muted);font-size:12px;margin-left:6px}
 </style>
 </head>
 <body>
@@ -62,6 +68,7 @@
   <nav>
     <a href="/">Takeoff</a>
     <a href="/estimates.html" class="active">Estimating</a>
+    <a href="/admin.html" id="owner-nav" style="display:none">Owner</a>
   </nav>
   <div class="spacer"></div>
   <div class="who" id="who"></div>
@@ -74,12 +81,18 @@
   <div id="loading" class="loading">Loading your price book…</div>
 
   <div id="content" style="display:none">
+    <div class="modebar">
+      <span class="modelabel">Code system:</span>
+      <button class="seg" data-mode="residential">Residential · 2-digit</button>
+      <button class="seg" data-mode="commercial">Commercial · 6-digit</button>
+      <span class="modehint" id="modehint"></span>
+    </div>
     <div class="card">
       <table>
         <thead>
           <tr>
             <th class="cell-name">Item</th>
-            <th>Category</th>
+            <th id="csi-th">CSI Division</th>
             <th>Unit</th>
             <th class="num">Material&nbsp;$</th>
             <th class="num">Labor&nbsp;$</th>
@@ -101,7 +114,7 @@
 
     <div class="toolbar">
       <button class="btn ghost" id="addRow">＋ Add item</button>
-      <button class="btn ghost" id="resetStarter">Load insulation starter</button>
+      <button class="btn ghost" id="resetStarter">Load sample items</button>
       <button class="btn ghost" id="clearAll">Clear all</button>
       <div class="spacer"></div>
       <button class="btn primary" id="save">Save price book</button>
@@ -145,16 +158,29 @@ function unitCost(it){
 function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
 
 function render(){
-  // Suggested categories = whatever the user has already typed, so the dropdown grows with them.
-  const cats = [...new Set(items.map(it => (it.category||'').trim()).filter(Boolean))].sort();
+  // Category suggestions depend on the code system: Residential = 2-digit CSI divisions,
+  // Commercial = full 6-digit CSI section codes. Anything the user typed is kept too.
+  const baseList = csiMode === 'commercial' ? COMMERCIAL_SECTIONS : CSI_DIVISIONS;
+  const catPlaceholder = csiMode === 'commercial'
+    ? 'e.g. 07 21 00 - Thermal Insulation'
+    : 'e.g. 07 - Thermal & Moisture Protection';
+  const used = items.map(it => (it.category||'').trim()).filter(Boolean);
+  const cats = [...new Set([...baseList, ...used])];
   document.getElementById('cat-list').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}"></option>`).join('');
+  const th = document.getElementById('csi-th'); if(th) th.textContent = csiMode === 'commercial' ? 'CSI Section' : 'CSI Division';
   const tb = document.getElementById('rows');
   tb.innerHTML = '';
+  if(items.length === 0){
+    tb.innerHTML = `<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--muted)">
+      Your price book is empty. Click <strong>＋ Add item</strong> to build your own, or
+      <strong>Load sample items</strong> to see how it works.</td></tr>`;
+    return;
+  }
   items.forEach((it, i) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="cell-name"><input data-i="${i}" data-f="name" value="${escapeHtml(it.name)}" placeholder="Item name" /></td>
-      <td><input data-i="${i}" data-f="category" value="${escapeHtml(it.category)}" placeholder="Trade" style="width:120px" list="cat-list" /></td>
+      <td><input data-i="${i}" data-f="category" value="${escapeHtml(it.category)}" placeholder="${catPlaceholder}" style="width:240px" list="cat-list" /></td>
       <td><input data-i="${i}" data-f="unit" value="${escapeHtml(it.unit)}" placeholder="sqft" style="width:70px" list="unit-list" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="material" value="${it.material}" inputmode="decimal" style="width:90px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="labor" value="${it.labor}" inputmode="decimal" style="width:90px" /></td>
@@ -195,10 +221,10 @@ document.getElementById('clearAll').addEventListener('click', () => {
 });
 
 document.getElementById('resetStarter').addEventListener('click', () => {
-  if(!confirm('Replace your current price book with the insulation starter set? This overwrites what you have.')) return;
-  items = STARTER.map(x => Object.assign({}, x));
+  if(items.length && !confirm('Replace your current price book with the sample items? This overwrites what you have.')) return;
+  items = SAMPLE.map(x => Object.assign({}, x));
   render();
-  toast('Starter loaded — click Save to keep it.');
+  toast('Sample loaded — edit the prices, then Save.');
 });
 
 document.getElementById('save').addEventListener('click', async () => {
@@ -218,25 +244,98 @@ function toast(msg, isErr){
   toastTimer = setTimeout(()=> t.className='toast', 2200);
 }
 
-// Mirror of the server's insulation seed, for the local "reset to starter" button.
-const STARTER = [
-  { id:'pi_r13batt',  name:'R-13 batt — 2x4 wall',            category:'Insulation', unit:'sqft', material:0.55, labor:0.45, waste:10 },
-  { id:'pi_r19batt',  name:'R-19 batt — 2x6 wall',            category:'Insulation', unit:'sqft', material:0.75, labor:0.50, waste:10 },
-  { id:'pi_r21batt',  name:'R-21 batt — 2x6 wall',            category:'Insulation', unit:'sqft', material:0.95, labor:0.50, waste:10 },
-  { id:'pi_r30batt',  name:'R-30 batt — ceiling',             category:'Insulation', unit:'sqft', material:1.05, labor:0.55, waste:10 },
-  { id:'pi_r38batt',  name:'R-38 batt — ceiling',             category:'Insulation', unit:'sqft', material:1.35, labor:0.60, waste:10 },
-  { id:'pi_blownfg',  name:'Blown-in fiberglass — attic R-38',category:'Insulation', unit:'sqft', material:0.85, labor:0.65, waste:5  },
-  { id:'pi_blowncel', name:'Blown-in cellulose — attic R-30', category:'Insulation', unit:'sqft', material:0.80, labor:0.60, waste:5  },
-  { id:'pi_ocfoam',   name:'Spray foam — open cell',          category:'Insulation', unit:'bdft', material:0.55, labor:0.45, waste:8  },
-  { id:'pi_ccfoam',   name:'Spray foam — closed cell',        category:'Insulation', unit:'bdft', material:1.10, labor:0.55, waste:8  },
-  { id:'pi_soundbatt',name:'Sound batt — interior wall',      category:'Insulation', unit:'sqft', material:0.65, labor:0.45, waste:10 },
-  { id:'pi_vapor',    name:'Vapor barrier — crawlspace',      category:'Insulation', unit:'sqft', material:0.35, labor:0.40, waste:8  }
+// CSI MasterFormat divisions — the standard commercial-construction classification codes.
+// Covers the building-construction divisions (01–14, 21–28, 31–33) that trade contractors
+// actually use; the process/industrial divisions (40+) are left off to keep the list usable.
+const CSI_DIVISIONS = [
+  '01 - General Requirements',
+  '02 - Existing Conditions',
+  '03 - Concrete',
+  '04 - Masonry',
+  '05 - Metals',
+  '06 - Wood, Plastics & Composites',
+  '07 - Thermal & Moisture Protection',
+  '08 - Openings',
+  '09 - Finishes',
+  '10 - Specialties',
+  '11 - Equipment',
+  '12 - Furnishings',
+  '13 - Special Construction',
+  '14 - Conveying Equipment',
+  '21 - Fire Suppression',
+  '22 - Plumbing',
+  '23 - HVAC',
+  '25 - Integrated Automation',
+  '26 - Electrical',
+  '27 - Communications',
+  '28 - Electronic Safety & Security',
+  '31 - Earthwork',
+  '32 - Exterior Improvements',
+  '33 - Utilities'
+];
+
+// Common 6-digit CSI MasterFormat SECTION codes for commercial work. A curated subset of the
+// most-used sections across the building divisions — the field still accepts any custom code.
+const COMMERCIAL_SECTIONS = [
+  '03 30 00 - Cast-in-Place Concrete', '03 35 00 - Concrete Finishing', '03 40 00 - Precast Concrete',
+  '04 20 00 - Unit Masonry', '04 40 00 - Stone Assemblies',
+  '05 10 00 - Structural Metal Framing', '05 40 00 - Cold-Formed Metal Framing', '05 50 00 - Metal Fabrications',
+  '06 10 00 - Rough Carpentry', '06 20 00 - Finish Carpentry', '06 40 00 - Architectural Woodwork',
+  '07 21 00 - Thermal Insulation', '07 24 00 - Exterior Insulation & Finish Systems', '07 40 00 - Roofing & Siding Panels',
+  '07 50 00 - Membrane Roofing', '07 90 00 - Joint Protection',
+  '08 10 00 - Doors & Frames', '08 30 00 - Specialty Doors', '08 50 00 - Windows', '08 80 00 - Glazing',
+  '09 20 00 - Plaster & Gypsum Board', '09 30 00 - Tiling', '09 50 00 - Ceilings',
+  '09 60 00 - Flooring', '09 90 00 - Painting & Coating',
+  '10 20 00 - Interior Specialties', '10 40 00 - Safety Specialties',
+  '21 10 00 - Water-Based Fire-Suppression', '22 10 00 - Plumbing Piping', '22 40 00 - Plumbing Fixtures',
+  '23 30 00 - HVAC Air Distribution', '23 70 00 - Central HVAC Equipment', '23 80 00 - Decentralized HVAC Equipment',
+  '26 05 00 - Common Work Results for Electrical', '26 20 00 - Low-Voltage Electrical Distribution', '26 50 00 - Lighting',
+  '27 10 00 - Structured Cabling', '28 30 00 - Electronic Detection & Alarm',
+  '31 10 00 - Site Clearing', '31 20 00 - Earth Moving',
+  '32 10 00 - Bases, Ballasts & Paving', '32 90 00 - Planting',
+  '33 10 00 - Water Utilities', '33 30 00 - Sanitary Sewerage'
+];
+
+// Residential (2-digit divisions) vs Commercial (6-digit sections). Remembered per browser;
+// in Slice 2 this becomes a per-proposal choice so a proposal prints the matching code depth.
+let csiMode = localStorage.getItem('fieldscale_csimode') === 'commercial' ? 'commercial' : 'residential';
+function updateModeButtons(){
+  document.querySelectorAll('.seg[data-mode]').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-mode') === csiMode));
+  const hint = document.getElementById('modehint');
+  if(hint) hint.textContent = csiMode === 'commercial'
+    ? 'Commercial: full 6-digit MasterFormat section codes.'
+    : 'Residential: simple 2-digit CSI division codes.';
+}
+document.querySelectorAll('.seg[data-mode]').forEach(b => b.addEventListener('click', () => {
+  csiMode = b.getAttribute('data-mode');
+  localStorage.setItem('fieldscale_csimode', csiMode);
+  updateModeButtons();
+  render();
+}));
+updateModeButtons();
+
+// A generic, cross-trade sample — one or two items from several CSI divisions — so a new
+// user can see how the price book works. These are placeholder examples to edit or delete,
+// not a default and not tied to any one trade.
+const SAMPLE = [
+  { id:'s_slab',    name:'Slab on grade — 4"',          category:'03 - Concrete',                        unit:'sqft', material:3.50, labor:2.50, waste:5  },
+  { id:'s_cmu',     name:'CMU block — 8"',              category:'04 - Masonry',                         unit:'sqft', material:6.00, labor:4.00, waste:5  },
+  { id:'s_framing', name:'Wood wall framing',           category:'06 - Wood, Plastics & Composites',     unit:'sqft', material:2.50, labor:3.00, waste:10 },
+  { id:'s_insul',   name:'Batt insulation — walls',     category:'07 - Thermal & Moisture Protection',   unit:'sqft', material:0.55, labor:0.45, waste:10 },
+  { id:'s_door',    name:'Hollow metal door — install', category:'08 - Openings',                        unit:'each', material:350,  labor:150,  waste:0  },
+  { id:'s_drywall', name:'Drywall — hang & finish',     category:'09 - Finishes',                        unit:'sqft', material:0.55, labor:1.10, waste:10 },
+  { id:'s_paint',   name:'Paint — walls, 2 coats',      category:'09 - Finishes',                        unit:'sqft', material:0.25, labor:0.55, waste:5  },
+  { id:'s_plumb',   name:'Fixture rough-in',            category:'22 - Plumbing',                        unit:'each', material:120,  labor:280,  waste:0  },
+  { id:'s_duct',    name:'Ductwork — sheet metal',      category:'23 - HVAC',                            unit:'lnft', material:12,   labor:18,   waste:8  },
+  { id:'s_recept',  name:'Receptacle — install',        category:'26 - Electrical',                      unit:'each', material:8,    labor:35,   waste:0  }
 ];
 
 async function init(){
   try{
     const me = await apiFetch('/api/me');
     document.getElementById('who').textContent = me.username;
+    if(me.role === 'admin'){ document.getElementById('owner-nav').style.display=''; }
   }catch(err){ return; }
   try{
     const res = await apiFetch('/api/pricebook');

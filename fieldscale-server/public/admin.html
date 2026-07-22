@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Owner Dashboard</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2a3140;
+    --text:#e6edf3; --muted:#8b949e; --accent:#3b82f6; --accent2:#2563eb;
+    --green:#2ea043; --danger:#da3633; --amber:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--text);font-size:14px}
+  a{color:var(--accent);text-decoration:none}
+  header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border);
+         background:var(--panel);position:sticky;top:0;z-index:5}
+  header .brand{font-weight:700;font-size:16px}
+  header .brand span{color:var(--accent)}
+  header nav{display:flex;gap:14px;margin-left:8px}
+  header nav a{color:var(--muted);padding:4px 2px}
+  header nav a.active{color:var(--text);border-bottom:2px solid var(--accent);padding-bottom:2px}
+  header .spacer{flex:1}
+  header .who{color:var(--muted);font-size:13px}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 20px 80px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+  .tile{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .tile .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+  .tile .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;margin-top:4px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;background:var(--panel2)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.active{background:rgba(46,160,67,.15);color:var(--green)}
+  .pill.disabled{background:rgba(218,54,51,.15);color:var(--danger)}
+  .pill.admin{background:rgba(59,130,246,.15);color:var(--accent)}
+  .pill.member{background:var(--panel2);color:var(--muted)}
+  .loading{color:var(--muted);padding:40px;text-align:center}
+  .muted{color:var(--muted)}
+  .note{color:var(--muted);font-size:13px;margin-top:14px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Field<span>scale</span></div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/estimates.html">Estimating</a>
+    <a href="/admin.html" class="active">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+</header>
+
+<div class="wrap">
+  <h1>Owner Dashboard</h1>
+  <p class="sub">Every account on your Fieldscale instance and how it's being used. Activity and usage only — never anyone's project contents.</p>
+
+  <div id="loading" class="loading">Loading…</div>
+
+  <div id="content" style="display:none">
+    <div class="tiles" id="tiles"></div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Joined</th>
+            <th>Last active</th>
+            <th class="num">Projects</th>
+            <th class="num">AI calls</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="note">
+      This is a read-only overview. To add, disable, or reset an account, use
+      <strong>Manage Users</strong> in the takeoff app's account menu. Estimate counts will
+      appear here once the estimate builder ships.
+    </p>
+  </div>
+</div>
+
+<script>
+const TOKEN_STORAGE = 'fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+if(!getToken()){ location.href = '/'; }
+
+async function apiFetch(path){
+  const res = await fetch(path, { headers:{ 'Authorization':'Bearer '+getToken() } });
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+function fmtDate(ms){ if(!ms) return '—'; const d = new Date(ms);
+  return d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function daysAgo(ms){ if(!ms) return Infinity; return (Date.now()-ms)/86400000; }
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function tile(n,l){ return `<div class="tile"><div class="n">${n}</div><div class="l">${l}</div></div>`; }
+
+function render(users){
+  const total = users.length;
+  const active7 = users.filter(u => daysAgo(u.lastLoginAt) <= 7).length;
+  const admins = users.filter(u => u.role==='admin').length;
+  const projects = users.reduce((s,u)=> s + (u.projectCount||0), 0);
+  const aiCalls = users.reduce((s,u)=> s + (u.aiCalls||0), 0);
+  document.getElementById('tiles').innerHTML =
+    tile(total,'Customers') + tile(active7,'Active (7 days)') + tile(admins,'Admins') +
+    tile(projects,'Total projects') + tile(aiCalls,'AI calls');
+
+  const rows = users.slice().sort((a,b)=> (b.lastLoginAt||0)-(a.lastLoginAt||0)).map(u => `
+    <tr>
+      <td>${escapeHtml(u.username)}</td>
+      <td><span class="pill ${u.role==='admin'?'admin':'member'}">${u.role}</span></td>
+      <td><span class="pill ${u.disabled?'disabled':'active'}">${u.disabled?'disabled':'active'}</span></td>
+      <td class="muted">${fmtDate(u.createdAt)}</td>
+      <td class="muted">${fmtDate(u.lastLoginAt)}</td>
+      <td class="num">${u.projectCount||0}</td>
+      <td class="num">${u.aiCalls||0}</td>
+    </tr>`).join('');
+  document.getElementById('rows').innerHTML = rows;
+}
+
+async function init(){
+  let me;
+  try{ me = await apiFetch('/api/me'); }catch(e){ return; }
+  document.getElementById('who').textContent = me.username;
+  if(me.role !== 'admin'){
+    document.getElementById('loading').innerHTML =
+      'This page is for the account owner (administrator) only. <a href="/estimates.html">Back to Estimating</a>';
+    return;
+  }
+  try{
+    const data = await apiFetch('/api/admin/users');
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+    render(data.users || []);
+  }catch(err){
+    document.getElementById('loading').textContent = 'Could not load dashboard: ' + err.message;
+  }
+}
+init();
+</script>
+</body>
+</html>

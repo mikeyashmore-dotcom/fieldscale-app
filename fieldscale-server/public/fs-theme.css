@@ -1,0 +1,52 @@
+/* Fieldscale shared design system — matches the takeoff app (index.html).
+   Change tokens/components here to restyle the estimating pages in one place. */
+:root{
+  --ink-navy:#0E2A47; --blueprint:#153A5B; --blueprint-2:#1B4B7A;
+  --cyan:#6FC3E4; --cyan-dim:#3E7A96; --orange:#E8722C; --orange-dim:#C25A1B;
+  --paper:#F6F3EA; --paper-line:#E4DFCF; --charcoal:#1C1E22;
+  --steel:#7C8896; --steel-light:#B9C2CB; --good:#4A9B6E; --danger:#C0392B;
+  --radius:3px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans',sans-serif;background:var(--paper);color:var(--charcoal);font-size:14px}
+a{color:var(--blueprint-2);text-decoration:none}
+header{display:flex;align-items:center;gap:20px;padding:0 16px;height:52px;background:var(--ink-navy);
+       border-bottom:2px solid var(--cyan-dim);color:var(--paper);position:sticky;top:0;z-index:5}
+header .brand{font-family:'Oswald',sans-serif;font-weight:600;font-size:19px;letter-spacing:.5px;
+              color:var(--paper);display:flex;align-items:center;gap:8px;white-space:nowrap}
+header .brand .mark{width:22px;height:22px;border:2px solid var(--cyan);border-radius:2px;position:relative;flex:none}
+header .brand .mark::before,header .brand .mark::after{content:'';position:absolute;background:var(--cyan)}
+header .brand .mark::before{width:2px;height:14px;top:2px;left:8px}
+header .brand .mark::after{width:14px;height:2px;left:2px;top:8px}
+header nav{display:flex;gap:16px}
+header nav a{color:var(--steel-light);font-size:13px;padding:2px 0}
+header nav a.active{color:var(--paper);border-bottom:2px solid var(--orange);padding-bottom:2px}
+header .spacer{flex:1}
+header .who{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel-light)}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 20px 80px}
+h1{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px}
+.sub{color:var(--steel);margin:0 0 20px}
+.card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--paper-line)}
+th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--paper)}
+td.num,th.num{text-align:right}
+tr:last-child td{border-bottom:none}
+input,textarea,select{background:#fff;border:1px solid var(--steel-light);color:var(--charcoal);border-radius:var(--radius);
+      padding:7px 8px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;width:100%}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--cyan-dim)}
+input.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+.btn{background:var(--blueprint-2);color:var(--paper);border:1px solid var(--cyan-dim);border-radius:var(--radius);
+     padding:7px 13px;font-size:12px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;transition:background .12s}
+.btn:hover{background:var(--cyan-dim)}
+.btn.primary{background:var(--orange);border-color:var(--orange-dim)}
+.btn.primary:hover{background:var(--orange-dim)}
+.btn.ghost{background:#fff;color:var(--charcoal);border-color:var(--steel-light)}
+.btn.ghost:hover{background:var(--paper);border-color:var(--steel)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--good);color:#fff;
+       padding:10px 18px;border-radius:var(--radius);font-weight:500;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;font-size:13px}
+.toast.show{opacity:1}
+.toast.err{background:var(--danger)}
+.loading{color:var(--steel);padding:40px;text-align:center}
+.muted{color:var(--steel)}

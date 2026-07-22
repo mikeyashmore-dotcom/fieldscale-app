@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Company Profile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .wrap{max-width:720px}
+  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:4px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  textarea{min-height:64px;resize:vertical}
+  .logo-row{display:flex;align-items:center;gap:16px}
+  .logo-preview{width:120px;height:80px;border:1px dashed var(--steel-light);border-radius:var(--radius);
+    display:flex;align-items:center;justify-content:center;background:var(--paper);overflow:hidden;flex:none}
+  .logo-preview img{max-width:100%;max-height:100%}
+  .logo-preview .ph{color:var(--steel);font-size:12px}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-top:6px}
+  .toolbar .spacer{flex:1}
+  .hint{color:var(--steel);font-size:13px;line-height:1.5;margin-top:4px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/company.html" class="active">Company</a>
+    <a href="/admin.html" id="owner-nav" style="display:none">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+</header>
+
+<div class="wrap">
+  <h1>Company Profile</h1>
+  <p class="sub">Set this once. It auto-fills the top of every new estimate and prints on your proposal PDFs — so you never retype it.</p>
+
+  <div id="loading" class="loading">Loading…</div>
+
+  <div id="content" style="display:none">
+    <div class="block">
+      <div class="field">
+        <label>Logo</label>
+        <div class="logo-row">
+          <div class="logo-preview" id="logo-preview"><span class="ph">No logo</span></div>
+          <div>
+            <input type="file" id="logo-input" accept="image/*" style="display:none" />
+            <div class="toolbar" style="margin-top:0">
+              <button class="btn ghost" id="logo-btn">Upload logo</button>
+              <button class="btn ghost" id="logo-remove" style="display:none">Remove</button>
+            </div>
+            <div class="hint">PNG or JPG. It's automatically resized small for your proposals.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="field"><label>Company name</label><input id="name" placeholder="Your company, LLC" /></div>
+      <div class="row2">
+        <div class="field"><label>Phone</label><input id="phone" /></div>
+        <div class="field"><label>Email</label><input id="email" /></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>License #</label><input id="license" /></div>
+        <div class="field"><label>Website</label><input id="website" /></div>
+      </div>
+      <div class="field"><label>Address</label><textarea id="address" placeholder="Street, City, State ZIP"></textarea></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="spacer"></div>
+      <button class="btn primary" id="save-btn">Save profile</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+
+let logo='';
+function showLogo(){
+  const box=document.getElementById('logo-preview');
+  if(logo){ box.innerHTML=`<img src="${logo}" alt="logo">`; document.getElementById('logo-remove').style.display=''; }
+  else{ box.innerHTML='<span class="ph">No logo</span>'; document.getElementById('logo-remove').style.display='none'; }
+}
+document.getElementById('logo-btn').addEventListener('click', ()=>document.getElementById('logo-input').click());
+document.getElementById('logo-remove').addEventListener('click', ()=>{ logo=''; showLogo(); });
+document.getElementById('logo-input').addEventListener('change', e=>{
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      // Resize down to a max width so the stored logo stays small (a proposal letterhead).
+      const maxW=320, scale=Math.min(1, maxW/img.width);
+      const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      logo=c.toDataURL('image/png');
+      showLogo();
+    };
+    img.onerror=()=>toast('That image could not be read.', true);
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value='';
+});
+
+function val(id){ return document.getElementById(id).value; }
+function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
+
+document.getElementById('save-btn').addEventListener('click', async ()=>{
+  const profile={ name:val('name'), phone:val('phone'), email:val('email'),
+    license:val('license'), website:val('website'), address:val('address'), logo };
+  try{
+    const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile }) });
+    logo=r.profile.logo||''; showLogo();
+    toast('Company profile saved.');
+  }catch(err){ toast(err.message, true); }
+});
+
+async function init(){
+  try{
+    const me=await apiFetch('/api/me');
+    document.getElementById('who').textContent=me.username;
+    if(me.role==='admin') document.getElementById('owner-nav').style.display='';
+  }catch(e){ return; }
+  try{
+    const r=await apiFetch('/api/company');
+    const p=r.profile||{};
+    set('name',p.name); set('phone',p.phone); set('email',p.email);
+    set('license',p.license); set('website',p.website); set('address',p.address);
+    logo=p.logo||''; showLogo();
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+  }catch(err){ document.getElementById('loading').textContent='Could not load profile: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

@@ -4,54 +4,64 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Fieldscale — Owner Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* Shared design system with the takeoff app (index.html) for a cohesive look. */
   :root{
-    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2a3140;
-    --text:#e6edf3; --muted:#8b949e; --accent:#3b82f6; --accent2:#2563eb;
-    --green:#2ea043; --danger:#da3633; --amber:#d29922;
+    --ink-navy:#0E2A47; --blueprint:#153A5B; --blueprint-2:#1B4B7A;
+    --cyan:#6FC3E4; --cyan-dim:#3E7A96; --orange:#E8722C; --orange-dim:#C25A1B;
+    --paper:#F6F3EA; --paper-line:#E4DFCF; --charcoal:#1C1E22;
+    --steel:#7C8896; --steel-light:#B9C2CB; --good:#4A9B6E; --danger:#C0392B;
+    --radius:3px;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-       background:var(--bg);color:var(--text);font-size:14px}
-  a{color:var(--accent);text-decoration:none}
-  header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border);
-         background:var(--panel);position:sticky;top:0;z-index:5}
-  header .brand{font-weight:700;font-size:16px}
-  header .brand span{color:var(--accent)}
-  header nav{display:flex;gap:14px;margin-left:8px}
-  header nav a{color:var(--muted);padding:4px 2px}
-  header nav a.active{color:var(--text);border-bottom:2px solid var(--accent);padding-bottom:2px}
+  body{margin:0;font-family:'IBM Plex Sans',sans-serif;background:var(--paper);color:var(--charcoal);font-size:14px}
+  a{color:var(--blueprint-2);text-decoration:none}
+  header{display:flex;align-items:center;gap:20px;padding:0 16px;height:52px;background:var(--ink-navy);
+         border-bottom:2px solid var(--cyan-dim);color:var(--paper);position:sticky;top:0;z-index:5}
+  header .brand{font-family:'Oswald',sans-serif;font-weight:600;font-size:19px;letter-spacing:.5px;
+                color:var(--paper);display:flex;align-items:center;gap:8px;white-space:nowrap}
+  header .brand .mark{width:22px;height:22px;border:2px solid var(--cyan);border-radius:2px;position:relative;flex:none}
+  header .brand .mark::before,header .brand .mark::after{content:'';position:absolute;background:var(--cyan)}
+  header .brand .mark::before{width:2px;height:14px;top:2px;left:8px}
+  header .brand .mark::after{width:14px;height:2px;left:2px;top:8px}
+  header nav{display:flex;gap:16px}
+  header nav a{color:var(--steel-light);font-size:13px;padding:2px 0}
+  header nav a.active{color:var(--paper);border-bottom:2px solid var(--orange);padding-bottom:2px}
   header .spacer{flex:1}
-  header .who{color:var(--muted);font-size:13px}
+  header .who{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel-light)}
   .wrap{max-width:1100px;margin:0 auto;padding:24px 20px 80px}
-  h1{font-size:20px;margin:0 0 4px}
-  .sub{color:var(--muted);margin:0 0 20px}
+  h1{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--steel);margin:0 0 20px}
   .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
-  .tile{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
-  .tile .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
-  .tile .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;margin-top:4px}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px}
+  .tile .n{font-family:'Oswald',sans-serif;font-size:28px;font-weight:600;color:var(--ink-navy)}
+  .tile .l{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-top:4px}
+  .card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
   table{width:100%;border-collapse:collapse}
-  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;background:var(--panel2)}
-  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--paper-line);white-space:nowrap}
+  th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--paper)}
+  td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
   tr:last-child td{border-bottom:none}
   .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
-  .pill.active{background:rgba(46,160,67,.15);color:var(--green)}
-  .pill.disabled{background:rgba(218,54,51,.15);color:var(--danger)}
-  .pill.admin{background:rgba(59,130,246,.15);color:var(--accent)}
-  .pill.member{background:var(--panel2);color:var(--muted)}
-  .loading{color:var(--muted);padding:40px;text-align:center}
-  .muted{color:var(--muted)}
-  .note{color:var(--muted);font-size:13px;margin-top:14px;line-height:1.5}
+  .pill.active{background:rgba(74,155,110,.15);color:var(--good)}
+  .pill.disabled{background:rgba(192,57,43,.12);color:var(--danger)}
+  .pill.admin{background:rgba(232,114,44,.15);color:var(--orange-dim)}
+  .pill.member{background:var(--paper);color:var(--steel)}
+  .loading{color:var(--steel);padding:40px;text-align:center}
+  .muted{color:var(--steel)}
+  .note{color:var(--steel);font-size:13px;margin-top:14px;line-height:1.5}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">Field<span>scale</span></div>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
   <nav>
     <a href="/">Takeoff</a>
-    <a href="/estimates.html">Estimating</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/company.html">Company</a>
     <a href="/admin.html" class="active">Owner</a>
   </nav>
   <div class="spacer"></div>
@@ -76,6 +86,7 @@
             <th>Joined</th>
             <th>Last active</th>
             <th class="num">Projects</th>
+            <th class="num">Estimates</th>
             <th class="num">AI calls</th>
           </tr>
         </thead>
@@ -84,8 +95,7 @@
     </div>
     <p class="note">
       This is a read-only overview. To add, disable, or reset an account, use
-      <strong>Manage Users</strong> in the takeoff app's account menu. Estimate counts will
-      appear here once the estimate builder ships.
+      <strong>Manage Users</strong> in the takeoff app's account menu.
     </p>
   </div>
 </div>
@@ -115,10 +125,11 @@ function render(users){
   const active7 = users.filter(u => daysAgo(u.lastLoginAt) <= 7).length;
   const admins = users.filter(u => u.role==='admin').length;
   const projects = users.reduce((s,u)=> s + (u.projectCount||0), 0);
+  const estimates = users.reduce((s,u)=> s + (u.estimateCount||0), 0);
   const aiCalls = users.reduce((s,u)=> s + (u.aiCalls||0), 0);
   document.getElementById('tiles').innerHTML =
-    tile(total,'Customers') + tile(active7,'Active (7 days)') + tile(admins,'Admins') +
-    tile(projects,'Total projects') + tile(aiCalls,'AI calls');
+    tile(total,'Customers') + tile(active7,'Active (7 days)') +
+    tile(projects,'Total projects') + tile(estimates,'Total estimates') + tile(aiCalls,'AI calls');
 
   const rows = users.slice().sort((a,b)=> (b.lastLoginAt||0)-(a.lastLoginAt||0)).map(u => `
     <tr>
@@ -128,6 +139,7 @@ function render(users){
       <td class="muted">${fmtDate(u.createdAt)}</td>
       <td class="muted">${fmtDate(u.lastLoginAt)}</td>
       <td class="num">${u.projectCount||0}</td>
+      <td class="num">${u.estimateCount||0}</td>
       <td class="num">${u.aiCalls||0}</td>
     </tr>`).join('');
   document.getElementById('rows').innerHTML = rows;

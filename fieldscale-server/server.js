@@ -131,6 +131,21 @@ function writePricebook(userId, items){
   writeJsonAtomic(pricebookPath(userId), { items });
 }
 
+// ---------- Estimating: proposals/estimates ----------
+// db.json holds lightweight metadata per estimate (for listing); the full document — header,
+// line items, totals, notes — lives in its own small file on disk, one per estimate.
+const ESTIMATES_DIR = path.join(DATA_DIR, 'estimates');
+function estimatePath(id){ return path.join(ESTIMATES_DIR, id + '.json'); }
+function readEstimateDoc(id){
+  const f = estimatePath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writeEstimateDoc(id, doc){
+  if (!fs.existsSync(ESTIMATES_DIR)) fs.mkdirSync(ESTIMATES_DIR, { recursive: true });
+  writeJsonAtomic(estimatePath(id), doc || {});
+}
+
 if (!ANTHROPIC_API_KEY) {
   console.warn('[fieldscale] WARNING: ANTHROPIC_API_KEY not set — AI features (auto-scale, AI select, sheet naming) will not work.');
 }
@@ -139,12 +154,13 @@ if (!ANTHROPIC_API_KEY) {
 function loadDB() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], projects: [], settings: { allowSignups: true } }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], projects: [], estimates: [], settings: { allowSignups: true } }, null, 2));
   }
   const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   // Fill in anything missing so older db.json files keep working after an upgrade.
   parsed.users = parsed.users || [];
   parsed.projects = parsed.projects || [];
+  parsed.estimates = parsed.estimates || [];
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u, i) => {
     if (!u.role) u.role = i === 0 ? 'admin' : 'member'; // existing installs: oldest account becomes admin
@@ -268,7 +284,8 @@ function publicUser(u) {
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt || null,
     aiCalls: u.aiCalls || 0,
-    projectCount: db.projects.filter(p => p.userId === u.id).length
+    projectCount: db.projects.filter(p => p.userId === u.id).length,
+    estimateCount: db.estimates.filter(e => e.userId === u.id).length
   };
 }
 function adminCount() {
@@ -753,6 +770,52 @@ const server = http.createServer(async (req, res) => {
         }));
         writePricebook(userId, clean);
         return sendJSON(res, 200, { items: clean });
+      }
+
+      // ---- Estimating: list / create estimates ----
+      if (pathname === '/api/estimates' && req.method === 'GET') {
+        const list = db.estimates.filter(e => e.userId === userId)
+          .map(e => ({ id: e.id, name: e.name, client: e.client || '', total: e.total || 0,
+                       status: e.status || 'draft', createdAt: e.createdAt, updatedAt: e.updatedAt }))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/estimates' && req.method === 'POST') {
+        const { name, client, doc } = await readBody(req);
+        const est = { id: 'e_' + crypto.randomBytes(8).toString('hex'), userId,
+          name: name || 'Untitled Estimate', client: client || '', total: 0, status: 'draft',
+          createdAt: Date.now(), updatedAt: Date.now() };
+        writeEstimateDoc(est.id, doc || {});
+        db.estimates.push(est);
+        saveDB(db);
+        return sendJSON(res, 200, { id: est.id });
+      }
+      // ---- Estimating: one estimate (get / update / delete; must belong to this user) ----
+      const estMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)$/);
+      if (estMatch) {
+        const est = db.estimates.find(e => e.id === estMatch[1] && e.userId === userId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, { id: est.id, name: est.name, client: est.client, total: est.total,
+            status: est.status, createdAt: est.createdAt, updatedAt: est.updatedAt, doc: readEstimateDoc(est.id) });
+        }
+        if (req.method === 'PUT') {
+          const { name, client, total, status, doc } = await readBody(req);
+          if (name !== undefined) est.name = String(name).slice(0, 200);
+          if (client !== undefined) est.client = String(client).slice(0, 200);
+          if (typeof total === 'number') est.total = total;
+          if (status !== undefined) est.status = String(status).slice(0, 40);
+          if (doc !== undefined) writeEstimateDoc(est.id, doc);
+          est.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { id: est.id, updatedAt: est.updatedAt });
+        }
+        if (req.method === 'DELETE') {
+          db.estimates = db.estimates.filter(e => e.id !== est.id);
+          try { fs.unlinkSync(estimatePath(est.id)); } catch (e) {}
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
       }
 
       return sendJSON(res, 404, { error: 'Unknown API route.' });

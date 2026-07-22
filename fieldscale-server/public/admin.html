@@ -59,7 +59,8 @@
   <div class="brand"><span class="mark"></span>FIELDSCALE</div>
   <nav>
     <a href="/">Takeoff</a>
-    <a href="/estimates.html">Estimating</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/estimates.html">Price Book</a>
     <a href="/admin.html" class="active">Owner</a>
   </nav>
   <div class="spacer"></div>
@@ -84,6 +85,7 @@
             <th>Joined</th>
             <th>Last active</th>
             <th class="num">Projects</th>
+            <th class="num">Estimates</th>
             <th class="num">AI calls</th>
           </tr>
         </thead>
@@ -92,8 +94,7 @@
     </div>
     <p class="note">
       This is a read-only overview. To add, disable, or reset an account, use
-      <strong>Manage Users</strong> in the takeoff app's account menu. Estimate counts will
-      appear here once the estimate builder ships.
+      <strong>Manage Users</strong> in the takeoff app's account menu.
     </p>
   </div>
 </div>
@@ -123,10 +124,11 @@ function render(users){
   const active7 = users.filter(u => daysAgo(u.lastLoginAt) <= 7).length;
   const admins = users.filter(u => u.role==='admin').length;
   const projects = users.reduce((s,u)=> s + (u.projectCount||0), 0);
+  const estimates = users.reduce((s,u)=> s + (u.estimateCount||0), 0);
   const aiCalls = users.reduce((s,u)=> s + (u.aiCalls||0), 0);
   document.getElementById('tiles').innerHTML =
-    tile(total,'Customers') + tile(active7,'Active (7 days)') + tile(admins,'Admins') +
-    tile(projects,'Total projects') + tile(aiCalls,'AI calls');
+    tile(total,'Customers') + tile(active7,'Active (7 days)') +
+    tile(projects,'Total projects') + tile(estimates,'Total estimates') + tile(aiCalls,'AI calls');
 
   const rows = users.slice().sort((a,b)=> (b.lastLoginAt||0)-(a.lastLoginAt||0)).map(u => `
     <tr>
@@ -136,6 +138,7 @@ function render(users){
       <td class="muted">${fmtDate(u.createdAt)}</td>
       <td class="muted">${fmtDate(u.lastLoginAt)}</td>
       <td class="num">${u.projectCount||0}</td>
+      <td class="num">${u.estimateCount||0}</td>
       <td class="num">${u.aiCalls||0}</td>
     </tr>`).join('');
   document.getElementById('rows').innerHTML = rows;

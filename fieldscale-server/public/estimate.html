@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Estimate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .wrap{max-width:1040px}
+  .pagebar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .pagebar input.title{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;border:none;border-bottom:1px solid var(--paper-line);
+    background:transparent;width:340px;padding:4px 2px}
+  .pagebar input.title:focus{border-bottom-color:var(--cyan-dim)}
+  .pagebar .spacer{flex:1}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
+  .field{margin-bottom:8px}
+  .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .lines td,.lines th{padding:8px 8px}
+  .lines input{padding:6px 7px}
+  .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:var(--radius)}
+  .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  .amt{font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+  .lineadd{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
+  .lineadd select{width:auto;min-width:280px;max-width:420px}
+  .bottom{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:20px;align-items:start}
+  .totals{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .totals .tr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px}
+  .totals .tr .v{font-family:'IBM Plex Mono',monospace}
+  .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:6px;padding-top:10px;font-family:'Oswald',sans-serif;font-size:18px}
+  .totals input.pct{width:64px;text-align:right;font-family:'IBM Plex Mono',monospace;padding:4px 6px}
+  textarea{min-height:80px;resize:vertical}
+  .note-blocks .block{margin-bottom:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/proposals.html" class="active">Estimates</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/admin.html" id="owner-nav" style="display:none">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="loading">Loading…</div>
+
+  <div id="content" style="display:none">
+    <div class="pagebar">
+      <a href="/proposals.html" class="btn ghost">← Estimates</a>
+      <input class="title" id="est-name" placeholder="Estimate name" />
+      <div class="spacer"></div>
+      <button class="btn ghost" id="save-btn">Save</button>
+      <button class="btn primary" id="pdf-btn">Generate PDF</button>
+    </div>
+
+    <div class="grid2">
+      <div class="block">
+        <h3>Your Company</h3>
+        <div class="field"><label>Company name</label><input id="co-name" placeholder="Your company" /></div>
+        <div class="row3">
+          <div class="field"><label>Phone</label><input id="co-phone" /></div>
+          <div class="field"><label>Email</label><input id="co-email" /></div>
+          <div class="field"><label>License #</label><input id="co-license" /></div>
+        </div>
+        <div class="field"><label>Address</label><input id="co-address" /></div>
+      </div>
+      <div class="block">
+        <h3>Client</h3>
+        <div class="field"><label>Client name</label><input id="cl-name" placeholder="Customer name" /></div>
+        <div class="field"><label>Client address</label><input id="cl-address" /></div>
+        <div class="field"><label>Project / job</label><input id="project" placeholder="e.g. Kitchen remodel — 123 Main St" /></div>
+        <div class="row3">
+          <div class="field"><label>Estimate #</label><input id="est-no" /></div>
+          <div class="field"><label>Date</label><input id="est-date" type="date" /></div>
+          <div class="field"><label>Valid until</label><input id="est-valid" type="date" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <table class="lines">
+        <thead>
+          <tr>
+            <th>Description</th><th>Code</th><th class="num">Qty</th><th>Unit</th>
+            <th class="num">Unit price</th><th class="num">Amount</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="lines"></tbody>
+      </table>
+    </div>
+    <div class="lineadd">
+      <select id="pb-select"><option value="">Add from price book…</option></select>
+      <button class="btn ghost" id="add-pb">＋ Add item</button>
+      <button class="btn ghost" id="add-blank">＋ Blank line</button>
+    </div>
+
+    <div class="bottom">
+      <div class="note-blocks">
+        <div class="block">
+          <h3>Scope / Notes (shown on the proposal)</h3>
+          <textarea id="notes" placeholder="Describe the work, inclusions, exclusions…"></textarea>
+        </div>
+        <div class="block">
+          <h3>Terms</h3>
+          <textarea id="terms" placeholder="Payment terms, deposit, warranty, validity…"></textarea>
+        </div>
+      </div>
+      <div class="totals">
+        <div class="tr"><span>Subtotal</span><span class="v" id="t-sub">$0.00</span></div>
+        <div class="tr"><span>Markup <input class="pct" id="t-markup" inputmode="decimal" value="0" />%</span><span class="v" id="t-mk">$0.00</span></div>
+        <div class="tr"><span>Tax <input class="pct" id="t-tax" inputmode="decimal" value="0" />%</span><span class="v" id="t-tx">$0.00</span></div>
+        <div class="tr total"><span>Total</span><span class="v" id="t-total">$0.00</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+if(!getToken()){ location.href='/'; }
+const estId = new URLSearchParams(location.search).get('id');
+if(!estId){ location.href='/proposals.html'; }
+
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+
+let doc = { company:{}, client:{}, lines:[], markupPct:0, taxPct:0 };
+let pricebook = [];
+let estName = 'Untitled Estimate';
+
+function pbUnitCost(it){ return Math.round(((Number(it.material)||0)+(Number(it.labor)||0))*(1+(Number(it.waste)||0)/100)*100)/100; }
+
+function computeTotals(){
+  const subtotal = doc.lines.reduce((s,l)=> s + (Number(l.qty)||0)*(Number(l.unitCost)||0), 0);
+  const markup = subtotal*(Number(doc.markupPct)||0)/100;
+  const price = subtotal + markup;
+  const tax = price*(Number(doc.taxPct)||0)/100;
+  const total = price + tax;
+  return { subtotal, markup, price, tax, total };
+}
+function renderTotals(){
+  const t=computeTotals();
+  document.getElementById('t-sub').textContent=money(t.subtotal);
+  document.getElementById('t-mk').textContent=money(t.markup);
+  document.getElementById('t-tx').textContent=money(t.tax);
+  document.getElementById('t-total').textContent=money(t.total);
+}
+function renderLines(){
+  const tb=document.getElementById('lines');
+  if(!doc.lines.length){
+    tb.innerHTML=`<tr><td colspan="7" style="padding:26px;text-align:center;color:var(--steel)">
+      No line items yet. Add from your price book below, or add a blank line.</td></tr>`;
+    renderTotals(); return;
+  }
+  tb.innerHTML=doc.lines.map((l,i)=>{
+    const amt=(Number(l.qty)||0)*(Number(l.unitCost)||0);
+    return `<tr>
+      <td><input data-i="${i}" data-f="name" value="${escapeHtml(l.name)}" placeholder="Description" /></td>
+      <td><input data-i="${i}" data-f="code" value="${escapeHtml(l.code)}" style="width:130px" /></td>
+      <td class="num"><input class="num" data-i="${i}" data-f="qty" value="${l.qty}" inputmode="decimal" style="width:78px" /></td>
+      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(l.unit)}" style="width:66px" /></td>
+      <td class="num"><input class="num" data-i="${i}" data-f="unitCost" value="${l.unitCost}" inputmode="decimal" style="width:96px" /></td>
+      <td class="num amt" data-amt="${i}">${money(amt)}</td>
+      <td class="num"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td>
+    </tr>`;
+  }).join('');
+  renderTotals();
+}
+document.getElementById('lines').addEventListener('input', e=>{
+  const el=e.target, i=el.getAttribute('data-i'), f=el.getAttribute('data-f');
+  if(i===null||i===undefined) return;
+  const num=(f==='qty'||f==='unitCost');
+  doc.lines[i][f]= num ? (parseFloat(el.value)||0) : el.value;
+  if(num){
+    const amt=(Number(doc.lines[i].qty)||0)*(Number(doc.lines[i].unitCost)||0);
+    const cell=document.querySelector(`[data-amt="${i}"]`); if(cell) cell.textContent=money(amt);
+    renderTotals();
+  }
+});
+document.getElementById('lines').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-del');
+  if(d!==null && d!==undefined){ doc.lines.splice(Number(d),1); renderLines(); }
+});
+document.getElementById('add-blank').addEventListener('click', ()=>{
+  doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:'', code:'', unit:'', qty:1, unitCost:0 });
+  renderLines();
+});
+document.getElementById('add-pb').addEventListener('click', ()=>{
+  const sel=document.getElementById('pb-select');
+  const idx=sel.value; if(idx==='') return;
+  const it=pricebook[Number(idx)]; if(!it) return;
+  doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:it.name, code:it.category||'', unit:it.unit||'', qty:1, unitCost:pbUnitCost(it) });
+  sel.value='';
+  renderLines();
+});
+['t-markup','t-tax'].forEach(id=>document.getElementById(id).addEventListener('input', ()=>{
+  doc.markupPct=parseFloat(document.getElementById('t-markup').value)||0;
+  doc.taxPct=parseFloat(document.getElementById('t-tax').value)||0;
+  renderTotals();
+}));
+
+// ---- collect the editable header fields back into `doc` ----
+function syncDocFromForm(){
+  estName=document.getElementById('est-name').value || 'Untitled Estimate';
+  doc.company={ name:val('co-name'), phone:val('co-phone'), email:val('co-email'), license:val('co-license'), address:val('co-address') };
+  doc.client={ name:val('cl-name'), address:val('cl-address') };
+  doc.project=val('project'); doc.estimateNo=val('est-no'); doc.date=val('est-date'); doc.validUntil=val('est-valid');
+  doc.notes=val('notes'); doc.terms=val('terms');
+  doc.markupPct=parseFloat(document.getElementById('t-markup').value)||0;
+  doc.taxPct=parseFloat(document.getElementById('t-tax').value)||0;
+}
+function val(id){ return document.getElementById(id).value; }
+
+async function save(){
+  syncDocFromForm();
+  const total=computeTotals().total;
+  await apiFetch('/api/estimates/'+estId, { method:'PUT', body: JSON.stringify({ name:estName, client:doc.client.name, total, doc }) });
+}
+document.getElementById('save-btn').addEventListener('click', async ()=>{
+  try{ await save(); toast('Estimate saved.'); }catch(err){ toast(err.message,true); }
+});
+document.getElementById('pdf-btn').addEventListener('click', async ()=>{
+  try{ await save(); openProposalPDF(); }catch(err){ toast(err.message,true); }
+});
+
+// ---- Build a clean, printable proposal and open it for "Save as PDF" / print ----
+function openProposalPDF(){
+  const t=computeTotals();
+  const rows=doc.lines.map((l,i)=>`<tr>
+      <td class="c">${i+1}</td>
+      <td>${escapeHtml(l.name)}${l.code?`<div class="code">${escapeHtml(l.code)}</div>`:''}</td>
+      <td class="r">${Number(l.qty)||0}</td>
+      <td>${escapeHtml(l.unit)}</td>
+      <td class="r">${money(l.unitCost)}</td>
+      <td class="r">${money((Number(l.qty)||0)*(Number(l.unitCost)||0))}</td>
+    </tr>`).join('');
+  const co=doc.company||{}, cl=doc.client||{};
+  const coLines=[co.phone,co.email,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(estName)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
+  .co .sub{color:#7C8896;font-size:12px}
+  .doc{text-align:right}
+  .doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:#E8722C;letter-spacing:1px}
+  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+  .parties{display:flex;gap:40px;margin-bottom:20px}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties .val{font-size:13px;line-height:1.5}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  th.r,td.r{text-align:right} th.c,td.c{text-align:center}
+  td{padding:8px 10px;border-bottom:1px solid #E4DFCF;vertical-align:top}
+  td .code{color:#7C8896;font-size:11px;margin-top:2px}
+  .totals{width:300px;margin-left:auto}
+  .totals .tr{display:flex;justify-content:space-between;padding:5px 0}
+  .totals .tr.total{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  .sec .body{white-space:pre-wrap;line-height:1.5}
+  .foot{margin-top:34px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  @media print{ body{padding:0} .noprint{display:none} @page{margin:16mm} }
+  .bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
+  .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
+  .spacer40{height:52px}
+</style></head><body>
+  <div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div>
+  <div class="spacer40 noprint"></div>
+  <div class="head">
+    <div class="co"><h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
+    <div class="doc"><div class="big">ESTIMATE</div><div class="meta">
+      ${doc.estimateNo?('No. '+escapeHtml(doc.estimateNo)+'<br>'):''}
+      ${doc.date?('Date: '+escapeHtml(doc.date)+'<br>'):''}
+      ${doc.validUntil?('Valid until: '+escapeHtml(doc.validUntil)):''}
+    </div></div>
+  </div>
+  <div class="parties">
+    <div><h4>Prepared for</h4><div class="val"><strong>${escapeHtml(cl.name||'—')}</strong>${cl.address?('<br>'+escapeHtml(cl.address)):''}</div></div>
+    ${doc.project?`<div><h4>Project</h4><div class="val">${escapeHtml(doc.project)}</div></div>`:''}
+  </div>
+  <table>
+    <thead><tr><th class="c">#</th><th>Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>'}</tbody>
+  </table>
+  <div class="totals">
+    <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
+    ${doc.markupPct?`<div class="tr"><span>Markup (${doc.markupPct}%)</span><span>${money(t.markup)}</span></div>`:''}
+    ${doc.taxPct?`<div class="tr"><span>Tax (${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
+    <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
+  </div>
+  ${doc.notes?`<div class="sec"><h4>Scope of work</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:''}
+  ${doc.terms?`<div class="sec"><h4>Terms</h4><div class="body">${escapeHtml(doc.terms)}</div></div>`:''}
+  <div class="foot">Thank you for the opportunity. ${escapeHtml(co.name||'')}</div>
+</body></html>`;
+  const w=window.open('','_blank');
+  if(!w){ toast('Please allow pop-ups to generate the PDF.', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+// ---- load ----
+function fillForm(){
+  document.getElementById('est-name').value=estName;
+  const co=doc.company||{}, cl=doc.client||{};
+  set('co-name',co.name); set('co-phone',co.phone); set('co-email',co.email); set('co-license',co.license); set('co-address',co.address);
+  set('cl-name',cl.name); set('cl-address',cl.address);
+  set('project',doc.project); set('est-no',doc.estimateNo); set('est-date',doc.date); set('est-valid',doc.validUntil);
+  set('notes',doc.notes); set('terms',doc.terms);
+  document.getElementById('t-markup').value=doc.markupPct||0;
+  document.getElementById('t-tax').value=doc.taxPct||0;
+}
+function set(id,v){ document.getElementById(id).value = (v==null?'':v); }
+
+async function init(){
+  let me;
+  try{ me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username;
+    if(me.role==='admin') document.getElementById('owner-nav').style.display='';
+  }catch(e){ return; }
+  try{
+    const [est, pb] = await Promise.all([ apiFetch('/api/estimates/'+estId), apiFetch('/api/pricebook') ]);
+    estName = est.name || 'Untitled Estimate';
+    doc = Object.assign({ company:{}, client:{}, lines:[], markupPct:0, taxPct:0 }, est.doc||{});
+    doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];
+    pricebook = pb.items || [];
+    const sel=document.getElementById('pb-select');
+    pricebook.forEach((it,i)=>{ const o=document.createElement('option'); o.value=i;
+      o.textContent = it.name + (it.unit?(' · '+it.unit):'') + ' · '+money(pbUnitCost(it)); sel.appendChild(o); });
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+    fillForm(); renderLines();
+  }catch(err){ document.getElementById('loading').textContent='Could not load estimate: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

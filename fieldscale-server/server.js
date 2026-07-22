@@ -119,17 +119,17 @@ function pricebookPath(userId){ return path.join(PRICEBOOKS_DIR, userId + '.json
 // empty on day one. Every number is meant to be edited to the contractor's real costs.
 // material/labor are dollars per `unit`; waste is a percentage added to the quantity.
 const DEFAULT_PRICEBOOK = [
-  { id: 'pi_r13batt',  name: 'R-13 batt — 2x4 wall',            unit: 'sqft', material: 0.55, labor: 0.45, waste: 10 },
-  { id: 'pi_r19batt',  name: 'R-19 batt — 2x6 wall',            unit: 'sqft', material: 0.75, labor: 0.50, waste: 10 },
-  { id: 'pi_r21batt',  name: 'R-21 batt — 2x6 wall',            unit: 'sqft', material: 0.95, labor: 0.50, waste: 10 },
-  { id: 'pi_r30batt',  name: 'R-30 batt — ceiling',             unit: 'sqft', material: 1.05, labor: 0.55, waste: 10 },
-  { id: 'pi_r38batt',  name: 'R-38 batt — ceiling',             unit: 'sqft', material: 1.35, labor: 0.60, waste: 10 },
-  { id: 'pi_blownfg',  name: 'Blown-in fiberglass — attic R-38',unit: 'sqft', material: 0.85, labor: 0.65, waste: 5  },
-  { id: 'pi_blowncel', name: 'Blown-in cellulose — attic R-30', unit: 'sqft', material: 0.80, labor: 0.60, waste: 5  },
-  { id: 'pi_ocfoam',   name: 'Spray foam — open cell',          unit: 'bdft', material: 0.55, labor: 0.45, waste: 8  },
-  { id: 'pi_ccfoam',   name: 'Spray foam — closed cell',        unit: 'bdft', material: 1.10, labor: 0.55, waste: 8  },
-  { id: 'pi_soundbatt',name: 'Sound batt — interior wall',      unit: 'sqft', material: 0.65, labor: 0.45, waste: 10 },
-  { id: 'pi_vapor',    name: 'Vapor barrier — crawlspace',      unit: 'sqft', material: 0.35, labor: 0.40, waste: 8  }
+  { id: 'pi_r13batt',  name: 'R-13 batt — 2x4 wall',            category: 'Insulation', unit: 'sqft', material: 0.55, labor: 0.45, waste: 10 },
+  { id: 'pi_r19batt',  name: 'R-19 batt — 2x6 wall',            category: 'Insulation', unit: 'sqft', material: 0.75, labor: 0.50, waste: 10 },
+  { id: 'pi_r21batt',  name: 'R-21 batt — 2x6 wall',            category: 'Insulation', unit: 'sqft', material: 0.95, labor: 0.50, waste: 10 },
+  { id: 'pi_r30batt',  name: 'R-30 batt — ceiling',             category: 'Insulation', unit: 'sqft', material: 1.05, labor: 0.55, waste: 10 },
+  { id: 'pi_r38batt',  name: 'R-38 batt — ceiling',             category: 'Insulation', unit: 'sqft', material: 1.35, labor: 0.60, waste: 10 },
+  { id: 'pi_blownfg',  name: 'Blown-in fiberglass — attic R-38',category: 'Insulation', unit: 'sqft', material: 0.85, labor: 0.65, waste: 5  },
+  { id: 'pi_blowncel', name: 'Blown-in cellulose — attic R-30', category: 'Insulation', unit: 'sqft', material: 0.80, labor: 0.60, waste: 5  },
+  { id: 'pi_ocfoam',   name: 'Spray foam — open cell',          category: 'Insulation', unit: 'bdft', material: 0.55, labor: 0.45, waste: 8  },
+  { id: 'pi_ccfoam',   name: 'Spray foam — closed cell',        category: 'Insulation', unit: 'bdft', material: 1.10, labor: 0.55, waste: 8  },
+  { id: 'pi_soundbatt',name: 'Sound batt — interior wall',      category: 'Insulation', unit: 'sqft', material: 0.65, labor: 0.45, waste: 10 },
+  { id: 'pi_vapor',    name: 'Vapor barrier — crawlspace',      category: 'Insulation', unit: 'sqft', material: 0.35, labor: 0.40, waste: 8  }
 ];
 
 function readPricebook(userId){
@@ -757,6 +757,7 @@ const server = http.createServer(async (req, res) => {
         const clean = items.slice(0, 2000).map(it => ({
           id: String(it.id || ('pi_' + crypto.randomBytes(6).toString('hex'))).slice(0, 40),
           name: String(it.name || '').slice(0, 120),
+          category: String(it.category || '').slice(0, 60),
           unit: String(it.unit || '').slice(0, 20),
           material: Number(it.material) || 0,
           labor: Number(it.labor) || 0,

@@ -131,6 +131,19 @@ function writePricebook(userId, items){
   writeJsonAtomic(pricebookPath(userId), { items });
 }
 
+// ---------- Company profile (per-user, set once, auto-fills every estimate) ----------
+const COMPANIES_DIR = path.join(DATA_DIR, 'companies');
+function companyPath(userId){ return path.join(COMPANIES_DIR, userId + '.json'); }
+function readCompany(userId){
+  const f = companyPath(userId);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writeCompany(userId, profile){
+  if (!fs.existsSync(COMPANIES_DIR)) fs.mkdirSync(COMPANIES_DIR, { recursive: true });
+  writeJsonAtomic(companyPath(userId), profile);
+}
+
 // ---------- Estimating: proposals/estimates ----------
 // db.json holds lightweight metadata per estimate (for listing); the full document — header,
 // line items, totals, notes — lives in its own small file on disk, one per estimate.
@@ -770,6 +783,29 @@ const server = http.createServer(async (req, res) => {
         }));
         writePricebook(userId, clean);
         return sendJSON(res, 200, { items: clean });
+      }
+
+      // ---- Company profile: get / save (private, per-user) ----
+      if (pathname === '/api/company' && req.method === 'GET') {
+        return sendJSON(res, 200, { profile: readCompany(userId) });
+      }
+      if (pathname === '/api/company' && req.method === 'PUT') {
+        const { profile } = await readBody(req);
+        const p = profile || {};
+        // Re-shape server-side so the file only ever holds expected fields. The logo is a data
+        // URL kept small (a proposal letterhead, not a hi-res photo); anything else is rejected.
+        const logoOk = typeof p.logo === 'string' && p.logo.startsWith('data:image/') && p.logo.length < 800000;
+        const clean = {
+          name: String(p.name || '').slice(0, 200),
+          phone: String(p.phone || '').slice(0, 60),
+          email: String(p.email || '').slice(0, 120),
+          license: String(p.license || '').slice(0, 80),
+          website: String(p.website || '').slice(0, 160),
+          address: String(p.address || '').slice(0, 300),
+          logo: logoOk ? p.logo : ''
+        };
+        writeCompany(userId, clean);
+        return sendJSON(res, 200, { profile: clean });
       }
 
       // ---- Estimating: list / create estimates ----

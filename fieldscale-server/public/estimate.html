@@ -44,6 +44,7 @@
     <a href="/">Takeoff</a>
     <a href="/proposals.html" class="active">Estimates</a>
     <a href="/estimates.html">Price Book</a>
+    <a href="/company.html">Company</a>
     <a href="/admin.html" id="owner-nav" style="display:none">Owner</a>
   </nav>
   <div class="spacer"></div>
@@ -65,6 +66,7 @@
     <div class="grid2">
       <div class="block">
         <h3>Your Company</h3>
+        <div style="font-size:12px;color:var(--steel);margin:-4px 0 10px">Auto-filled from your <a href="/company.html">Company Profile</a> (incl. logo). Edits here apply to this estimate only.</div>
         <div class="field"><label>Company name</label><input id="co-name" placeholder="Your company" /></div>
         <div class="row3">
           <div class="field"><label>Phone</label><input id="co-phone" /></div>
@@ -224,7 +226,8 @@ document.getElementById('add-pb').addEventListener('click', ()=>{
 // ---- collect the editable header fields back into `doc` ----
 function syncDocFromForm(){
   estName=document.getElementById('est-name').value || 'Untitled Estimate';
-  doc.company={ name:val('co-name'), phone:val('co-phone'), email:val('co-email'), license:val('co-license'), address:val('co-address') };
+  doc.company={ name:val('co-name'), phone:val('co-phone'), email:val('co-email'), license:val('co-license'), address:val('co-address'),
+    website:(doc.company&&doc.company.website)||'', logo:(doc.company&&doc.company.logo)||'' };
   doc.client={ name:val('cl-name'), address:val('cl-address') };
   doc.project=val('project'); doc.estimateNo=val('est-no'); doc.date=val('est-date'); doc.validUntil=val('est-valid');
   doc.notes=val('notes'); doc.terms=val('terms');
@@ -257,7 +260,8 @@ function openProposalPDF(){
       <td class="r">${money((Number(l.qty)||0)*(Number(l.unitCost)||0))}</td>
     </tr>`).join('');
   const co=doc.company||{}, cl=doc.client||{};
-  const coLines=[co.phone,co.email,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(estName)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -290,7 +294,7 @@ function openProposalPDF(){
   <div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div>
   <div class="spacer40 noprint"></div>
   <div class="head">
-    <div class="co"><h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
+    <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
     <div class="doc"><div class="big">ESTIMATE</div><div class="meta">
       ${doc.estimateNo?('No. '+escapeHtml(doc.estimateNo)+'<br>'):''}
       ${doc.date?('Date: '+escapeHtml(doc.date)+'<br>'):''}
@@ -339,10 +343,16 @@ async function init(){
     if(me.role==='admin') document.getElementById('owner-nav').style.display='';
   }catch(e){ return; }
   try{
-    const [est, pb] = await Promise.all([ apiFetch('/api/estimates/'+estId), apiFetch('/api/pricebook') ]);
+    const [est, pb, comp] = await Promise.all([ apiFetch('/api/estimates/'+estId), apiFetch('/api/pricebook'), apiFetch('/api/company') ]);
     estName = est.name || 'Untitled Estimate';
     doc = Object.assign({ company:{}, client:{}, lines:[], markupPct:0, taxPct:0 }, est.doc||{});
     doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];
+    // New estimate with no company entered yet → prefill from the saved Company Profile.
+    const prof = comp.profile || {};
+    if(!doc.company.name && !doc.company.phone && !doc.company.email && !doc.company.address){
+      doc.company = { name:prof.name||'', phone:prof.phone||'', email:prof.email||'', license:prof.license||'',
+        website:prof.website||'', address:prof.address||'', logo:prof.logo||'' };
+    }
     pricebook = pb.items || [];
     const sel=document.getElementById('pb-select');
     pricebook.forEach((it,i)=>{ const o=document.createElement('option'); o.value=i;

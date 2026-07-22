@@ -108,6 +108,41 @@ function rotateSnapshot(id, force){
   });
 }
 
+// ---------- Estimating: per-user price book ----------
+// A price book is this user's saved list of priced work items. It's small text, private to
+// one person, and read/written as a whole — so it lives in its own per-user file rather than
+// bloating db.json (same reasoning that keeps takeoffs out of db.json).
+const PRICEBOOKS_DIR = path.join(DATA_DIR, 'pricebooks');
+function pricebookPath(userId){ return path.join(PRICEBOOKS_DIR, userId + '.json'); }
+
+// Realistic ballpark insulation prices a new user gets to start with, so the estimator isn't
+// empty on day one. Every number is meant to be edited to the contractor's real costs.
+// material/labor are dollars per `unit`; waste is a percentage added to the quantity.
+const DEFAULT_PRICEBOOK = [
+  { id: 'pi_r13batt',  name: 'R-13 batt — 2x4 wall',            unit: 'sqft', material: 0.55, labor: 0.45, waste: 10 },
+  { id: 'pi_r19batt',  name: 'R-19 batt — 2x6 wall',            unit: 'sqft', material: 0.75, labor: 0.50, waste: 10 },
+  { id: 'pi_r21batt',  name: 'R-21 batt — 2x6 wall',            unit: 'sqft', material: 0.95, labor: 0.50, waste: 10 },
+  { id: 'pi_r30batt',  name: 'R-30 batt — ceiling',             unit: 'sqft', material: 1.05, labor: 0.55, waste: 10 },
+  { id: 'pi_r38batt',  name: 'R-38 batt — ceiling',             unit: 'sqft', material: 1.35, labor: 0.60, waste: 10 },
+  { id: 'pi_blownfg',  name: 'Blown-in fiberglass — attic R-38',unit: 'sqft', material: 0.85, labor: 0.65, waste: 5  },
+  { id: 'pi_blowncel', name: 'Blown-in cellulose — attic R-30', unit: 'sqft', material: 0.80, labor: 0.60, waste: 5  },
+  { id: 'pi_ocfoam',   name: 'Spray foam — open cell',          unit: 'bdft', material: 0.55, labor: 0.45, waste: 8  },
+  { id: 'pi_ccfoam',   name: 'Spray foam — closed cell',        unit: 'bdft', material: 1.10, labor: 0.55, waste: 8  },
+  { id: 'pi_soundbatt',name: 'Sound batt — interior wall',      unit: 'sqft', material: 0.65, labor: 0.45, waste: 10 },
+  { id: 'pi_vapor',    name: 'Vapor barrier — crawlspace',      unit: 'sqft', material: 0.35, labor: 0.40, waste: 8  }
+];
+
+function readPricebook(userId){
+  const f = pricebookPath(userId);
+  if (!fs.existsSync(f)) return null; // null = "this user has never saved one yet"
+  try { const d = JSON.parse(fs.readFileSync(f, 'utf8')); return Array.isArray(d.items) ? d.items : []; }
+  catch (e) { return []; }
+}
+function writePricebook(userId, items){
+  if (!fs.existsSync(PRICEBOOKS_DIR)) fs.mkdirSync(PRICEBOOKS_DIR, { recursive: true });
+  writeJsonAtomic(pricebookPath(userId), { items });
+}
+
 if (!ANTHROPIC_API_KEY) {
   console.warn('[fieldscale] WARNING: ANTHROPIC_API_KEY not set — AI features (auto-scale, AI select, sheet naming) will not work.');
 }
@@ -704,6 +739,31 @@ const server = http.createServer(async (req, res) => {
 
         const textOut = (data.content || []).map(b => b.text || '').join('\n');
         return sendJSON(res, 200, { text: textOut });
+      }
+
+      // ---- Estimating: the user's price book (private, per-user) ----
+      // GET returns the saved list; a brand-new user gets seeded with the insulation starter
+      // set so the estimator has something to work with immediately.
+      if (pathname === '/api/pricebook' && req.method === 'GET') {
+        let items = readPricebook(userId);
+        if (items === null) { items = DEFAULT_PRICEBOOK; writePricebook(userId, items); }
+        return sendJSON(res, 200, { items });
+      }
+      // PUT replaces the whole list. We re-shape every row server-side so the file can only
+      // ever hold clean, expected fields — the browser doesn't get to store arbitrary junk.
+      if (pathname === '/api/pricebook' && req.method === 'PUT') {
+        const { items } = await readBody(req);
+        if (!Array.isArray(items)) return sendJSON(res, 400, { error: 'items must be an array.' });
+        const clean = items.slice(0, 2000).map(it => ({
+          id: String(it.id || ('pi_' + crypto.randomBytes(6).toString('hex'))).slice(0, 40),
+          name: String(it.name || '').slice(0, 120),
+          unit: String(it.unit || '').slice(0, 20),
+          material: Number(it.material) || 0,
+          labor: Number(it.labor) || 0,
+          waste: Number(it.waste) || 0
+        }));
+        writePricebook(userId, clean);
+        return sendJSON(res, 200, { items: clean });
       }
 
       return sendJSON(res, 404, { error: 'Unknown API route.' });

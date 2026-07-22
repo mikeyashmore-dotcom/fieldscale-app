@@ -4,74 +4,83 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Fieldscale — Estimating</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* Shared design system with the takeoff app (index.html) for a cohesive look. */
   :root{
-    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2a3140;
-    --text:#e6edf3; --muted:#8b949e; --accent:#3b82f6; --accent2:#2563eb;
-    --green:#2ea043; --danger:#da3633;
+    --ink-navy:#0E2A47; --blueprint:#153A5B; --blueprint-2:#1B4B7A;
+    --cyan:#6FC3E4; --cyan-dim:#3E7A96; --orange:#E8722C; --orange-dim:#C25A1B;
+    --paper:#F6F3EA; --paper-line:#E4DFCF; --charcoal:#1C1E22;
+    --steel:#7C8896; --steel-light:#B9C2CB; --good:#4A9B6E; --danger:#C0392B;
+    --radius:3px;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-       background:var(--bg);color:var(--text);font-size:14px}
-  a{color:var(--accent);text-decoration:none}
-  header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border);
-         background:var(--panel);position:sticky;top:0;z-index:5}
-  header .brand{font-weight:700;font-size:16px}
-  header .brand span{color:var(--accent)}
-  header nav{display:flex;gap:14px;margin-left:8px}
-  header nav a{color:var(--muted);padding:4px 2px}
-  header nav a.active{color:var(--text);border-bottom:2px solid var(--accent);padding-bottom:2px}
+  body{margin:0;font-family:'IBM Plex Sans',sans-serif;background:var(--paper);color:var(--charcoal);font-size:14px}
+  a{color:var(--blueprint-2);text-decoration:none}
+  header{display:flex;align-items:center;gap:20px;padding:0 16px;height:52px;background:var(--ink-navy);
+         border-bottom:2px solid var(--cyan-dim);color:var(--paper);position:sticky;top:0;z-index:5}
+  header .brand{font-family:'Oswald',sans-serif;font-weight:600;font-size:19px;letter-spacing:.5px;
+                color:var(--paper);display:flex;align-items:center;gap:8px;white-space:nowrap}
+  header .brand .mark{width:22px;height:22px;border:2px solid var(--cyan);border-radius:2px;position:relative;flex:none}
+  header .brand .mark::before,header .brand .mark::after{content:'';position:absolute;background:var(--cyan)}
+  header .brand .mark::before{width:2px;height:14px;top:2px;left:8px}
+  header .brand .mark::after{width:14px;height:2px;left:2px;top:8px}
+  header nav{display:flex;gap:16px}
+  header nav a{color:var(--steel-light);font-size:13px;padding:2px 0}
+  header nav a.active{color:var(--paper);border-bottom:2px solid var(--orange);padding-bottom:2px}
   header .spacer{flex:1}
-  header .who{color:var(--muted);font-size:13px}
+  header .who{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel-light)}
   .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 80px}
-  h1{font-size:20px;margin:0 0 4px}
-  .sub{color:var(--muted);margin:0 0 20px}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  h1{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--steel);margin:0 0 20px}
+  .card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
   table{width:100%;border-collapse:collapse}
-  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
-  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;background:var(--panel2)}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--paper-line)}
+  th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--paper)}
   td.num,th.num{text-align:right}
   tr:last-child td{border-bottom:none}
-  input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;
-        padding:7px 8px;font-size:14px;width:100%}
-  input:focus{outline:none;border-color:var(--accent)}
-  input.num{text-align:right}
+  input{background:#fff;border:1px solid var(--steel-light);color:var(--charcoal);border-radius:var(--radius);
+        padding:7px 8px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;width:100%}
+  input:focus{outline:none;border-color:var(--cyan-dim)}
+  input.num{text-align:right;font-family:'IBM Plex Mono',monospace}
   .cell-name input{min-width:180px}
-  .unitcost{color:var(--muted);font-variant-numeric:tabular-nums}
-  .rowdel{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:6px}
-  .rowdel:hover{color:var(--danger);background:rgba(218,54,51,.1)}
-  .toolbar{display:flex;gap:10px;align-items:center;margin:18px 0}
+  .unitcost{color:var(--steel);font-family:'IBM Plex Mono',monospace}
+  .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:var(--radius)}
+  .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  .toolbar{display:flex;gap:8px;align-items:center;margin:18px 0;flex-wrap:wrap}
   .toolbar .spacer{flex:1}
-  button.btn{border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:8px;
-             padding:9px 16px;font-size:14px;cursor:pointer;font-weight:500}
-  button.btn:hover{border-color:var(--accent)}
-  button.btn.primary{background:var(--accent2);border-color:var(--accent2)}
-  button.btn.primary:hover{background:var(--accent)}
-  button.btn.ghost{background:transparent}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;
-         padding:10px 18px;border-radius:8px;font-weight:500;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+  button.btn{background:var(--blueprint-2);color:var(--paper);border:1px solid var(--cyan-dim);border-radius:var(--radius);
+             padding:7px 13px;font-size:12px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;transition:background .12s}
+  button.btn:hover{background:var(--cyan-dim)}
+  button.btn.primary{background:var(--orange);border-color:var(--orange-dim)}
+  button.btn.primary:hover{background:var(--orange-dim)}
+  button.btn.ghost{background:#fff;color:var(--charcoal);border-color:var(--steel-light)}
+  button.btn.ghost:hover{background:var(--paper);border-color:var(--steel)}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--good);color:#fff;
+         padding:10px 18px;border-radius:var(--radius);font-weight:500;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;font-size:13px}
   .toast.show{opacity:1}
   .toast.err{background:var(--danger)}
-  .loading{color:var(--muted);padding:40px;text-align:center}
-  .hint{color:var(--muted);font-size:13px;margin-top:10px;line-height:1.5}
+  .loading{color:var(--steel);padding:40px;text-align:center}
+  .hint{color:var(--steel);font-size:13px;margin-top:10px;line-height:1.5}
   .modebar{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-  .modebar .modelabel{color:var(--muted);font-size:13px;margin-right:2px}
-  .seg{border:1px solid var(--border);background:var(--panel2);color:var(--muted);border-radius:8px;
-       padding:7px 14px;font-size:13px;cursor:pointer;font-weight:500}
-  .seg.active{background:var(--accent2);border-color:var(--accent2);color:#fff}
-  .modehint{color:var(--muted);font-size:12px;margin-left:6px}
+  .modebar .modelabel{color:var(--steel);font-size:13px;margin-right:2px}
+  .seg{border:1px solid var(--steel-light);background:#fff;color:var(--steel);border-radius:var(--radius);
+       padding:7px 14px;font-size:13px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif}
+  .seg.active{background:var(--orange);border-color:var(--orange-dim);color:#fff}
+  .modehint{color:var(--steel);font-size:12px;margin-left:6px}
   .custom-mgr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-4px 0 16px}
   .chips{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin-top:4px}
-  .chip{display:inline-flex;align-items:center;gap:4px;background:var(--panel2);border:1px solid var(--border);
+  .chip{display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid var(--paper-line);
         border-radius:16px;padding:4px 6px 4px 12px;font-size:12px}
-  .chip button{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0 4px;border-radius:10px}
+  .chip button{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:12px;padding:0 4px}
   .chip button:hover{color:var(--danger)}
-  .chips .empty{color:var(--muted);border:none;background:none;padding-left:0}
+  .chips .empty{color:var(--steel);border:none;background:none;padding-left:0}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">Field<span>scale</span></div>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
   <nav>
     <a href="/">Takeoff</a>
     <a href="/estimates.html" class="active">Estimating</a>
@@ -190,7 +199,7 @@ function render(){
   const tb = document.getElementById('rows');
   tb.innerHTML = '';
   if(items.length === 0){
-    tb.innerHTML = `<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--muted)">
+    tb.innerHTML = `<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--steel)">
       Your price book is empty. Click <strong>＋ Add item</strong> to build your own, or
       <strong>Load sample items</strong> to see how it works.</td></tr>`;
     return;

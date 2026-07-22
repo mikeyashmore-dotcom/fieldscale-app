@@ -60,6 +60,13 @@
        padding:7px 14px;font-size:13px;cursor:pointer;font-weight:500}
   .seg.active{background:var(--accent2);border-color:var(--accent2);color:#fff}
   .modehint{color:var(--muted);font-size:12px;margin-left:6px}
+  .custom-mgr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-4px 0 16px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin-top:4px}
+  .chip{display:inline-flex;align-items:center;gap:4px;background:var(--panel2);border:1px solid var(--border);
+        border-radius:16px;padding:4px 6px 4px 12px;font-size:12px}
+  .chip button{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0 4px;border-radius:10px}
+  .chip button:hover{color:var(--danger)}
+  .chips .empty{color:var(--muted);border:none;background:none;padding-left:0}
 </style>
 </head>
 <body>
@@ -85,7 +92,13 @@
       <span class="modelabel">Code system:</span>
       <button class="seg" data-mode="residential">Residential · 2-digit</button>
       <button class="seg" data-mode="commercial">Commercial · 6-digit</button>
+      <button class="seg" data-mode="custom">Custom</button>
       <span class="modehint" id="modehint"></span>
+    </div>
+    <div class="custom-mgr" id="custom-mgr" style="display:none">
+      <input id="custom-code-input" placeholder="Add your own code or label (e.g. FRAMING-01)" style="width:340px" />
+      <button class="btn ghost" id="custom-add-btn">＋ Add code</button>
+      <div class="chips" id="custom-chips"></div>
     </div>
     <div class="card">
       <table>
@@ -160,14 +173,15 @@ function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
 function render(){
   // Category suggestions depend on the code system: Residential = 2-digit CSI divisions,
   // Commercial = full 6-digit CSI section codes. Anything the user typed is kept too.
-  const baseList = csiMode === 'commercial' ? COMMERCIAL_SECTIONS : CSI_DIVISIONS;
-  const catPlaceholder = csiMode === 'commercial'
-    ? 'e.g. 07 21 00 - Thermal Insulation'
-    : 'e.g. 07 - Thermal & Moisture Protection';
+  const baseList = csiMode === 'commercial' ? COMMERCIAL_SECTIONS
+    : (csiMode === 'custom' ? customCodes : CSI_DIVISIONS);
+  const catPlaceholder = csiMode === 'commercial' ? 'e.g. 07 21 00 - Thermal Insulation'
+    : (csiMode === 'custom' ? 'Your own code or label' : 'e.g. 07 - Thermal & Moisture Protection');
   const used = items.map(it => (it.category||'').trim()).filter(Boolean);
   const cats = [...new Set([...baseList, ...used])];
   document.getElementById('cat-list').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}"></option>`).join('');
-  const th = document.getElementById('csi-th'); if(th) th.textContent = csiMode === 'commercial' ? 'CSI Section' : 'CSI Division';
+  const th = document.getElementById('csi-th');
+  if(th) th.textContent = csiMode === 'commercial' ? 'CSI Section' : (csiMode === 'custom' ? 'Custom Code' : 'CSI Division');
   const tb = document.getElementById('rows');
   tb.innerHTML = '';
   if(items.length === 0){
@@ -298,14 +312,46 @@ const COMMERCIAL_SECTIONS = [
 
 // Residential (2-digit divisions) vs Commercial (6-digit sections). Remembered per browser;
 // in Slice 2 this becomes a per-proposal choice so a proposal prints the matching code depth.
-let csiMode = localStorage.getItem('fieldscale_csimode') === 'commercial' ? 'commercial' : 'residential';
+const MODES = ['residential','commercial','custom'];
+let csiMode = MODES.includes(localStorage.getItem('fieldscale_csimode')) ? localStorage.getItem('fieldscale_csimode') : 'residential';
+
+// The user's own codes, for Custom mode. Remembered per browser (moves server-side in Slice 2).
+let customCodes;
+try{ customCodes = JSON.parse(localStorage.getItem('fieldscale_customcodes') || '[]'); }catch(e){ customCodes = []; }
+if(!Array.isArray(customCodes)) customCodes = [];
+function saveCustomCodes(){ localStorage.setItem('fieldscale_customcodes', JSON.stringify(customCodes)); }
+function renderCustomChips(){
+  const box = document.getElementById('custom-chips');
+  if(!box) return;
+  if(!customCodes.length){ box.innerHTML = '<span class="empty">No custom codes yet — add one above.</span>'; return; }
+  box.innerHTML = customCodes.map((c,i) => `<span class="chip">${escapeHtml(c)}<button data-rmcode="${i}" title="Remove">✕</button></span>`).join('');
+}
+function addCustomCode(){
+  const inp = document.getElementById('custom-code-input');
+  const v = inp.value.trim();
+  if(!v) return;
+  if(!customCodes.includes(v)) customCodes.push(v);
+  saveCustomCodes(); inp.value = ''; renderCustomChips(); render();
+}
+document.getElementById('custom-add-btn').addEventListener('click', addCustomCode);
+document.getElementById('custom-code-input').addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); addCustomCode(); } });
+document.getElementById('custom-chips').addEventListener('click', e => {
+  const i = e.target.getAttribute && e.target.getAttribute('data-rmcode');
+  if(i !== null && i !== undefined){ customCodes.splice(Number(i), 1); saveCustomCodes(); renderCustomChips(); render(); }
+});
+
 function updateModeButtons(){
   document.querySelectorAll('.seg[data-mode]').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-mode') === csiMode));
+  const hints = {
+    residential: 'Residential: simple 2-digit CSI division codes.',
+    commercial:  'Commercial: full 6-digit MasterFormat section codes.',
+    custom:      'Custom: your own codes — add them here, then pick them per item.'
+  };
   const hint = document.getElementById('modehint');
-  if(hint) hint.textContent = csiMode === 'commercial'
-    ? 'Commercial: full 6-digit MasterFormat section codes.'
-    : 'Residential: simple 2-digit CSI division codes.';
+  if(hint) hint.textContent = hints[csiMode] || '';
+  const mgr = document.getElementById('custom-mgr');
+  if(mgr) mgr.style.display = csiMode === 'custom' ? 'flex' : 'none';
 }
 document.querySelectorAll('.seg[data-mode]').forEach(b => b.addEventListener('click', () => {
   csiMode = b.getAttribute('data-mode');
@@ -313,6 +359,7 @@ document.querySelectorAll('.seg[data-mode]').forEach(b => b.addEventListener('cl
   updateModeButtons();
   render();
 }));
+renderCustomChips();
 updateModeButtons();
 
 // A generic, cross-trade sample — one or two items from several CSI divisions — so a new

@@ -253,14 +253,22 @@ document.getElementById('pdf-btn').addEventListener('click', async ()=>{
 // ---- Build a clean, printable proposal and open it for "Save as PDF" / print ----
 function openProposalPDF(){
   const t=computeTotals();
-  const rows=doc.lines.map((l,i)=>`<tr>
+  // Markup is the contractor's — it must NOT appear on the customer's proposal. So we fold it
+  // into the shown line prices: each unit price is marked up, the amounts add up to the marked-up
+  // subtotal, and there's no separate "Markup" line to reveal it (and no raw cost to back it out).
+  const mkFactor = 1 + (Number(doc.markupPct)||0)/100;
+  const rows=doc.lines.map((l,i)=>{
+    const unitPrice = (Number(l.unitCost)||0)*mkFactor;
+    const amount = (Number(l.qty)||0)*unitPrice;
+    return `<tr>
       <td class="c">${i+1}</td>
       <td>${escapeHtml(l.name)}${l.code?`<div class="code">${escapeHtml(l.code)}</div>`:''}</td>
       <td class="r">${Number(l.qty)||0}</td>
       <td>${escapeHtml(l.unit)}</td>
-      <td class="r">${money(l.unitCost)}</td>
-      <td class="r">${money((Number(l.qty)||0)*(Number(l.unitCost)||0))}</td>
-    </tr>`).join('');
+      <td class="r">${money(unitPrice)}</td>
+      <td class="r">${money(amount)}</td>
+    </tr>`;
+  }).join('');
   const co=doc.company||{}, cl=doc.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
   const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
@@ -312,8 +320,7 @@ function openProposalPDF(){
     <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>'}</tbody>
   </table>
   <div class="totals">
-    <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
-    ${doc.markupPct?`<div class="tr"><span>Markup (${doc.markupPct}%)</span><span>${money(t.markup)}</span></div>`:''}
+    <div class="tr"><span>Subtotal</span><span>${money(t.price)}</span></div>
     ${doc.taxPct?`<div class="tr"><span>Tax (${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
   </div>

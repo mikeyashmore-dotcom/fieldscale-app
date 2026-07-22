@@ -69,8 +69,8 @@
 </header>
 
 <div class="wrap">
-  <h1>Owner Dashboard</h1>
-  <p class="sub">Every account on your Fieldscale instance and how it's being used. Activity and usage only — never anyone's project contents.</p>
+  <h1 id="page-title">Your Team</h1>
+  <p class="sub" id="page-sub">Everyone in your company and how they're using Fieldscale. Activity and usage only — never anyone's project contents.</p>
 
   <div id="loading" class="loading">Loading…</div>
 
@@ -80,7 +80,7 @@
       <table>
         <thead>
           <tr>
-            <th>Customer</th>
+            <th>User</th>
             <th>Role</th>
             <th>Status</th>
             <th>Joined</th>
@@ -94,9 +94,21 @@
       </table>
     </div>
     <p class="note">
-      This is a read-only overview. To add, disable, or reset an account, use
+      This is a read-only overview. To add, disable, or reset a team member, use
       <strong>Manage Users</strong> in the takeoff app's account menu.
     </p>
+
+    <div id="platform" style="display:none;margin-top:34px">
+      <h1>All Companies <span style="font-size:12px;color:var(--steel);font-family:'IBM Plex Sans',sans-serif;font-weight:400">(platform admin)</span></h1>
+      <p class="sub">Every company on the platform. You see counts only — never any company's actual data.</p>
+      <div class="tiles" id="ptiles"></div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Company</th><th>Owner</th><th>Joined</th><th class="num">Users</th><th class="num">Projects</th><th class="num">Estimates</th><th class="num">AI calls</th></tr></thead>
+          <tbody id="prows"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -128,13 +140,13 @@ function render(users){
   const estimates = users.reduce((s,u)=> s + (u.estimateCount||0), 0);
   const aiCalls = users.reduce((s,u)=> s + (u.aiCalls||0), 0);
   document.getElementById('tiles').innerHTML =
-    tile(total,'Customers') + tile(active7,'Active (7 days)') +
+    tile(total,'Team members') + tile(active7,'Active (7 days)') +
     tile(projects,'Total projects') + tile(estimates,'Total estimates') + tile(aiCalls,'AI calls');
 
   const rows = users.slice().sort((a,b)=> (b.lastLoginAt||0)-(a.lastLoginAt||0)).map(u => `
     <tr>
       <td>${escapeHtml(u.username)}</td>
-      <td><span class="pill ${u.role==='admin'?'admin':'member'}">${u.role}</span></td>
+      <td><span class="pill ${(u.role==='owner'||u.role==='admin')?'admin':'member'}">${u.role}</span></td>
       <td><span class="pill ${u.disabled?'disabled':'active'}">${u.disabled?'disabled':'active'}</span></td>
       <td class="muted">${fmtDate(u.createdAt)}</td>
       <td class="muted">${fmtDate(u.lastLoginAt)}</td>
@@ -145,20 +157,43 @@ function render(users){
   document.getElementById('rows').innerHTML = rows;
 }
 
+function renderPlatform(companies){
+  const t = { u:0, p:0, e:0, a:0 };
+  companies.forEach(c => { t.u+=c.users; t.p+=c.projects; t.e+=c.estimates; t.a+=c.aiCalls; });
+  document.getElementById('ptiles').innerHTML =
+    tile(companies.length,'Companies') + tile(t.u,'Total users') +
+    tile(t.p,'Projects') + tile(t.e,'Estimates') + tile(t.a,'AI calls');
+  document.getElementById('prows').innerHTML = companies.map(c => `
+    <tr>
+      <td>${escapeHtml(c.name)}</td>
+      <td class="muted">${escapeHtml(c.owner)}</td>
+      <td class="muted">${fmtDate(c.createdAt)}</td>
+      <td class="num">${c.users}</td>
+      <td class="num">${c.projects}</td>
+      <td class="num">${c.estimates}</td>
+      <td class="num">${c.aiCalls}</td>
+    </tr>`).join('');
+  document.getElementById('platform').style.display='block';
+}
+
 async function init(){
   let me;
   try{ me = await apiFetch('/api/me'); }catch(e){ return; }
   document.getElementById('who').textContent = me.username;
-  if(me.role !== 'admin'){
+  if(me.role!=='owner' && me.role!=='admin'){
     document.getElementById('loading').innerHTML =
-      'This page is for the account owner (administrator) only. <a href="/estimates.html">Back to Estimating</a>';
+      'This page is for company owners and admins only. <a href="/estimates.html">Back to Estimating</a>';
     return;
   }
+  if(me.companyName) document.getElementById('page-title').textContent = me.companyName + ' — Team';
   try{
     const data = await apiFetch('/api/admin/users');
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     render(data.users || []);
+    if(me.platformAdmin){
+      try{ const pc = await apiFetch('/api/platform/companies'); renderPlatform(pc.companies || []); }catch(e){}
+    }
   }catch(err){
     document.getElementById('loading').textContent = 'Could not load dashboard: ' + err.message;
   }

@@ -167,22 +167,56 @@ if (!ANTHROPIC_API_KEY) {
 function loadDB() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], projects: [], estimates: [], settings: { allowSignups: true } }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], companies: [], projects: [], estimates: [], settings: { allowSignups: true } }, null, 2));
   }
   const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   // Fill in anything missing so older db.json files keep working after an upgrade.
   parsed.users = parsed.users || [];
+  parsed.companies = parsed.companies || [];
   parsed.projects = parsed.projects || [];
   parsed.estimates = parsed.estimates || [];
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
-  parsed.users.forEach((u, i) => {
-    if (!u.role) u.role = i === 0 ? 'admin' : 'member'; // existing installs: oldest account becomes admin
+  parsed.users.forEach((u) => {
+    if (!u.role) u.role = 'member';
     if (typeof u.disabled !== 'boolean') u.disabled = false;
     if (typeof u.tokenVersion !== 'number') u.tokenVersion = 1;
     if (typeof u.aiCalls !== 'number') u.aiCalls = 0;
+    if (typeof u.platformAdmin !== 'boolean') u.platformAdmin = false;
   });
+  migrateToCompanies(parsed);
   migrateProjectsToDisk(parsed);
   return parsed;
+}
+
+// One-time move from the old single-shared-instance model to multi-tenant companies. Folds all
+// pre-existing users into one company; the oldest account becomes its owner + the platform admin.
+// Per-user price books / company profiles become the company's shared copies. Idempotent.
+function migrateToCompanies(db) {
+  if (db.users.length === 0 || !db.users.some(u => !u.companyId)) return;
+  let company = db.companies[0];
+  if (!company) {
+    const owner = db.users.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
+    company = { id: 'c_' + crypto.randomBytes(8).toString('hex'), name: 'My Company', createdAt: Date.now(), ownerId: owner.id };
+    db.companies.push(company);
+  }
+  const ownerId = company.ownerId;
+  db.users.forEach(u => {
+    if (!u.companyId) u.companyId = company.id;
+    if (u.id === ownerId) { u.role = 'owner'; u.platformAdmin = true; }
+    else if (u.role !== 'admin' && u.role !== 'owner') u.role = 'member';
+  });
+  db.projects.forEach(p => { if (!p.companyId) p.companyId = company.id; });
+  db.estimates.forEach(e => { if (!e.companyId) e.companyId = company.id; });
+  // The owner's private price book + company profile become the company's shared copies.
+  const move = (dir) => {
+    try {
+      const oldF = path.join(dir, ownerId + '.json'), newF = path.join(dir, company.id + '.json');
+      if (fs.existsSync(oldF) && !fs.existsSync(newF)) fs.copyFileSync(oldF, newF);
+    } catch (e) {}
+  };
+  move(PRICEBOOKS_DIR); move(COMPANIES_DIR);
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  console.log('[fieldscale] Migrated existing account(s) into a company (multi-tenant). Nothing was lost.');
 }
 
 // Projects saved before the split have their PDF and takeoff sitting inside db.json.
@@ -293,6 +327,7 @@ function publicUser(u) {
     id: u.id,
     username: u.username,
     role: u.role,
+    companyId: u.companyId,
     disabled: !!u.disabled,
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt || null,
@@ -301,9 +336,12 @@ function publicUser(u) {
     estimateCount: db.estimates.filter(e => e.userId === u.id).length
   };
 }
-function adminCount() {
-  return db.users.filter(u => u.role === 'admin' && !u.disabled).length;
+// A "company admin" (owner or admin) can manage users within their own company.
+function isCompanyAdmin(u) { return !!u && (u.role === 'owner' || u.role === 'admin'); }
+function companyAdminCount(companyId) {
+  return db.users.filter(u => u.companyId === companyId && (u.role === 'owner' || u.role === 'admin') && !u.disabled).length;
 }
+function companyById(id) { return db.companies.find(c => c.id === id) || null; }
 
 // ---------- Rate limiting for AI calls (in-memory, per user, rolling hour) ----------
 const aiCallLog = new Map(); // userId -> array of timestamps
@@ -415,7 +453,7 @@ const server = http.createServer(async (req, res) => {
       if (!db.settings.allowSignups && !isFirstUser) {
         return sendJSON(res, 403, { error: 'New signups are closed. Ask an administrator to create an account for you.' });
       }
-      const { username, password } = await readBody(req);
+      const { username, password, companyName } = await readBody(req);
       const nameCheck = validateUsername(username);
       if (nameCheck.error) return sendJSON(res, 400, { error: nameCheck.error });
       const pwErr = validatePassword(password);
@@ -423,18 +461,29 @@ const server = http.createServer(async (req, res) => {
       if (db.users.find(u => u.username === nameCheck.uname)) {
         return sendJSON(res, 409, { error: 'That username is already taken.' });
       }
+      // A public sign-up creates a brand-new COMPANY (tenant); the signer is its owner. The very
+      // first account on the whole platform is also the platform admin.
+      const userId = 'u_' + crypto.randomBytes(8).toString('hex');
+      const company = {
+        id: 'c_' + crypto.randomBytes(8).toString('hex'),
+        name: String(companyName || '').trim().slice(0, 120) || (nameCheck.uname + "'s company"),
+        createdAt: Date.now(), ownerId: userId
+      };
       const { salt, hash } = hashPassword(password);
       const user = {
-        id: 'u_' + crypto.randomBytes(8).toString('hex'),
+        id: userId,
         username: nameCheck.uname,
         salt, hash,
-        role: isFirstUser ? 'admin' : 'member', // the very first account runs the place
+        companyId: company.id,
+        role: 'owner',                 // you own the company you just created
+        platformAdmin: isFirstUser,    // the very first account on the platform runs the place
         disabled: false,
         tokenVersion: 1,
         aiCalls: 0,
         createdAt: Date.now(),
         lastLoginAt: Date.now()
       };
+      db.companies.push(company);
       db.users.push(user);
       saveDB(db);
       return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
@@ -469,7 +518,12 @@ const server = http.createServer(async (req, res) => {
 
       // GET /api/me
       if (pathname === '/api/me' && req.method === 'GET') {
-        return sendJSON(res, 200, { username: me.username, role: me.role, id: me.id });
+        const company = companyById(me.companyId);
+        return sendJSON(res, 200, {
+          username: me.username, role: me.role, id: me.id,
+          companyId: me.companyId, companyName: company ? company.name : '',
+          platformAdmin: !!me.platformAdmin
+        });
       }
 
       // POST /api/password — change your own password
@@ -487,20 +541,31 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { token: createToken(me), changed: true });
       }
 
-      // ======================= ADMIN =======================
+      // ============ COMPANY USER MANAGEMENT (scoped to YOUR company) ============
+      // An owner/admin manages only the users inside their own company. Cross-company access
+      // is impossible here — every lookup is filtered by me.companyId.
       if (pathname.startsWith('/api/admin/')) {
-        if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Administrators only.' });
+        // Platform-only: open/close new-company sign-ups for the whole platform.
+        if (pathname === '/api/admin/settings' && req.method === 'PUT') {
+          if (!me.platformAdmin) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+          const { allowSignups } = await readBody(req);
+          if (typeof allowSignups === 'boolean') db.settings.allowSignups = allowSignups;
+          saveDB(db);
+          return sendJSON(res, 200, { settings: db.settings });
+        }
 
-        // GET /api/admin/users — everyone, with activity info
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Company owners and admins only.' });
+
+        // GET /api/admin/users — only THIS company's users
         if (pathname === '/api/admin/users' && req.method === 'GET') {
           return sendJSON(res, 200, {
-            users: db.users.map(publicUser).sort((a, b) => a.createdAt - b.createdAt),
+            users: db.users.filter(u => u.companyId === me.companyId).map(publicUser).sort((a, b) => a.createdAt - b.createdAt),
             settings: db.settings,
             aiCallsPerHour: AI_CALLS_PER_HOUR
           });
         }
 
-        // POST /api/admin/users — create an account for someone
+        // POST /api/admin/users — add a sub-user to YOUR company
         if (pathname === '/api/admin/users' && req.method === 'POST') {
           const { username, password, role } = await readBody(req);
           const nameCheck = validateUsername(username);
@@ -514,7 +579,9 @@ const server = http.createServer(async (req, res) => {
           const user = {
             id: 'u_' + crypto.randomBytes(8).toString('hex'),
             username: nameCheck.uname, salt, hash,
+            companyId: me.companyId,                 // always YOUR company — never another's
             role: role === 'admin' ? 'admin' : 'member',
+            platformAdmin: false,
             disabled: false, tokenVersion: 1, aiCalls: 0,
             createdAt: Date.now(), lastLoginAt: null
           };
@@ -523,73 +590,78 @@ const server = http.createServer(async (req, res) => {
           return sendJSON(res, 200, { user: publicUser(user) });
         }
 
-        // PATCH/DELETE /api/admin/users/:id
+        // PATCH/DELETE /api/admin/users/:id — target MUST be in your company
         const adminUserMatch = pathname.match(/^\/api\/admin\/users\/([a-zA-Z0-9_]+)$/);
         if (adminUserMatch) {
-          const target = db.users.find(u => u.id === adminUserMatch[1]);
+          const target = db.users.find(u => u.id === adminUserMatch[1] && u.companyId === me.companyId);
           if (!target) return sendJSON(res, 404, { error: 'That account no longer exists.' });
+          if (target.role === 'owner') return sendJSON(res, 400, { error: "The company owner can't be changed here." });
 
           if (req.method === 'PATCH') {
             const { role, disabled, password } = await readBody(req);
-
-            // Guardrails: don't let an admin lock everyone (including themselves) out.
             if (target.id === me.id && role === 'member') {
-              return sendJSON(res, 400, { error: "You can't remove your own administrator access. Promote someone else first." });
+              return sendJSON(res, 400, { error: "You can't remove your own admin access." });
             }
             if (target.id === me.id && disabled === true) {
               return sendJSON(res, 400, { error: "You can't disable your own account." });
             }
-            if (target.role === 'admin' && (role === 'member' || disabled === true) && adminCount() <= 1) {
-              return sendJSON(res, 400, { error: 'This is the only administrator. Promote someone else first.' });
+            if (target.role === 'admin' && (role === 'member' || disabled === true) && companyAdminCount(me.companyId) <= 1) {
+              return sendJSON(res, 400, { error: 'This is the only admin left. Promote someone else first.' });
             }
-
-            if (role === 'admin' || role === 'member') target.role = role;
+            if (role === 'admin' || role === 'member') target.role = role; // never 'owner' via API
             if (typeof disabled === 'boolean') {
               target.disabled = disabled;
-              if (disabled) target.tokenVersion += 1; // kick them out of any open session immediately
+              if (disabled) target.tokenVersion += 1;
             }
             if (password !== undefined) {
               const pwErr = validatePassword(password);
               if (pwErr) return sendJSON(res, 400, { error: pwErr });
               const { salt, hash } = hashPassword(password);
               target.salt = salt; target.hash = hash;
-              target.tokenVersion += 1; // old sessions die with the old password
+              target.tokenVersion += 1;
             }
             saveDB(db);
             return sendJSON(res, 200, { user: publicUser(target) });
           }
 
           if (req.method === 'DELETE') {
-            if (target.id === me.id) {
-              return sendJSON(res, 400, { error: "You can't delete your own account." });
+            if (target.id === me.id) return sendJSON(res, 400, { error: "You can't delete your own account." });
+            if (target.role === 'admin' && companyAdminCount(me.companyId) <= 1) {
+              return sendJSON(res, 400, { error: 'This is the only admin left. Promote someone else first.' });
             }
-            if (target.role === 'admin' && adminCount() <= 1) {
-              return sendJSON(res, 400, { error: 'This is the only administrator. Promote someone else first.' });
-            }
-            const removedProjects = db.projects.filter(p => p.userId === target.id).length;
-            db.projects = db.projects.filter(p => p.userId !== target.id); // their projects go too
+            // Projects/estimates belong to the COMPANY (shared workspace), so they stay when a
+            // sub-user is removed. Only the account goes.
             db.users = db.users.filter(u => u.id !== target.id);
             saveDB(db);
-            return sendJSON(res, 200, { deleted: true, removedProjects });
+            return sendJSON(res, 200, { deleted: true });
           }
-        }
-
-        // PUT /api/admin/settings — e.g. open or close signups
-        if (pathname === '/api/admin/settings' && req.method === 'PUT') {
-          const { allowSignups } = await readBody(req);
-          if (typeof allowSignups === 'boolean') db.settings.allowSignups = allowSignups;
-          saveDB(db);
-          return sendJSON(res, 200, { settings: db.settings });
         }
 
         return sendJSON(res, 404, { error: 'Unknown admin route.' });
       }
-      // ===================== END ADMIN =====================
+
+      // ============ PLATFORM (super-admin: Mike) — cross-company overview ============
+      if (pathname === '/api/platform/companies' && req.method === 'GET') {
+        if (!me.platformAdmin) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+        const companies = db.companies.map(c => {
+          const users = db.users.filter(u => u.companyId === c.id);
+          const owner = users.find(u => u.id === c.ownerId);
+          return {
+            id: c.id, name: c.name, createdAt: c.createdAt,
+            owner: owner ? owner.username : '—',
+            users: users.length,
+            projects: db.projects.filter(p => p.companyId === c.id).length,
+            estimates: db.estimates.filter(e => e.companyId === c.id).length,
+            aiCalls: users.reduce((s, u) => s + (u.aiCalls || 0), 0)
+          };
+        }).sort((a, b) => a.createdAt - b.createdAt);
+        return sendJSON(res, 200, { companies });
+      }
 
       // GET /api/projects — list this user's projects (metadata only, not full data)
       if (pathname === '/api/projects' && req.method === 'GET') {
         const list = db.projects
-          .filter(p => p.userId === userId)
+          .filter(p => p.companyId === me.companyId)
           .map(p => ({ id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt }))
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);
@@ -600,7 +672,7 @@ const server = http.createServer(async (req, res) => {
         const { name, data } = await readBody(req);
         const project = {
           id: 'p_' + crypto.randomBytes(8).toString('hex'),
-          userId, name: name || 'Untitled Project',
+          userId, companyId: me.companyId, name: name || 'Untitled Project',
           hasPdf: false,
           createdAt: Date.now(), updatedAt: Date.now()
         };
@@ -615,7 +687,7 @@ const server = http.createServer(async (req, res) => {
       // other request so a 27MB payload isn't riding along on a 20-second autosave.
       const pdfMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)\/pdf$/);
       if (pdfMatch) {
-        const project = db.projects.find(p => p.id === pdfMatch[1] && p.userId === userId);
+        const project = db.projects.find(p => p.id === pdfMatch[1] && p.companyId === me.companyId);
         if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
 
         if (req.method === 'PUT') {
@@ -640,7 +712,7 @@ const server = http.createServer(async (req, res) => {
       // /api/projects/:id/snapshots — the version history.
       const snapListMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)\/snapshots$/);
       if (snapListMatch && req.method === 'GET') {
-        const project = db.projects.find(p => p.id === snapListMatch[1] && p.userId === userId);
+        const project = db.projects.find(p => p.id === snapListMatch[1] && p.companyId === me.companyId);
         if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
         const snaps = listSnapshots(project.id).map(sn => {
           let counts = null;
@@ -662,7 +734,7 @@ const server = http.createServer(async (req, res) => {
       // exactly the moment you'd want that.
       const restoreMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)\/restore$/);
       if (restoreMatch && req.method === 'POST') {
-        const project = db.projects.find(p => p.id === restoreMatch[1] && p.userId === userId);
+        const project = db.projects.find(p => p.id === restoreMatch[1] && p.companyId === me.companyId);
         if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
         const { at } = await readBody(req);
         const file = path.join(projectDir(project.id), `snap-${parseInt(at, 10)}.json`);
@@ -680,7 +752,7 @@ const server = http.createServer(async (req, res) => {
       const projMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)$/);
       if (projMatch) {
         const id = projMatch[1];
-        const project = db.projects.find(p => p.id === id && p.userId === userId);
+        const project = db.projects.find(p => p.id === id && p.companyId === me.companyId);
         if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
 
         if (req.method === 'GET') {
@@ -763,8 +835,8 @@ const server = http.createServer(async (req, res) => {
       // GET returns the saved list; a brand-new user gets seeded with the insulation starter
       // set so the estimator has something to work with immediately.
       if (pathname === '/api/pricebook' && req.method === 'GET') {
-        let items = readPricebook(userId);
-        if (items === null) { items = DEFAULT_PRICEBOOK; writePricebook(userId, items); }
+        let items = readPricebook(me.companyId);
+        if (items === null) { items = DEFAULT_PRICEBOOK; writePricebook(me.companyId, items); }
         return sendJSON(res, 200, { items });
       }
       // PUT replaces the whole list. We re-shape every row server-side so the file can only
@@ -781,13 +853,13 @@ const server = http.createServer(async (req, res) => {
           labor: Number(it.labor) || 0,
           waste: Number(it.waste) || 0
         }));
-        writePricebook(userId, clean);
+        writePricebook(me.companyId, clean);
         return sendJSON(res, 200, { items: clean });
       }
 
-      // ---- Company profile: get / save (private, per-user) ----
+      // ---- Company profile: get / save (shared by everyone in the company) ----
       if (pathname === '/api/company' && req.method === 'GET') {
-        return sendJSON(res, 200, { profile: readCompany(userId) });
+        return sendJSON(res, 200, { profile: readCompany(me.companyId) });
       }
       if (pathname === '/api/company' && req.method === 'PUT') {
         const { profile } = await readBody(req);
@@ -804,13 +876,13 @@ const server = http.createServer(async (req, res) => {
           address: String(p.address || '').slice(0, 300),
           logo: logoOk ? p.logo : ''
         };
-        writeCompany(userId, clean);
+        writeCompany(me.companyId, clean);
         return sendJSON(res, 200, { profile: clean });
       }
 
       // ---- Estimating: list / create estimates ----
       if (pathname === '/api/estimates' && req.method === 'GET') {
-        const list = db.estimates.filter(e => e.userId === userId)
+        const list = db.estimates.filter(e => e.companyId === me.companyId)
           .map(e => ({ id: e.id, name: e.name, client: e.client || '', total: e.total || 0,
                        status: e.status || 'draft', createdAt: e.createdAt, updatedAt: e.updatedAt }))
           .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -818,7 +890,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (pathname === '/api/estimates' && req.method === 'POST') {
         const { name, client, doc } = await readBody(req);
-        const est = { id: 'e_' + crypto.randomBytes(8).toString('hex'), userId,
+        const est = { id: 'e_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
           name: name || 'Untitled Estimate', client: client || '', total: 0, status: 'draft',
           createdAt: Date.now(), updatedAt: Date.now() };
         writeEstimateDoc(est.id, doc || {});
@@ -829,7 +901,7 @@ const server = http.createServer(async (req, res) => {
       // ---- Estimating: one estimate (get / update / delete; must belong to this user) ----
       const estMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)$/);
       if (estMatch) {
-        const est = db.estimates.find(e => e.id === estMatch[1] && e.userId === userId);
+        const est = db.estimates.find(e => e.id === estMatch[1] && e.companyId === me.companyId);
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         if (req.method === 'GET') {
           return sendJSON(res, 200, { id: est.id, name: est.name, client: est.client, total: est.total,

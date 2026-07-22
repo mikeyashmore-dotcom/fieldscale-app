@@ -791,6 +791,10 @@
     <input type="text" id="auth-username" autocomplete="username" />
     <label>Password</label>
     <input type="password" id="auth-password" autocomplete="current-password" />
+    <div id="auth-company-row" style="display:none;">
+      <label>Company name</label>
+      <input type="text" id="auth-company" autocomplete="organization" placeholder="Your company" />
+    </div>
     <button class="btn primary" id="auth-submit-btn" style="width:100%;margin-top:6px;">Log In</button>
     <div class="auth-toggle">
       <span id="auth-toggle-text">Don't have an account?</span>
@@ -1108,18 +1112,20 @@
         <div class="sp-note" style="margin-top:8px;">Give them the temporary password directly — they can change it from their own account menu after logging in.</div>
       </div>
 
-      <div class="admin-section">
-        <h5>Sign-ups</h5>
+      <div class="admin-section" id="admin-signups-section" style="display:none;">
+        <h5>Platform sign-ups</h5>
         <div class="checkbox-row">
           <input type="checkbox" id="admin-allow-signups" />
           <label for="admin-allow-signups" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--charcoal);margin:0;">
-            Anyone with the link can create their own account
+            Anyone with the link can sign up and create a new company
           </label>
         </div>
         <div class="sp-note" style="margin-top:8px;" id="admin-signup-note">
-          Turn this off once your team is set up. Then only you can add people, using the form above.
+          Platform-wide (all companies). Turn off to stop new companies from self-registering.
         </div>
-        <div class="sp-note" style="margin-top:8px;" id="admin-ai-note"></div>
+      </div>
+      <div class="admin-section">
+        <div class="sp-note" id="admin-ai-note"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -1469,18 +1475,21 @@ document.getElementById('auth-toggle-link').addEventListener('click', (e)=>{
   document.getElementById('auth-submit-btn').textContent = authMode==='login' ? 'Log In' : 'Create Account';
   document.getElementById('auth-toggle-text').textContent = authMode==='login' ? "Don't have an account?" : 'Already have an account?';
   document.getElementById('auth-toggle-link').textContent = authMode==='login' ? 'Create one' : 'Log in';
+  document.getElementById('auth-company-row').style.display = authMode==='register' ? 'block' : 'none';
   document.getElementById('auth-error').style.display='none';
 });
 async function submitAuth(){
   const username = document.getElementById('auth-username').value.trim();
   const password = document.getElementById('auth-password').value;
+  const companyName = document.getElementById('auth-company').value.trim();
   const errEl = document.getElementById('auth-error');
   errEl.style.display='none';
   if(!username || !password){ errEl.textContent='Enter a username and password.'; errEl.style.display='block'; return; }
+  if(authMode==='register' && !companyName){ errEl.textContent='Enter your company name.'; errEl.style.display='block'; return; }
   try{
     const res = await fetch(authMode==='login' ? '/api/login' : '/api/register', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({username, password})
+      body: JSON.stringify(authMode==='login' ? {username, password} : {username, password, companyName})
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || 'Something went wrong.');
@@ -1502,10 +1511,11 @@ function onLoggedIn(username, role){
   currentUserRole = role || 'member';
   document.getElementById('account-username').textContent = username;
   document.getElementById('account-username-2').textContent = username;
+  const isCompanyAdmin = currentUserRole === 'admin' || currentUserRole === 'owner';
   document.getElementById('account-role-tag').innerHTML =
-    currentUserRole === 'admin' ? ' <span class="tag admin">Admin</span>' : '';
+    isCompanyAdmin ? ` <span class="tag admin">${currentUserRole === 'owner' ? 'Owner' : 'Admin'}</span>` : '';
   document.getElementById('manage-users-btn').style.display =
-    currentUserRole === 'admin' ? 'block' : 'none';
+    isCompanyAdmin ? 'block' : 'none';
   hideAuthGate();
   refreshProjectList();
 }
@@ -1565,6 +1575,8 @@ async function refreshUserList(){
   try{
     const data = await apiFetch('/api/admin/users');
     adminMe = adminMe || (await apiFetch('/api/me'));
+    // The sign-ups toggle is platform-wide (new companies) — only the platform admin sees it.
+    document.getElementById('admin-signups-section').style.display = adminMe.platformAdmin ? 'block' : 'none';
     document.getElementById('admin-allow-signups').checked = !!data.settings.allowSignups;
     document.getElementById('admin-ai-note').textContent =
       `Each person is limited to ${data.aiCallsPerHour} AI requests per hour, so a stuck loop can't run up your Anthropic bill.`;
@@ -1574,10 +1586,17 @@ async function refreshUserList(){
     const rows = data.users.map(u => {
       const isMe = u.id === adminMe.id;
       const tags = [
-        u.role === 'admin' ? '<span class="tag admin">Admin</span>' : '',
+        u.role === 'owner' ? '<span class="tag admin">Owner</span>' : (u.role === 'admin' ? '<span class="tag admin">Admin</span>' : ''),
         u.disabled ? '<span class="tag off">Disabled</span>' : '',
         isMe ? '<span class="tag you">You</span>' : ''
       ].filter(Boolean).join(' ');
+      // The company owner is protected — no role/disable/delete controls (the server blocks it too).
+      const actions = u.role === 'owner'
+        ? '<span class="u-meta">Company owner</span>'
+        : `<button class="btn" data-act="reset">Reset password</button>
+              <button class="btn" data-act="role">${u.role === 'admin' ? 'Make member' : 'Make admin'}</button>
+              <button class="btn" data-act="toggle">${u.disabled ? 'Enable' : 'Disable'}</button>
+              <button class="btn danger" data-act="delete">Delete</button>`;
       return `
         <tr data-id="${u.id}" data-name="${u.username}" data-role="${u.role}" data-disabled="${u.disabled}">
           <td>
@@ -1587,12 +1606,7 @@ async function refreshUserList(){
           <td class="u-meta">${u.projectCount} project${u.projectCount === 1 ? '' : 's'}</td>
           <td class="u-meta">${u.aiCalls} AI call${u.aiCalls === 1 ? '' : 's'}</td>
           <td>
-            <div class="u-actions">
-              <button class="btn" data-act="reset">Reset password</button>
-              <button class="btn" data-act="role">${u.role === 'admin' ? 'Make member' : 'Make admin'}</button>
-              <button class="btn" data-act="toggle">${u.disabled ? 'Enable' : 'Disable'}</button>
-              <button class="btn danger" data-act="delete">Delete</button>
-            </div>
+            <div class="u-actions">${actions}</div>
           </td>
         </tr>`;
     }).join('');

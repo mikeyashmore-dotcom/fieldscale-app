@@ -127,8 +127,11 @@
 
     <div class="toolbar">
       <button class="btn ghost" id="addRow">＋ Add item</button>
+      <button class="btn ghost" id="import-csv-btn">⬆ Import CSV</button>
+      <button class="btn ghost" id="export-csv-btn">⬇ Export CSV</button>
       <button class="btn ghost" id="resetStarter">Load sample items</button>
       <button class="btn ghost" id="clearAll">Clear all</button>
+      <input type="file" id="csv-input" accept=".csv,text/csv" style="display:none" />
       <div class="spacer"></div>
       <button class="btn primary" id="save">Save price book</button>
     </div>
@@ -137,6 +140,8 @@
       <strong>Material $</strong> and <strong>Labor $</strong> are the cost per unit (e.g. per square foot).
       <strong>Cost / unit</strong> is material + labor, with waste applied — it's what an estimate uses before your markup.
       Edit these to your real numbers; they're private to your account.
+      <br><strong>Importing a CSV?</strong> Columns: <em>Name, Category, Unit, Material, Labor, Waste</em> (a header row is detected automatically).
+      Tip: click <strong>Export CSV</strong> once to get a file in the exact format, fill it in, and import it back.
     </p>
   </div>
 </div>
@@ -232,6 +237,87 @@ document.getElementById('clearAll').addEventListener('click', () => {
   items = [];
   render();
   toast('Cleared — add your own items, then Save.');
+});
+
+// ---------- CSV import / export ----------
+// A tiny RFC-4180-ish parser: handles quoted fields, embedded commas, and doubled quotes.
+function parseCSV(text){
+  const rows=[]; let row=[], field='', inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
+      else field+=c;
+    } else if(c==='"') inQ=true;
+    else if(c===','){ row.push(field); field=''; }
+    else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+    else if(c!=='\r') field+=c;
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim() !== ''));
+}
+// Map CSV rows to price-book items. Detects a header row and matches columns by name; if there
+// are no recognizable headers it assumes the export order: Name, Category, Unit, Material, Labor, Waste.
+function importRows(rows){
+  if(!rows.length) return 0;
+  const first = rows[0].map(x => x.trim().toLowerCase());
+  const keywords = ['name','item','description','category','csi','code','division','section','unit','material','labor','labour','waste'];
+  const hasHeader = first.some(h => keywords.some(k => h.includes(k)));
+  let idx = { name:0, category:1, unit:2, material:3, labor:4, waste:5 };
+  let dataRows = rows;
+  if(hasHeader){
+    idx = { name:-1, category:-1, unit:-1, material:-1, labor:-1, waste:-1 };
+    first.forEach((h,j) => {
+      if(idx.name<0 && (h.includes('name')||h.includes('item')||h.includes('description'))) idx.name=j;
+      else if(idx.category<0 && (h.includes('category')||h.includes('csi')||h.includes('code')||h.includes('division')||h.includes('section'))) idx.category=j;
+      else if(idx.unit<0 && h.includes('unit')) idx.unit=j;
+      else if(idx.material<0 && h.includes('material')) idx.material=j;
+      else if(idx.labor<0 && (h.includes('labor')||h.includes('labour'))) idx.labor=j;
+      else if(idx.waste<0 && h.includes('waste')) idx.waste=j;
+    });
+    dataRows = rows.slice(1);
+  }
+  let count = 0;
+  dataRows.forEach(r => {
+    const get = k => (idx[k] >= 0 && idx[k] < r.length) ? r[idx[k]].trim() : '';
+    const name = get('name');
+    if(!name) return;
+    items.push({
+      id: 'pi_'+Math.random().toString(16).slice(2,10),
+      name, category: get('category'), unit: get('unit'),
+      material: parseFloat(get('material')) || 0,
+      labor: parseFloat(get('labor')) || 0,
+      waste: parseFloat(get('waste')) || 0
+    });
+    count++;
+  });
+  return count;
+}
+document.getElementById('import-csv-btn').addEventListener('click', () => document.getElementById('csv-input').click());
+document.getElementById('csv-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const n = importRows(parseCSV(String(reader.result)));
+      render();
+      toast(n ? `Imported ${n} item${n===1?'':'s'} — review, then Save.` : 'No usable rows found in that CSV.', !n);
+    }catch(err){ toast('Could not read CSV: ' + err.message, true); }
+  };
+  reader.readAsText(file);
+  e.target.value = ''; // let the same file be re-imported later
+});
+function csvEscape(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+document.getElementById('export-csv-btn').addEventListener('click', () => {
+  const header = ['Name','Category','Unit','Material','Labor','Waste'];
+  const lines = [header.join(',')].concat(
+    items.map(it => [it.name, it.category, it.unit, it.material, it.labor, it.waste].map(csvEscape).join(',')));
+  const blob = new Blob([lines.join('\n')], { type:'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'price-book.csv'; a.click();
+  URL.revokeObjectURL(url);
+  toast(items.length ? 'Exported price-book.csv' : 'Exported an empty template.');
 });
 
 document.getElementById('resetStarter').addEventListener('click', () => {

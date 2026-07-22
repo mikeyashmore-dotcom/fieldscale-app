@@ -79,6 +79,7 @@
         <thead>
           <tr>
             <th class="cell-name">Item</th>
+            <th>Category</th>
             <th>Unit</th>
             <th class="num">Material&nbsp;$</th>
             <th class="num">Labor&nbsp;$</th>
@@ -91,9 +92,17 @@
       </table>
     </div>
 
+    <datalist id="cat-list"></datalist>
+    <datalist id="unit-list">
+      <option value="sqft"></option><option value="lnft"></option><option value="bdft"></option>
+      <option value="each"></option><option value="cuyd"></option><option value="hour"></option>
+      <option value="ton"></option><option value="sqyd"></option><option value="unit"></option>
+    </datalist>
+
     <div class="toolbar">
       <button class="btn ghost" id="addRow">＋ Add item</button>
-      <button class="btn ghost" id="resetStarter">Reset to insulation starter</button>
+      <button class="btn ghost" id="resetStarter">Load insulation starter</button>
+      <button class="btn ghost" id="clearAll">Clear all</button>
       <div class="spacer"></div>
       <button class="btn primary" id="save">Save price book</button>
     </div>
@@ -136,13 +145,17 @@ function unitCost(it){
 function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
 
 function render(){
+  // Suggested categories = whatever the user has already typed, so the dropdown grows with them.
+  const cats = [...new Set(items.map(it => (it.category||'').trim()).filter(Boolean))].sort();
+  document.getElementById('cat-list').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}"></option>`).join('');
   const tb = document.getElementById('rows');
   tb.innerHTML = '';
   items.forEach((it, i) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="cell-name"><input data-i="${i}" data-f="name" value="${escapeHtml(it.name)}" placeholder="Item name" /></td>
-      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(it.unit)}" placeholder="sqft" style="width:70px" /></td>
+      <td><input data-i="${i}" data-f="category" value="${escapeHtml(it.category)}" placeholder="Trade" style="width:120px" list="cat-list" /></td>
+      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(it.unit)}" placeholder="sqft" style="width:70px" list="unit-list" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="material" value="${it.material}" inputmode="decimal" style="width:90px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="labor" value="${it.labor}" inputmode="decimal" style="width:90px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="waste" value="${it.waste}" inputmode="decimal" style="width:70px" /></td>
@@ -167,21 +180,25 @@ document.getElementById('rows').addEventListener('click', e => {
 });
 
 document.getElementById('addRow').addEventListener('click', () => {
-  items.push({ id:'pi_'+Math.random().toString(16).slice(2,10), name:'', unit:'sqft', material:0, labor:0, waste:10 });
+  items.push({ id:'pi_'+Math.random().toString(16).slice(2,10), name:'', category:'', unit:'', material:0, labor:0, waste:0 });
   render();
   const inputs = document.querySelectorAll('#rows tr:last-child input');
   if(inputs[0]) inputs[0].focus();
 });
 
-document.getElementById('resetStarter').addEventListener('click', async () => {
+document.getElementById('clearAll').addEventListener('click', () => {
+  if(!items.length){ toast('Price book is already empty.'); return; }
+  if(!confirm('Remove every item and start from a blank price book? Click Save afterward to keep it empty.')) return;
+  items = [];
+  render();
+  toast('Cleared — add your own items, then Save.');
+});
+
+document.getElementById('resetStarter').addEventListener('click', () => {
   if(!confirm('Replace your current price book with the insulation starter set? This overwrites what you have.')) return;
-  try{
-    // Deleting the file server-side isn't exposed; instead we just reload defaults by asking a
-    // fresh account's seed. Simplest: fetch defaults via a throwaway — but we keep it client-side:
-    items = STARTER.map(x => Object.assign({}, x));
-    render();
-    toast('Starter loaded — click Save to keep it.');
-  }catch(err){ toast(err.message, true); }
+  items = STARTER.map(x => Object.assign({}, x));
+  render();
+  toast('Starter loaded — click Save to keep it.');
 });
 
 document.getElementById('save').addEventListener('click', async () => {
@@ -203,17 +220,17 @@ function toast(msg, isErr){
 
 // Mirror of the server's insulation seed, for the local "reset to starter" button.
 const STARTER = [
-  { id:'pi_r13batt',  name:'R-13 batt — 2x4 wall',            unit:'sqft', material:0.55, labor:0.45, waste:10 },
-  { id:'pi_r19batt',  name:'R-19 batt — 2x6 wall',            unit:'sqft', material:0.75, labor:0.50, waste:10 },
-  { id:'pi_r21batt',  name:'R-21 batt — 2x6 wall',            unit:'sqft', material:0.95, labor:0.50, waste:10 },
-  { id:'pi_r30batt',  name:'R-30 batt — ceiling',             unit:'sqft', material:1.05, labor:0.55, waste:10 },
-  { id:'pi_r38batt',  name:'R-38 batt — ceiling',             unit:'sqft', material:1.35, labor:0.60, waste:10 },
-  { id:'pi_blownfg',  name:'Blown-in fiberglass — attic R-38',unit:'sqft', material:0.85, labor:0.65, waste:5  },
-  { id:'pi_blowncel', name:'Blown-in cellulose — attic R-30', unit:'sqft', material:0.80, labor:0.60, waste:5  },
-  { id:'pi_ocfoam',   name:'Spray foam — open cell',          unit:'bdft', material:0.55, labor:0.45, waste:8  },
-  { id:'pi_ccfoam',   name:'Spray foam — closed cell',        unit:'bdft', material:1.10, labor:0.55, waste:8  },
-  { id:'pi_soundbatt',name:'Sound batt — interior wall',      unit:'sqft', material:0.65, labor:0.45, waste:10 },
-  { id:'pi_vapor',    name:'Vapor barrier — crawlspace',      unit:'sqft', material:0.35, labor:0.40, waste:8  }
+  { id:'pi_r13batt',  name:'R-13 batt — 2x4 wall',            category:'Insulation', unit:'sqft', material:0.55, labor:0.45, waste:10 },
+  { id:'pi_r19batt',  name:'R-19 batt — 2x6 wall',            category:'Insulation', unit:'sqft', material:0.75, labor:0.50, waste:10 },
+  { id:'pi_r21batt',  name:'R-21 batt — 2x6 wall',            category:'Insulation', unit:'sqft', material:0.95, labor:0.50, waste:10 },
+  { id:'pi_r30batt',  name:'R-30 batt — ceiling',             category:'Insulation', unit:'sqft', material:1.05, labor:0.55, waste:10 },
+  { id:'pi_r38batt',  name:'R-38 batt — ceiling',             category:'Insulation', unit:'sqft', material:1.35, labor:0.60, waste:10 },
+  { id:'pi_blownfg',  name:'Blown-in fiberglass — attic R-38',category:'Insulation', unit:'sqft', material:0.85, labor:0.65, waste:5  },
+  { id:'pi_blowncel', name:'Blown-in cellulose — attic R-30', category:'Insulation', unit:'sqft', material:0.80, labor:0.60, waste:5  },
+  { id:'pi_ocfoam',   name:'Spray foam — open cell',          category:'Insulation', unit:'bdft', material:0.55, labor:0.45, waste:8  },
+  { id:'pi_ccfoam',   name:'Spray foam — closed cell',        category:'Insulation', unit:'bdft', material:1.10, labor:0.55, waste:8  },
+  { id:'pi_soundbatt',name:'Sound batt — interior wall',      category:'Insulation', unit:'sqft', material:0.65, labor:0.45, waste:10 },
+  { id:'pi_vapor',    name:'Vapor barrier — crawlspace',      category:'Insulation', unit:'sqft', material:0.35, labor:0.40, waste:8  }
 ];
 
 async function init(){

@@ -25,6 +25,8 @@
   .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:var(--radius)}
   .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
   .amt{font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+  .dollar{display:inline-flex;align-items:center;gap:2px;justify-content:flex-end;color:var(--steel)}
+  .lines-scroll{overflow-x:auto}
   .lineadd{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
   .lineadd select{width:auto;min-width:280px;max-width:420px}
   .bottom{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:20px;align-items:start}
@@ -88,12 +90,12 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card lines-scroll">
       <table class="lines">
         <thead>
           <tr>
-            <th>Description</th><th>Code</th><th class="num">Qty</th><th>Unit</th>
-            <th class="num">Unit price</th><th class="num">Amount</th><th></th>
+            <th>Description</th><th>Code</th><th class="num">Qty</th><th>Unit&nbsp;(ea/sqft)</th>
+            <th class="num">Unit price&nbsp;$</th><th class="num">Amount</th><th></th>
           </tr>
         </thead>
         <tbody id="lines"></tbody>
@@ -182,8 +184,8 @@ function renderLines(){
       <td><input data-i="${i}" data-f="name" value="${escapeHtml(l.name)}" placeholder="Description" /></td>
       <td><input data-i="${i}" data-f="code" value="${escapeHtml(l.code)}" style="width:130px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="qty" value="${l.qty}" inputmode="decimal" style="width:78px" /></td>
-      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(l.unit)}" style="width:66px" /></td>
-      <td class="num"><input class="num" data-i="${i}" data-f="unitCost" value="${l.unitCost}" inputmode="decimal" style="width:96px" /></td>
+      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(l.unit)}" placeholder="ea" style="width:66px" /></td>
+      <td class="num"><span class="dollar">$<input class="num" data-i="${i}" data-f="unitCost" value="${l.unitCost}" inputmode="decimal" placeholder="0.00" style="width:84px" /></span></td>
       <td class="num amt" data-amt="${i}">${money(amt)}</td>
       <td class="num"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td>
     </tr>`;

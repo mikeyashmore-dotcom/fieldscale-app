@@ -24,6 +24,9 @@ const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
   return crypto.randomBytes(32).toString('hex');
 })();
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+// The deployment owner can name themselves platform admin here, regardless of who signed up
+// first. Set PLATFORM_ADMIN_USERNAME to your username and you always get the cross-company view.
+const PLATFORM_ADMIN_USERNAME = (process.env.PLATFORM_ADMIN_USERNAME || '').trim().toLowerCase();
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -336,6 +339,11 @@ function publicUser(u) {
     estimateCount: db.estimates.filter(e => e.userId === u.id).length
   };
 }
+// Platform admin = the first-ever account OR whoever the PLATFORM_ADMIN_USERNAME env var names.
+// The env var wins regardless of sign-up order, so the deployment owner is never locked out.
+function isPlatformAdmin(u) {
+  return !!u && (u.platformAdmin === true || (PLATFORM_ADMIN_USERNAME && (u.username || '').toLowerCase() === PLATFORM_ADMIN_USERNAME));
+}
 // A "company admin" (owner or admin) can manage users within their own company.
 function isCompanyAdmin(u) { return !!u && (u.role === 'owner' || u.role === 'admin'); }
 function companyAdminCount(companyId) {
@@ -522,7 +530,7 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, {
           username: me.username, role: me.role, id: me.id,
           companyId: me.companyId, companyName: company ? company.name : '',
-          platformAdmin: !!me.platformAdmin
+          platformAdmin: isPlatformAdmin(me)
         });
       }
 
@@ -547,7 +555,7 @@ const server = http.createServer(async (req, res) => {
       if (pathname.startsWith('/api/admin/')) {
         // Platform-only: open/close new-company sign-ups for the whole platform.
         if (pathname === '/api/admin/settings' && req.method === 'PUT') {
-          if (!me.platformAdmin) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+          if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
           const { allowSignups } = await readBody(req);
           if (typeof allowSignups === 'boolean') db.settings.allowSignups = allowSignups;
           saveDB(db);
@@ -642,7 +650,7 @@ const server = http.createServer(async (req, res) => {
 
       // ============ PLATFORM (super-admin: Mike) — cross-company overview ============
       if (pathname === '/api/platform/companies' && req.method === 'GET') {
-        if (!me.platformAdmin) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+        if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
         const companies = db.companies.map(c => {
           const users = db.users.filter(u => u.companyId === c.id);
           const owner = users.find(u => u.id === c.ownerId);
@@ -662,7 +670,7 @@ const server = http.createServer(async (req, res) => {
       // Usernames + activity + which company they're in. Passwords are never included — they're
       // one-way hashed and can't be shown to anyone, ever. To help someone, reset their password.
       if (pathname === '/api/platform/users' && req.method === 'GET') {
-        if (!me.platformAdmin) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+        if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
         const companyNames = Object.fromEntries(db.companies.map(c => [c.id, c.name]));
         const users = db.users.map(u => ({
           username: u.username,

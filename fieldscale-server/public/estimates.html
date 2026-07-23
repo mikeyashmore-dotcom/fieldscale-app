@@ -50,6 +50,21 @@
   .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
   .toolbar{display:flex;gap:8px;align-items:center;margin:18px 0;flex-wrap:wrap}
   .toolbar .spacer{flex:1}
+  .asm-section{margin-top:34px;border-top:1px solid var(--paper-line);padding-top:8px}
+  .asm-section h2{font-family:'Oswald',sans-serif;margin:12px 0 4px}
+  .asm-card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+  .asm-head{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
+  .asm-head .f{display:flex;flex-direction:column;gap:3px}
+  .asm-head .f label{font-size:11px;color:var(--steel)}
+  .asm-head .grow{flex:1;min-width:180px}
+  .asm-head .cost{margin-left:auto;text-align:right}
+  .asm-head .cost .lab{font-size:11px;color:var(--steel)}
+  .asm-head .cost .v{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--ink-navy)}
+  .comp-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  .comp-row select{flex:1;min-width:160px;padding:6px 8px;border:1px solid var(--paper-line);border-radius:var(--radius);background:#fff;font-family:'IBM Plex Sans',sans-serif}
+  .comp-row .qty{width:90px}
+  .comp-row .ea{font-size:12px;color:var(--steel);font-family:'IBM Plex Mono',monospace;min-width:120px;text-align:right}
+  .asm-foot{margin-top:8px}
   button.btn{background:var(--blueprint-2);color:var(--paper);border:1px solid var(--cyan-dim);border-radius:var(--radius);
              padding:7px 13px;font-size:12px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;transition:background .12s}
   button.btn:hover{background:var(--cyan-dim)}
@@ -166,6 +181,17 @@
       <br><strong>Importing a CSV?</strong> Columns: <em>Name, Category, Unit, Material, Labor, Waste</em> (a header row is detected automatically).
       Tip: click <strong>Export CSV</strong> once to get a file in the exact format, fill it in, and import it back.
     </p>
+
+    <div class="asm-section">
+      <h2>Assemblies</h2>
+      <p class="sub">Bundle several items into one line — e.g. “Insulated 2×4 wall” = batt + vapor barrier + labor. On an estimate you add the assembly once and enter the quantity; it prices all the parts for you.</p>
+      <div id="asm-list"></div>
+      <div class="toolbar">
+        <button class="btn ghost" id="add-asm">＋ Add assembly</button>
+        <div class="spacer"></div>
+        <button class="btn primary" id="save-asm">Save assemblies</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -242,15 +268,16 @@ document.getElementById('rows').addEventListener('input', e => {
   const num = (f==='material'||f==='labor'||f==='waste');
   items[i][f] = num ? (parseFloat(el.value)||0) : el.value;
   if(num){ document.querySelector(`[data-cost="${i}"]`).textContent = money(unitCost(items[i])); }
+  if(typeof renderAssemblies==='function' && assemblies.length) renderAssemblies();
 });
 document.getElementById('rows').addEventListener('click', e => {
   const del = e.target.getAttribute && e.target.getAttribute('data-del');
-  if(del!==null && del!==undefined){ items.splice(Number(del),1); render(); }
+  if(del!==null && del!==undefined){ items.splice(Number(del),1); render(); if(assemblies.length) renderAssemblies(); }
 });
 
 document.getElementById('addRow').addEventListener('click', () => {
   items.push({ id:'pi_'+Math.random().toString(16).slice(2,10), name:'', category:'', unit:'', material:0, labor:0, waste:0 });
-  render();
+  render(); if(assemblies.length) renderAssemblies();
   const inputs = document.querySelectorAll('#rows tr:last-child input');
   if(inputs[0]) inputs[0].focus();
 });
@@ -351,13 +378,84 @@ document.getElementById('resetStarter').addEventListener('click', () => {
   toast('Sample loaded — edit the prices, then Save.');
 });
 
+async function savePricebook(msg){
+  const res = await apiFetch('/api/pricebook', { method:'PUT', body: JSON.stringify({ items, assemblies }) });
+  items = res.items; assemblies = res.assemblies || [];
+  render(); renderAssemblies();
+  toast(msg);
+}
 document.getElementById('save').addEventListener('click', async () => {
-  try{
-    const res = await apiFetch('/api/pricebook', { method:'PUT', body: JSON.stringify({ items }) });
-    items = res.items;
-    render();
-    toast('Price book saved.');
-  }catch(err){ toast(err.message, true); }
+  try{ await savePricebook('Price book saved.'); }catch(err){ toast(err.message, true); }
+});
+
+// ---------- Assemblies (bundle items into one estimate line) ----------
+let assemblies = [];
+function asmUnitCost(a){
+  const byId={}; items.forEach(it=>byId[it.id]=it);
+  const c=(a.components||[]).reduce((s,comp)=>{ const it=byId[comp.itemId]; return it ? s+(Number(comp.qty)||0)*unitCost(it) : s; }, 0);
+  return Math.round(c*100)/100;
+}
+function itemOptions(selectedId){
+  const opts=['<option value="">— pick an item —</option>'].concat(items.map(it=>
+    `<option value="${escapeHtml(it.id)}"${it.id===selectedId?' selected':''}>${escapeHtml(it.name||'(unnamed)')}${it.unit?(' · '+escapeHtml(it.unit)):''} · ${money(unitCost(it))}</option>`));
+  return opts.join('');
+}
+function renderAssemblies(){
+  const wrap=document.getElementById('asm-list');
+  if(!assemblies.length){
+    wrap.innerHTML=`<p style="color:var(--steel);padding:6px 2px 12px">No assemblies yet. Click <strong>＋ Add assembly</strong> to bundle items you use together.</p>`;
+    return;
+  }
+  const byId={}; items.forEach(it=>byId[it.id]=it);
+  wrap.innerHTML=assemblies.map((a,ai)=>`
+    <div class="asm-card">
+      <div class="asm-head">
+        <div class="f grow"><label>Assembly name</label><input data-ai="${ai}" data-af="name" value="${escapeHtml(a.name)}" placeholder="e.g. Insulated 2×4 wall" /></div>
+        <div class="f"><label>Unit</label><input data-ai="${ai}" data-af="unit" value="${escapeHtml(a.unit)}" placeholder="sqft" style="width:80px" list="unit-list" /></div>
+        <div class="f"><label>Code / category</label><input data-ai="${ai}" data-af="category" value="${escapeHtml(a.category)}" placeholder="optional" style="width:150px" list="cat-list" /></div>
+        <div class="cost"><div class="lab">Cost / unit</div><div class="v" data-acost="${ai}">${money(asmUnitCost(a))}</div></div>
+      </div>
+      <div>${(a.components||[]).map((c,ci)=>{
+        const it=byId[c.itemId]; const ea=it?money((Number(c.qty)||0)*unitCost(it)):'—';
+        return `<div class="comp-row">
+          <select data-ai="${ai}" data-ci="${ci}" data-cf="itemId">${itemOptions(c.itemId)}</select>
+          <input class="num qty" data-ai="${ai}" data-ci="${ci}" data-cf="qty" value="${c.qty}" inputmode="decimal" placeholder="qty per unit" />
+          <span class="ea" data-cea="${ai}-${ci}">${ea}</span>
+          <button class="rowdel" data-compdel="${ai}-${ci}" title="Remove">✕</button>
+        </div>`; }).join('')}</div>
+      <div class="asm-foot"><button class="btn ghost" data-addcomp="${ai}">＋ Add component</button>
+        <button class="rowdel" data-asmdel="${ai}" title="Delete assembly" style="float:right">Delete assembly</button></div>
+    </div>`).join('');
+}
+document.getElementById('asm-list').addEventListener('input', e=>{
+  const el=e.target, ai=el.getAttribute('data-ai');
+  if(ai===null) return;
+  const af=el.getAttribute('data-af'), ci=el.getAttribute('data-ci'), cf=el.getAttribute('data-cf');
+  if(af){ assemblies[ai][af]=el.value; return; }
+  if(ci!==null && cf==='qty'){ assemblies[ai].components[ci].qty=parseFloat(el.value)||0; recalcAsm(ai); }
+});
+document.getElementById('asm-list').addEventListener('change', e=>{
+  const el=e.target, ai=el.getAttribute('data-ai'), ci=el.getAttribute('data-ci'), cf=el.getAttribute('data-cf');
+  if(cf==='itemId' && ai!==null && ci!==null){ assemblies[ai].components[ci].itemId=el.value; recalcAsm(ai); }
+});
+function recalcAsm(ai){
+  const a=assemblies[ai]; const byId={}; items.forEach(it=>byId[it.id]=it);
+  (a.components||[]).forEach((c,ci)=>{ const it=byId[c.itemId]; const cell=document.querySelector(`[data-cea="${ai}-${ci}"]`); if(cell) cell.textContent = it?money((Number(c.qty)||0)*unitCost(it)):'—'; });
+  const tot=document.querySelector(`[data-acost="${ai}"]`); if(tot) tot.textContent=money(asmUnitCost(a));
+}
+document.getElementById('asm-list').addEventListener('click', e=>{
+  const t=e.target;
+  const add=t.getAttribute('data-addcomp'); if(add!==null){ const ai=Number(add); assemblies[ai].components=assemblies[ai].components||[]; assemblies[ai].components.push({itemId:'',qty:1}); renderAssemblies(); return; }
+  const cd=t.getAttribute('data-compdel'); if(cd!==null){ const [ai,ci]=cd.split('-').map(Number); assemblies[ai].components.splice(ci,1); renderAssemblies(); return; }
+  const ad=t.getAttribute('data-asmdel'); if(ad!==null){ if(!confirm('Delete this assembly?')) return; assemblies.splice(Number(ad),1); renderAssemblies(); return; }
+});
+document.getElementById('add-asm').addEventListener('click', ()=>{
+  if(!items.length){ toast('Add some price-book items first — assemblies are built from them.', true); return; }
+  assemblies.push({ id:'asm_'+Math.random().toString(16).slice(2,10), name:'', unit:'', category:'', components:[{itemId:'',qty:1}] });
+  renderAssemblies();
+});
+document.getElementById('save-asm').addEventListener('click', async ()=>{
+  try{ await savePricebook('Assemblies saved.'); }catch(err){ toast(err.message, true); }
 });
 
 let toastTimer;
@@ -497,9 +595,10 @@ async function init(){
   try{
     const res = await apiFetch('/api/pricebook');
     items = res.items || [];
+    assemblies = res.assemblies || [];
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
-    render();
+    render(); renderAssemblies();
   }catch(err){
     document.getElementById('loading').textContent = 'Could not load price book: ' + err.message;
   }

@@ -123,15 +123,31 @@ function pricebookPath(userId){ return path.join(PRICEBOOKS_DIR, userId + '.json
 // they then edit to their real costs). Items are classified by CSI MasterFormat division.
 const DEFAULT_PRICEBOOK = [];
 
-function readPricebook(userId){
+function readPricebookFile(userId){
   const f = pricebookPath(userId);
   if (!fs.existsSync(f)) return null; // null = "this user has never saved one yet"
-  try { const d = JSON.parse(fs.readFileSync(f, 'utf8')); return Array.isArray(d.items) ? d.items : []; }
-  catch (e) { return []; }
+  try {
+    const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+    return { items: Array.isArray(d.items) ? d.items : [], assemblies: Array.isArray(d.assemblies) ? d.assemblies : [] };
+  } catch (e) { return { items: [], assemblies: [] }; }
 }
-function writePricebook(userId, items){
+function readPricebook(userId){
+  const d = readPricebookFile(userId);
+  return d === null ? null : d.items;
+}
+function readAssemblies(userId){
+  const d = readPricebookFile(userId);
+  return d === null ? [] : d.assemblies;
+}
+// Persist items and/or assemblies without clobbering the other half of the file.
+function writePricebook(userId, items, assemblies){
   if (!fs.existsSync(PRICEBOOKS_DIR)) fs.mkdirSync(PRICEBOOKS_DIR, { recursive: true });
-  writeJsonAtomic(pricebookPath(userId), { items });
+  const cur = readPricebookFile(userId) || { items: [], assemblies: [] };
+  const out = {
+    items: items !== undefined ? items : cur.items,
+    assemblies: assemblies !== undefined ? assemblies : cur.assemblies
+  };
+  writeJsonAtomic(pricebookPath(userId), out);
 }
 
 // ---------- Company profile (per-user, set once, auto-fills every estimate) ----------
@@ -925,14 +941,17 @@ const server = http.createServer(async (req, res) => {
       // GET returns the saved list; a brand-new user gets seeded with the insulation starter
       // set so the estimator has something to work with immediately.
       if (pathname === '/api/pricebook' && req.method === 'GET') {
-        let items = readPricebook(me.companyId);
-        if (items === null) { items = DEFAULT_PRICEBOOK; writePricebook(me.companyId, items); }
-        return sendJSON(res, 200, { items });
+        const file = readPricebookFile(me.companyId);
+        if (file === null) { writePricebook(me.companyId, DEFAULT_PRICEBOOK, []); return sendJSON(res, 200, { items: DEFAULT_PRICEBOOK, assemblies: [] }); }
+        return sendJSON(res, 200, { items: file.items, assemblies: file.assemblies });
       }
       // PUT replaces the whole list. We re-shape every row server-side so the file can only
       // ever hold clean, expected fields — the browser doesn't get to store arbitrary junk.
+      // Assemblies (optional) bundle price-book items into one line; each component references an
+      // item id plus a per-unit qty. Cost is computed at estimate time by resolving those items.
       if (pathname === '/api/pricebook' && req.method === 'PUT') {
-        const { items } = await readBody(req);
+        const body = await readBody(req);
+        const { items, assemblies } = body;
         if (!Array.isArray(items)) return sendJSON(res, 400, { error: 'items must be an array.' });
         const clean = items.slice(0, 2000).map(it => ({
           id: String(it.id || ('pi_' + crypto.randomBytes(6).toString('hex'))).slice(0, 40),
@@ -943,8 +962,22 @@ const server = http.createServer(async (req, res) => {
           labor: Number(it.labor) || 0,
           waste: Number(it.waste) || 0
         }));
-        writePricebook(me.companyId, clean);
-        return sendJSON(res, 200, { items: clean });
+        let cleanAsm;
+        if (assemblies !== undefined) {
+          if (!Array.isArray(assemblies)) return sendJSON(res, 400, { error: 'assemblies must be an array.' });
+          cleanAsm = assemblies.slice(0, 2000).map(a => ({
+            id: String(a.id || ('asm_' + crypto.randomBytes(6).toString('hex'))).slice(0, 40),
+            name: String(a.name || '').slice(0, 120),
+            category: String(a.category || '').slice(0, 60),
+            unit: String(a.unit || '').slice(0, 20),
+            components: (Array.isArray(a.components) ? a.components : []).slice(0, 200).map(c => ({
+              itemId: String(c.itemId || '').slice(0, 40),
+              qty: Number(c.qty) || 0
+            }))
+          }));
+        }
+        writePricebook(me.companyId, clean, cleanAsm);
+        return sendJSON(res, 200, { items: clean, assemblies: cleanAsm !== undefined ? cleanAsm : readAssemblies(me.companyId) });
       }
 
       // ---- Company profile: get / save (shared by everyone in the company) ----
@@ -1196,6 +1229,7 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, {
           fieldscaleBackup: 1, companyName: company ? company.name : '',
           profile: readCompany(me.companyId), pricebook: readPricebook(me.companyId) || [],
+          assemblies: readAssemblies(me.companyId),
           projects, estimates, invoices, jobs
         });
       }
@@ -1207,6 +1241,7 @@ const server = http.createServer(async (req, res) => {
         if (!b || b.fieldscaleBackup !== 1) return sendJSON(res, 400, { error: 'That is not a valid Fieldscale backup file.' });
         if (b.profile && typeof b.profile === 'object') writeCompany(me.companyId, b.profile);
         if (Array.isArray(b.pricebook)) writePricebook(me.companyId, b.pricebook);
+        if (Array.isArray(b.assemblies)) writePricebook(me.companyId, undefined, b.assemblies);
         let projN = 0, estN = 0;
         (Array.isArray(b.projects) ? b.projects : []).forEach(p => {
           let proj = db.projects.find(x => x.id === p.id && x.companyId === me.companyId);

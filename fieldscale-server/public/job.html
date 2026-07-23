@@ -97,8 +97,19 @@
         <div class="field"><label>Actual cost to date</label><input id="c-actual" class="num" inputmode="decimal" placeholder="0.00" /></div>
       </div>
       <div class="cost-out" id="cost-out"></div>
-      <p class="cost-hint">Contract and budget carry over from the estimate. Log your real costs as the job runs to watch your margin.</p>
+      <p class="cost-hint">Contract and budget carry over from the estimate. Log your real costs as the job runs to watch your margin. Approved change orders below adjust these numbers automatically.</p>
     </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Change orders</h3></div>
+      <div class="lines-scroll">
+        <table class="lines co-table">
+          <thead><tr><th>Description</th><th class="num">Price change</th><th class="num">Cost change</th><th>Status</th><th></th></tr></thead>
+          <tbody id="co-lines"></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin:10px 0 18px"><button class="btn ghost" id="add-co">＋ Add change order</button></div>
 
     <div class="block" style="padding:0;overflow:hidden">
       <div class="lines-scroll">
@@ -172,15 +183,25 @@ document.getElementById('lines').addEventListener('click', e=>{
 });
 document.getElementById('add-blank').addEventListener('click', ()=>{ doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:'', code:'', unit:'', qty:1, done:false }); renderLines(); });
 
+function approvedCO(){
+  return (doc.changeOrders||[]).reduce((a,co)=>{
+    if(co.status==='approved'){ a.price+=Number(co.priceDelta)||0; a.cost+=Number(co.costDelta)||0; }
+    return a;
+  }, {price:0, cost:0});
+}
 function renderCosting(){
-  const contract=num('c-contract'), budget=num('c-budget'), actual=num('c-actual');
+  const co=approvedCO();
+  const baseContract=num('c-contract'), baseBudget=num('c-budget'), actual=num('c-actual');
+  const contract=baseContract+co.price, budget=baseBudget+co.cost;
   const estProfit=contract-budget;
   const estMargin=contract>0 ? (estProfit/contract*100) : 0;
   const actualProfit=contract-actual;
   const actualMargin=contract>0 ? (actualProfit/contract*100) : 0;
   const overUnder=budget-actual; // + = under budget, - = over
   const cls=v=> v>0?'good':(v<0?'bad':'');
+  const hasCO=co.price||co.cost;
   const stats=[
+    ['Contract'+(hasCO?' (w/ COs)':''), money(contract), ''],
     ['Est. profit', money(estProfit), cls(estProfit)],
     ['Est. margin', (contract>0?estMargin.toFixed(1)+'%':'—'), cls(estProfit)],
     ['Profit so far', money(actualProfit), cls(actualProfit)],
@@ -192,6 +213,43 @@ function renderCosting(){
 }
 ['c-contract','c-budget','c-actual'].forEach(id=>document.getElementById(id).addEventListener('input', renderCosting));
 
+function renderChangeOrders(){
+  const tb=document.getElementById('co-lines');
+  const cos=doc.changeOrders||[];
+  if(!cos.length){ tb.innerHTML=`<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--steel)">No change orders. Add one when the job scope changes after signing.</td></tr>`; return; }
+  tb.innerHTML=cos.map((co,i)=>`
+    <tr>
+      <td><input type="text" data-ci="${i}" data-cf="description" value="${escapeHtml(co.description)}" placeholder="What changed" /></td>
+      <td class="num"><input class="num" data-ci="${i}" data-cf="priceDelta" value="${co.priceDelta}" inputmode="decimal" style="width:96px" /></td>
+      <td class="num"><input class="num" data-ci="${i}" data-cf="costDelta" value="${co.costDelta}" inputmode="decimal" style="width:96px" /></td>
+      <td><select data-ci="${i}" data-cf="status">
+        <option value="pending"${co.status==='pending'?' selected':''}>Pending</option>
+        <option value="approved"${co.status==='approved'?' selected':''}>Approved</option>
+        <option value="rejected"${co.status==='rejected'?' selected':''}>Rejected</option>
+      </select></td>
+      <td class="num"><button class="rowdel" data-codel="${i}" title="Remove">✕</button></td>
+    </tr>`).join('');
+}
+document.getElementById('co-lines').addEventListener('input', e=>{
+  const el=e.target, i=el.getAttribute('data-ci'), f=el.getAttribute('data-cf');
+  if(i===null) return;
+  if(f==='priceDelta'||f==='costDelta') doc.changeOrders[i][f]=parseFloat(el.value)||0;
+  else doc.changeOrders[i][f]=el.value;
+  if(f==='priceDelta'||f==='costDelta') renderCosting();
+});
+document.getElementById('co-lines').addEventListener('change', e=>{
+  const el=e.target; if(el.getAttribute('data-cf')==='status'){ doc.changeOrders[el.getAttribute('data-ci')].status=el.value; renderCosting(); }
+});
+document.getElementById('co-lines').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-codel');
+  if(d!==null && d!==undefined){ doc.changeOrders.splice(Number(d),1); renderChangeOrders(); renderCosting(); }
+});
+document.getElementById('add-co').addEventListener('click', ()=>{
+  doc.changeOrders=doc.changeOrders||[];
+  doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), description:'', priceDelta:0, costDelta:0, status:'pending' });
+  renderChangeOrders();
+});
+
 function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 function syncDocFromForm(){
@@ -200,6 +258,7 @@ function syncDocFromForm(){
   doc.startDate=val('start-date'); doc.dueDate=val('due-date'); doc.notes=val('notes');
   doc.company=doc.company||{}; doc.fromEstimateId=doc.fromEstimateId||'';
   doc.costing={ budget:num('c-budget'), contract:num('c-contract'), actualCost:num('c-actual') };
+  doc.changeOrders=doc.changeOrders||[];
 }
 async function save(){
   syncDocFromForm();
@@ -222,6 +281,7 @@ function fillForm(){
   set('c-contract', c.contract!=null ? c.contract : '');
   set('c-budget', c.budget!=null ? c.budget : '');
   set('c-actual', c.actualCost!=null ? c.actualCost : '');
+  renderChangeOrders();
   renderCosting();
 }
 let statusVal='scheduled';
@@ -232,7 +292,7 @@ async function init(){
     jobName = j.name || 'Untitled Job';
     statusVal = j.status || 'scheduled';
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
-    doc.client = doc.client||{}; doc.lines = doc.lines||[];
+    doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     fillForm(); renderLines();

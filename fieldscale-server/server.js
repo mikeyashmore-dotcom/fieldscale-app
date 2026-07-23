@@ -1094,9 +1094,15 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/jobs' && req.method === 'GET') {
         const list = db.jobs.filter(j => j.companyId === me.companyId)
           .map(j => {
-            const c = (readJobDoc(j.id) || {}).costing || {};
-            const contract = Number(c.contract) || 0;
-            const profit = contract - (Number(c.budget) || 0);
+            const jd = readJobDoc(j.id) || {};
+            const c = jd.costing || {};
+            // Approved change orders adjust both the contract (revenue) and the budget (cost).
+            const co = (jd.changeOrders || []).reduce((a, x) => {
+              if (x.status === 'approved') { a.price += Number(x.priceDelta) || 0; a.cost += Number(x.costDelta) || 0; }
+              return a;
+            }, { price: 0, cost: 0 });
+            const contract = (Number(c.contract) || 0) + co.price;
+            const profit = contract - ((Number(c.budget) || 0) + co.cost);
             const margin = contract > 0 ? Math.round(profit / contract * 1000) / 10 : null;
             return { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
                      contract, margin, createdAt: j.createdAt, updatedAt: j.updatedAt };

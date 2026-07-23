@@ -52,6 +52,7 @@
   <nav>
     <a href="/">Takeoff</a>
     <a href="/proposals.html" class="active">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
     <a href="/company.html">Company</a>
@@ -71,6 +72,7 @@
       <input class="title" id="est-name" placeholder="Estimate name" />
       <div class="spacer"></div>
       <button class="btn ghost" id="save-btn">Save</button>
+      <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">→ Job</button>
       <button class="btn ghost" id="to-invoice-btn">→ Invoice</button>
       <button class="btn primary" id="pdf-btn">Generate PDF</button>
     </div>
@@ -259,6 +261,14 @@ document.getElementById('save-btn').addEventListener('click', async ()=>{
 });
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{
   try{ await save(); openProposalPDF(); }catch(err){ toast(err.message,true); }
+});
+document.getElementById('to-job-btn').addEventListener('click', async ()=>{
+  if(!confirm('Turn this estimate into a scheduled job? Its line items become your scope of work checklist.')) return;
+  try{
+    await save();
+    const r = await apiFetch('/api/jobs/from-estimate', { method:'POST', body: JSON.stringify({ estimateId: estId }) });
+    location.href = '/job.html?id=' + encodeURIComponent(r.id);
+  }catch(err){ toast(err.message, true); }
 });
 document.getElementById('to-invoice-btn').addEventListener('click', async ()=>{
   if(!confirm('Create an invoice from this estimate? Your markup is folded into the prices so the customer never sees it.')) return;

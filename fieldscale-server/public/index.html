@@ -980,6 +980,7 @@
           <div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>
         </div>
         <div class="takeoff-footer">
+          <button class="btn primary" id="to-estimate" title="Create an estimate from these quantities">→ Estimate</button>
           <button class="btn" id="export-csv">Export CSV</button>
           <button class="btn" id="clear-all">Clear All</button>
         </div>
@@ -4390,6 +4391,41 @@ function renderTakeoffList(){
   });
 }
 
+// ---------- Send takeoff quantities straight into a new estimate ----------
+// Groups every measurement by name + unit (same logic as the CSV/quantities panel), matches
+// each name to a price-book item for pricing (0 if no match), and creates an estimate.
+document.getElementById('to-estimate').addEventListener('click', async ()=>{
+  if(state.items.length===0){ alert('No measurements yet — measure something first.'); return; }
+  const btn = document.getElementById('to-estimate');
+  btn.disabled = true; const label = btn.textContent; btn.textContent = 'Working…';
+  try{
+    const unitMap = { SF:'sqft', LF:'lnft', CY:'cuyd', EA:'each' };
+    const agg = {};
+    state.items.forEach(it=>{
+      const r = resolveItemDisplay(it);
+      if(!r.qty) return;
+      const key = r.label + '||' + r.unit;
+      agg[key] = agg[key] || { name: r.label, unit: unitMap[r.unit] || r.unit, qty: 0 };
+      agg[key].qty += r.qty;
+    });
+    let pb = [];
+    try{ pb = (await apiFetch('/api/pricebook')).items || []; }catch(e){}
+    const byName = {}; pb.forEach(p=>{ byName[(p.name||'').trim().toLowerCase()] = p; });
+    const lines = Object.values(agg).map(a=>{
+      const p = byName[a.name.trim().toLowerCase()];
+      const unitCost = p ? Math.round(((Number(p.material)||0)+(Number(p.labor)||0))*(1+(Number(p.waste)||0)/100)*100)/100 : 0;
+      return { id:'l_'+Math.random().toString(16).slice(2,8), name:a.name, code:(p&&p.category)||'', unit:a.unit, qty:Math.round(a.qty*100)/100, unitCost };
+    });
+    const meta = state.projectMeta || {};
+    const projName = document.getElementById('proj-name').value || 'Takeoff';
+    const doc = { company:{}, client:{ name:meta.client||'', address:meta.address||'' }, project:projName, lines, markupPct:0, taxPct:0, notes:'', terms:'' };
+    const r = await apiFetch('/api/estimates', { method:'POST', body: JSON.stringify({ name: projName + ' — Estimate', client: meta.client||'', doc }) });
+    location.href = '/estimate.html?id=' + encodeURIComponent(r.id);
+  }catch(err){
+    alert('Could not create the estimate: ' + (err.message||err));
+    btn.disabled = false; btn.textContent = label;
+  }
+});
 document.getElementById('export-csv').addEventListener('click', ()=>{
   if(state.items.length===0){ alert('No items to export yet.'); return; }
   // The job details ride along on the export — a takeoff that doesn't say which job,

@@ -745,9 +745,30 @@ const server = http.createServer(async (req, res) => {
         if (!project) return sendJSON(res, 404, { error: 'Project not found.' });
 
         if (req.method === 'PUT') {
+          ensureProjectDir(project.id);
+          const ct = req.headers['content-type'] || '';
+          // Preferred path: the browser streams the raw PDF bytes (Content-Type application/pdf).
+          // We pipe them straight to disk, so a 100MB hotel plan set never has to be buffered in
+          // memory or base64-inflated into a JSON body (which is what dropped the connection before).
+          if (ct.includes('application/pdf') || ct.includes('application/octet-stream')) {
+            const tmp = planPath(project.id) + '.tmp';
+            const ws = fs.createWriteStream(tmp);
+            let failed = false;
+            const fail = (e) => { if (failed) return; failed = true; try { fs.unlinkSync(tmp); } catch (_) {} sendJSON(res, 500, { error: 'Could not save the plan: ' + (e && e.message || e) }); };
+            ws.on('error', fail);
+            req.on('error', fail);
+            ws.on('finish', () => {
+              if (failed) return;
+              try { fs.renameSync(tmp, planPath(project.id)); } catch (e) { return fail(e); }
+              project.hasPdf = true; project.updatedAt = Date.now(); saveDB(db);
+              sendJSON(res, 200, { ok: true });
+            });
+            req.pipe(ws);
+            return;
+          }
+          // Legacy path: base64 inside JSON (kept for backward compatibility).
           const { pdfBase64 } = await readBody(req);
           if (!pdfBase64) return sendJSON(res, 400, { error: 'No PDF supplied.' });
-          ensureProjectDir(project.id);
           fs.writeFileSync(planPath(project.id), Buffer.from(pdfBase64, 'base64'));
           project.hasPdf = true;
           project.updatedAt = Date.now();

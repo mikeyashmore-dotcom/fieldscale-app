@@ -76,6 +76,14 @@
         <div class="field"><label>Website</label><input id="website" /></div>
       </div>
       <div class="field"><label>Address</label><textarea id="address" placeholder="Street, City, State ZIP"></textarea></div>
+
+      <div class="field" style="margin-top:18px;border-top:1px solid var(--paper-line);padding-top:16px">
+        <label>Next invoice number</label>
+        <input id="invoice-next" placeholder="e.g. INV-1001 or 1001" style="max-width:220px" />
+        <div style="font-size:12px;color:var(--steel);margin-top:4px">
+          New invoices auto-fill this and count up (any prefix like <b>INV-</b> and leading zeros are kept). Leave blank to turn auto-numbering off.
+        </div>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -139,8 +147,9 @@ document.getElementById('save-btn').addEventListener('click', async ()=>{
   const profile={ name:val('name'), phone:val('phone'), email:val('email'),
     license:val('license'), website:val('website'), address:val('address'), logo };
   try{
-    const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile }) });
+    const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile, invoiceNext: val('invoice-next') }) });
     logo=r.profile.logo||''; showLogo();
+    set('invoice-next', r.invoiceNext);
     toast('Company profile saved.');
   }catch(err){ toast(err.message, true); }
 });
@@ -156,6 +165,7 @@ async function init(){
     const p=r.profile||{};
     set('name',p.name); set('phone',p.phone); set('email',p.email);
     set('license',p.license); set('website',p.website); set('address',p.address);
+    set('invoice-next', r.invoiceNext);
     logo=p.logo||''; showLogo();
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';

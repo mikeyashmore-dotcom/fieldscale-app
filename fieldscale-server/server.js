@@ -405,6 +405,35 @@ function companyAdminCount(companyId) {
 }
 function companyById(id) { return db.companies.find(c => c.id === id) || null; }
 
+// ---------- Auto-incrementing invoice numbers (per company) ----------
+// The company record holds a running counter: a prefix (e.g. "INV-"), the next integer to use,
+// and the zero-pad width. We seed it the first time a user types an invoice number, then count up.
+function parseInvoiceNo(s) {
+  const m = String(s == null ? '' : s).match(/^(.*?)(\d+)\s*$/); // trailing integer + optional prefix
+  if (!m) return null;
+  return { prefix: m[1], num: parseInt(m[2], 10), pad: m[2].length };
+}
+function nextInvoiceNo(company) {
+  if (!company || company.invoiceSeq == null) return null;
+  return (company.invoicePrefix || '') + String(company.invoiceSeq).padStart(company.invoicePad || 0, '0');
+}
+// Returns the next number and advances the counter (or null if not seeded yet).
+function assignInvoiceNo(company) {
+  const no = nextInvoiceNo(company);
+  if (no == null) return null;
+  company.invoiceSeq = company.invoiceSeq + 1;
+  return no;
+}
+// Seed the counter from the first invoice number a user enters by hand (no-op once seeded).
+function maybeSeedInvoiceSeq(company, invoiceNoStr) {
+  if (!company || company.invoiceSeq != null) return;
+  const p = parseInvoiceNo(invoiceNoStr);
+  if (!p) return;
+  company.invoicePrefix = p.prefix;
+  company.invoicePad = p.pad;
+  company.invoiceSeq = p.num + 1; // the next invoice counts up from the one just entered
+}
+
 // ---------- Rate limiting for AI calls (in-memory, per user, rolling hour) ----------
 const aiCallLog = new Map(); // userId -> array of timestamps
 function checkAiRateLimit(userId) {
@@ -984,10 +1013,19 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Company profile: get / save (shared by everyone in the company) ----
       if (pathname === '/api/company' && req.method === 'GET') {
-        return sendJSON(res, 200, { profile: readCompany(me.companyId) });
+        return sendJSON(res, 200, { profile: readCompany(me.companyId), invoiceNext: nextInvoiceNo(companyById(me.companyId)) });
       }
       if (pathname === '/api/company' && req.method === 'PUT') {
-        const { profile } = await readBody(req);
+        const { profile, invoiceNext } = await readBody(req);
+        // Let the company set/adjust the next invoice number directly (blank clears auto-numbering).
+        if (invoiceNext !== undefined) {
+          const company = companyById(me.companyId);
+          if (company) {
+            const parsed = parseInvoiceNo(invoiceNext);
+            if (parsed) { company.invoicePrefix = parsed.prefix; company.invoicePad = parsed.pad; company.invoiceSeq = parsed.num; }
+            else if (String(invoiceNext || '').trim() === '') { company.invoiceSeq = null; company.invoicePrefix = ''; company.invoicePad = 0; }
+          }
+        }
         const p = profile || {};
         // Re-shape server-side so the file only ever holds expected fields. The logo is a data
         // URL kept small (a proposal letterhead, not a hi-res photo); anything else is rejected.
@@ -1002,7 +1040,8 @@ const server = http.createServer(async (req, res) => {
           logo: logoOk ? p.logo : ''
         };
         writeCompany(me.companyId, clean);
-        return sendJSON(res, 200, { profile: clean });
+        saveDB(db); // persist any invoice-counter change on the company record
+        return sendJSON(res, 200, { profile: clean, invoiceNext: nextInvoiceNo(companyById(me.companyId)) });
       }
 
       // ---- Estimating: list / create estimates ----
@@ -1065,7 +1104,9 @@ const server = http.createServer(async (req, res) => {
         const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
           name: name || 'Untitled Invoice', client: client || '', total: 0, amountPaid: 0,
           createdAt: Date.now(), updatedAt: Date.now() };
-        writeInvoiceDoc(inv.id, doc || {});
+        const d = doc || {};
+        if (!d.invoiceNo) { const no = assignInvoiceNo(companyById(me.companyId)); if (no) d.invoiceNo = no; }
+        writeInvoiceDoc(inv.id, d);
         db.invoices.push(inv);
         saveDB(db);
         return sendJSON(res, 200, { id: inv.id });
@@ -1089,6 +1130,8 @@ const server = http.createServer(async (req, res) => {
         };
         const subtotal = lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
         const total = Math.round(subtotal * (1 + doc.taxPct / 100) * 100) / 100;
+        const autoNo = assignInvoiceNo(companyById(me.companyId));
+        if (autoNo) doc.invoiceNo = autoNo;
         const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
           name: est.name || 'Invoice', client: (edoc.client && edoc.client.name) || est.client || '',
           total, amountPaid: 0, createdAt: Date.now(), updatedAt: Date.now() };
@@ -1112,7 +1155,10 @@ const server = http.createServer(async (req, res) => {
           if (client !== undefined) inv.client = String(client).slice(0, 200);
           if (typeof total === 'number') inv.total = total;
           if (typeof amountPaid === 'number') inv.amountPaid = amountPaid;
-          if (doc !== undefined) writeInvoiceDoc(inv.id, doc);
+          if (doc !== undefined) {
+            maybeSeedInvoiceSeq(companyById(me.companyId), doc.invoiceNo); // remember the first # they type
+            writeInvoiceDoc(inv.id, doc);
+          }
           inv.updatedAt = Date.now();
           saveDB(db);
           return sendJSON(res, 200, { id: inv.id, updatedAt: inv.updatedAt, status: invoiceStatus(inv.total, inv.amountPaid) });

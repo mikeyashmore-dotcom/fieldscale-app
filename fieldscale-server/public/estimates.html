@@ -90,6 +90,7 @@
   </nav>
   <div class="spacer"></div>
   <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
 </header>
 
 <div class="wrap">
@@ -163,6 +164,7 @@
 const TOKEN_STORAGE = 'fieldscale_token';
 const USERNAME_STORAGE = 'fieldscale_username';
 function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
 
 // Same login the takeoff app uses. No token → send them to the login screen on the main app.
 if(!getToken()){ location.href = '/'; }

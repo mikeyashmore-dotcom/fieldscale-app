@@ -162,6 +162,26 @@ function writeEstimateDoc(id, doc){
   writeJsonAtomic(estimatePath(id), doc || {});
 }
 
+// ---------- Invoicing (mirrors estimates: db.json metadata + a per-invoice doc on disk) ----------
+const INVOICES_DIR = path.join(DATA_DIR, 'invoices');
+function invoicePath(id){ return path.join(INVOICES_DIR, id + '.json'); }
+function readInvoiceDoc(id){
+  const f = invoicePath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writeInvoiceDoc(id, doc){
+  if (!fs.existsSync(INVOICES_DIR)) fs.mkdirSync(INVOICES_DIR, { recursive: true });
+  writeJsonAtomic(invoicePath(id), doc || {});
+}
+// Payment status from what's been paid against the total.
+function invoiceStatus(total, paid){
+  total = Number(total) || 0; paid = Number(paid) || 0;
+  if (paid <= 0) return 'unpaid';
+  if (paid + 0.005 >= total) return 'paid';
+  return 'partial';
+}
+
 if (!ANTHROPIC_API_KEY) {
   console.warn('[fieldscale] WARNING: ANTHROPIC_API_KEY not set — AI features (auto-scale, AI select, sheet naming) will not work.');
 }
@@ -170,7 +190,7 @@ if (!ANTHROPIC_API_KEY) {
 function loadDB() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], companies: [], projects: [], estimates: [], settings: { allowSignups: true } }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], companies: [], projects: [], estimates: [], invoices: [], settings: { allowSignups: true } }, null, 2));
   }
   const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   // Fill in anything missing so older db.json files keep working after an upgrade.
@@ -178,6 +198,7 @@ function loadDB() {
   parsed.companies = parsed.companies || [];
   parsed.projects = parsed.projects || [];
   parsed.estimates = parsed.estimates || [];
+  parsed.invoices = parsed.invoices || [];
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -956,6 +977,80 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Invoicing: list / create / convert-from-estimate ----
+      if (pathname === '/api/invoices' && req.method === 'GET') {
+        const list = db.invoices.filter(i => i.companyId === me.companyId)
+          .map(i => ({ id: i.id, name: i.name, client: i.client || '', total: i.total || 0,
+                       amountPaid: i.amountPaid || 0, status: invoiceStatus(i.total, i.amountPaid),
+                       createdAt: i.createdAt, updatedAt: i.updatedAt }))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/invoices' && req.method === 'POST') {
+        const { name, client, doc } = await readBody(req);
+        const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: name || 'Untitled Invoice', client: client || '', total: 0, amountPaid: 0,
+          createdAt: Date.now(), updatedAt: Date.now() };
+        writeInvoiceDoc(inv.id, doc || {});
+        db.invoices.push(inv);
+        saveDB(db);
+        return sendJSON(res, 200, { id: inv.id });
+      }
+      // Convert an accepted estimate into an invoice. The estimate's markup is folded into the
+      // shown line prices (the customer never sees it), so invoice lines are already selling prices.
+      if (pathname === '/api/invoices/from-estimate' && req.method === 'POST') {
+        const { estimateId } = await readBody(req);
+        const est = db.estimates.find(e => e.id === estimateId && e.companyId === me.companyId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        const edoc = readEstimateDoc(est.id);
+        const mk = 1 + (Number(edoc.markupPct) || 0) / 100;
+        const lines = (edoc.lines || []).map(l => ({
+          id: 'l_' + crypto.randomBytes(6).toString('hex'), name: l.name, code: l.code, unit: l.unit,
+          qty: Number(l.qty) || 0, unitCost: Math.round((Number(l.unitCost) || 0) * mk * 100) / 100
+        }));
+        const doc = {
+          company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
+          invoiceNo: '', date: '', dueDate: '', lines, taxPct: Number(edoc.taxPct) || 0,
+          notes: edoc.notes || '', terms: edoc.terms || '', amountPaid: 0, fromEstimateId: est.id
+        };
+        const subtotal = lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
+        const total = Math.round(subtotal * (1 + doc.taxPct / 100) * 100) / 100;
+        const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: est.name || 'Invoice', client: (edoc.client && edoc.client.name) || est.client || '',
+          total, amountPaid: 0, createdAt: Date.now(), updatedAt: Date.now() };
+        writeInvoiceDoc(inv.id, doc);
+        db.invoices.push(inv);
+        saveDB(db);
+        return sendJSON(res, 200, { id: inv.id });
+      }
+      const invMatch = pathname.match(/^\/api\/invoices\/([a-zA-Z0-9_]+)$/);
+      if (invMatch) {
+        const inv = db.invoices.find(i => i.id === invMatch[1] && i.companyId === me.companyId);
+        if (!inv) return sendJSON(res, 404, { error: 'Invoice not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, { id: inv.id, name: inv.name, client: inv.client, total: inv.total,
+            amountPaid: inv.amountPaid || 0, status: invoiceStatus(inv.total, inv.amountPaid),
+            createdAt: inv.createdAt, updatedAt: inv.updatedAt, doc: readInvoiceDoc(inv.id) });
+        }
+        if (req.method === 'PUT') {
+          const { name, client, total, amountPaid, doc } = await readBody(req);
+          if (name !== undefined) inv.name = String(name).slice(0, 200);
+          if (client !== undefined) inv.client = String(client).slice(0, 200);
+          if (typeof total === 'number') inv.total = total;
+          if (typeof amountPaid === 'number') inv.amountPaid = amountPaid;
+          if (doc !== undefined) writeInvoiceDoc(inv.id, doc);
+          inv.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { id: inv.id, updatedAt: inv.updatedAt, status: invoiceStatus(inv.total, inv.amountPaid) });
+        }
+        if (req.method === 'DELETE') {
+          db.invoices = db.invoices.filter(i => i.id !== inv.id);
+          try { fs.unlinkSync(invoicePath(inv.id)); } catch (e) {}
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
+
       // ---- Full backup / export (company owner or admin) ----
       // Bundles everything that's hard to replace — company profile, price book, every estimate,
       // and every project's takeoff measurements — into one JSON file. Plan PDFs are NOT included
@@ -970,10 +1065,14 @@ const server = http.createServer(async (req, res) => {
           id: e.id, name: e.name, client: e.client, total: e.total, status: e.status,
           createdAt: e.createdAt, updatedAt: e.updatedAt, doc: readEstimateDoc(e.id)
         }));
+        const invoices = db.invoices.filter(i => i.companyId === me.companyId).map(i => ({
+          id: i.id, name: i.name, client: i.client, total: i.total, amountPaid: i.amountPaid,
+          createdAt: i.createdAt, updatedAt: i.updatedAt, doc: readInvoiceDoc(i.id)
+        }));
         return sendJSON(res, 200, {
           fieldscaleBackup: 1, companyName: company ? company.name : '',
           profile: readCompany(me.companyId), pricebook: readPricebook(me.companyId) || [],
-          projects, estimates
+          projects, estimates, invoices
         });
       }
       // Restore a backup file into THIS company. Additive/idempotent by id — re-importing the same
@@ -1008,8 +1107,20 @@ const server = http.createServer(async (req, res) => {
           if (e.doc) writeEstimateDoc(est.id, e.doc);
           est.updatedAt = Date.now(); estN++;
         });
+        let invN = 0;
+        (Array.isArray(b.invoices) ? b.invoices : []).forEach(iv => {
+          let inv = db.invoices.find(x => x.id === iv.id && x.companyId === me.companyId);
+          if (!inv) {
+            inv = { id: (typeof iv.id === 'string' && iv.id) ? iv.id : ('i_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, name: iv.name || 'Restored invoice', client: iv.client || '',
+              total: iv.total || 0, amountPaid: iv.amountPaid || 0, createdAt: iv.createdAt || Date.now(), updatedAt: Date.now() };
+            db.invoices.push(inv);
+          }
+          if (iv.doc) writeInvoiceDoc(inv.id, iv.doc);
+          inv.updatedAt = Date.now(); invN++;
+        });
         saveDB(db);
-        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN });
+        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN });
       }
 
       return sendJSON(res, 404, { error: 'Unknown API route.' });

@@ -658,6 +658,24 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { companies });
       }
 
+      // GET /api/platform/users — every account on the platform (platform admin only).
+      // Usernames + activity + which company they're in. Passwords are never included — they're
+      // one-way hashed and can't be shown to anyone, ever. To help someone, reset their password.
+      if (pathname === '/api/platform/users' && req.method === 'GET') {
+        if (!me.platformAdmin) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+        const companyNames = Object.fromEntries(db.companies.map(c => [c.id, c.name]));
+        const users = db.users.map(u => ({
+          username: u.username,
+          company: companyNames[u.companyId] || '—',
+          role: u.role,
+          platformAdmin: !!u.platformAdmin,
+          disabled: !!u.disabled,
+          createdAt: u.createdAt,
+          lastLoginAt: u.lastLoginAt || null
+        })).sort((a, b) => (b.lastLoginAt || 0) - (a.lastLoginAt || 0));
+        return sendJSON(res, 200, { users });
+      }
+
       // GET /api/projects — list this user's projects (metadata only, not full data)
       if (pathname === '/api/projects' && req.method === 'GET') {
         const list = db.projects

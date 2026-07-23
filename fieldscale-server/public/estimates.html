@@ -76,6 +76,15 @@
   .chip button{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:12px;padding:0 4px}
   .chip button:hover{color:var(--danger)}
   .chips .empty{color:var(--steel);border:none;background:none;padding-left:0}
+  @media (max-width:680px){
+    header{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:10px 14px;position:static}
+    header nav{gap:14px;flex-wrap:wrap;order:3;width:100%}
+    header .spacer{display:none}
+    .wrap{padding:16px 12px 72px}
+    .card{overflow-x:auto}
+    table{min-width:560px}
+    .toolbar{gap:6px}
+  }
 </style>
 </head>
 <body>

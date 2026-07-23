@@ -424,13 +424,17 @@ function serveStatic(req, res, pathname) {
       // SPA fallback: unknown routes serve index.html so client-side view logic can handle them
       fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (err2, indexContent) => {
         if (err2) { res.writeHead(404); res.end('Not found'); return; }
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache, must-revalidate' });
         res.end(indexContent);
       });
       return;
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff' });
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff' };
+    // HTML pages carry the app's logic, so never let a browser serve a stale copy — always
+    // revalidate. (CSS/JS/fonts can still be cached normally.)
+    if (ext === '.html') headers['Cache-Control'] = 'no-cache, must-revalidate';
+    res.writeHead(200, headers);
     res.end(content);
   });
 }

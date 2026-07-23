@@ -74,6 +74,7 @@
       <button class="btn ghost" id="save-btn">Save</button>
       <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">→ Job</button>
       <button class="btn ghost" id="to-invoice-btn">→ Invoice</button>
+      <button class="btn ghost" id="download-pdf-btn" title="Download a PDF file">⬇ Download PDF</button>
       <button class="btn primary" id="pdf-btn">Generate PDF</button>
     </div>
 
@@ -274,6 +275,13 @@ document.getElementById('save-btn').addEventListener('click', async ()=>{
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{
   try{ await save(); openProposalPDF(); }catch(err){ toast(err.message,true); }
 });
+document.getElementById('download-pdf-btn').addEventListener('click', async (e)=>{
+  const btn=e.currentTarget, label=btn.textContent;
+  btn.disabled=true; btn.textContent='Preparing…';
+  try{ await save(); await downloadProposalPDF(); toast('PDF downloaded.'); }
+  catch(err){ toast(err.message||'PDF download failed.', true); }
+  finally{ btn.disabled=false; btn.textContent=label; }
+});
 document.getElementById('to-job-btn').addEventListener('click', async ()=>{
   if(!confirm('Turn this estimate into a scheduled job? Its line items become your scope of work checklist.')) return;
   try{
@@ -292,7 +300,7 @@ document.getElementById('to-invoice-btn').addEventListener('click', async ()=>{
 });
 
 // ---- Build a clean, printable proposal and open it for "Save as PDF" / print ----
-function openProposalPDF(){
+function proposalDocHTML(forDownload){
   const t=computeTotals();
   const rows=doc.lines.map((l,i)=>`<tr>
       <td class="c">${i+1}</td>
@@ -334,8 +342,7 @@ function openProposalPDF(){
   .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
   .spacer40{height:52px}
 </style></head><body>
-  <div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div>
-  <div class="spacer40 noprint"></div>
+  ${forDownload?'':'<div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="spacer40 noprint"></div>'}
   <div class="head">
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
     <div class="doc"><div class="big">ESTIMATE</div><div class="meta">
@@ -362,9 +369,50 @@ function openProposalPDF(){
   ${doc.terms?`<div class="sec"><h4>Terms</h4><div class="body">${escapeHtml(doc.terms)}</div></div>`:''}
   <div class="foot">Thank you for the opportunity. ${escapeHtml(co.name||'')}</div>
 </body></html>`;
+  return html;
+}
+// Existing flow: open the proposal in a new tab where the user picks Save-as-PDF / Print.
+function openProposalPDF(){
   const w=window.open('','_blank');
   if(!w){ toast('Please allow pop-ups to generate the PDF.', true); return; }
-  w.document.open(); w.document.write(html); w.document.close();
+  w.document.open(); w.document.write(proposalDocHTML(false)); w.document.close();
+}
+// One-click: render the proposal to a real PDF file and download it. The library is ~880KB, so
+// we load it only the first time it's needed rather than on every page view.
+let _h2pLoading;
+function loadHtml2Pdf(){
+  if(window.html2pdf) return Promise.resolve(window.html2pdf);
+  if(_h2pLoading) return _h2pLoading;
+  _h2pLoading=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='/vendor/html2pdf.bundle.min.js';
+    s.onload=()=>resolve(window.html2pdf);
+    s.onerror=()=>{ _h2pLoading=null; reject(new Error('Could not load the PDF library — check your connection.')); };
+    document.head.appendChild(s);
+  });
+  return _h2pLoading;
+}
+async function downloadProposalPDF(){
+  const html2pdf=await loadHtml2Pdf();
+  // Render into an off-screen iframe so the proposal's CSS can't collide with the app's styles.
+  const iframe=document.createElement('iframe');
+  iframe.style.cssText='position:fixed;left:-9999px;top:0;width:794px;height:1123px;border:0';
+  document.body.appendChild(iframe);
+  const idoc=iframe.contentDocument||iframe.contentWindow.document;
+  idoc.open(); idoc.write(proposalDocHTML(true)); idoc.close();
+  await new Promise(r=>{ if(idoc.readyState==='complete') r(); else iframe.onload=r; });
+  try{ if(idoc.fonts && idoc.fonts.ready) await idoc.fonts.ready; }catch(e){}
+  await new Promise(r=>setTimeout(r,250)); // let webfonts paint
+  const fname=((estName||'estimate').replace(/[^\w\-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60)||'estimate')+'.pdf';
+  try{
+    await html2pdf().set({
+      margin:[10,10,12,10], filename:fname,
+      image:{type:'jpeg',quality:0.98},
+      html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',windowWidth:794},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:{mode:['css','legacy']}
+    }).from(idoc.body).save();
+  } finally { iframe.remove(); }
 }
 
 // ---- load ----

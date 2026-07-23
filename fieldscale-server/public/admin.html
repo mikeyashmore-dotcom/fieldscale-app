@@ -66,6 +66,7 @@
   </nav>
   <div class="spacer"></div>
   <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
 </header>
 
 <div class="wrap">
@@ -124,6 +125,7 @@
 <script>
 const TOKEN_STORAGE = 'fieldscale_token';
 function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
 if(!getToken()){ location.href = '/'; }
 
 async function apiFetch(path){

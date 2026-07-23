@@ -3,22 +3,22 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Fieldscale — Estimates</title>
+<title>Fieldscale — Invoices</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/fs-theme.css">
 <style>
   .toolbar{display:flex;gap:8px;align-items:center;margin:0 0 18px}
-  .toolbar .spacer{flex:1}
   td.num,th.num{font-family:'IBM Plex Mono',monospace}
   .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
-  .pill.draft{background:var(--paper);color:var(--steel)}
-  .pill.sent{background:rgba(111,195,228,.2);color:var(--cyan-dim)}
-  .pill.accepted{background:rgba(74,155,110,.15);color:var(--good)}
+  .pill.unpaid{background:rgba(192,57,43,.12);color:var(--danger)}
+  .pill.partial{background:rgba(232,114,44,.15);color:var(--orange-dim)}
+  .pill.paid{background:rgba(74,155,110,.15);color:var(--good)}
   .rowlink{cursor:pointer}
   .rowlink:hover td{background:#FbF9F3}
   .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
   .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:620px} }
 </style>
 </head>
 <body>
@@ -26,8 +26,8 @@
   <div class="brand"><span class="mark"></span>FIELDSCALE</div>
   <nav>
     <a href="/">Takeoff</a>
-    <a href="/proposals.html" class="active">Estimates</a>
-    <a href="/invoices.html">Invoices</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/invoices.html" class="active">Invoices</a>
     <a href="/estimates.html">Price Book</a>
     <a href="/company.html">Company</a>
     <a href="/admin.html" id="owner-nav">Owner</a>
@@ -38,18 +38,18 @@
 </header>
 
 <div class="wrap">
-  <h1>Estimates</h1>
-  <p class="sub">Your proposals. Create one, price it from your price book, and generate a PDF for your customer.</p>
+  <h1>Invoices</h1>
+  <p class="sub">Bill your customers and track what's been paid. Create one here, or turn an estimate into an invoice from the estimate screen.</p>
 
   <div class="toolbar">
-    <button class="btn primary" id="new-btn">＋ New Estimate</button>
+    <button class="btn primary" id="new-btn">＋ New Invoice</button>
   </div>
 
   <div id="loading" class="loading">Loading…</div>
   <div class="card" id="list-card" style="display:none">
     <table>
       <thead>
-        <tr><th>Estimate</th><th>Client</th><th class="num">Total</th><th>Status</th><th>Updated</th><th></th></tr>
+        <tr><th>Invoice</th><th>Client</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Balance</th><th>Status</th><th>Updated</th><th></th></tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
@@ -75,47 +75,50 @@ async function apiFetch(path, options={}){
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtDate(ms){ if(!ms) return '—'; return new Date(ms).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-let toastTimer;
-function toast(msg,isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+let toastTimer; function toast(msg,isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
 document.getElementById('new-btn').addEventListener('click', async () => {
   try{
-    const r = await apiFetch('/api/estimates', { method:'POST', body: JSON.stringify({ name:'Untitled Estimate' }) });
-    location.href = '/estimate.html?id=' + encodeURIComponent(r.id);
+    const r = await apiFetch('/api/invoices', { method:'POST', body: JSON.stringify({ name:'Untitled Invoice' }) });
+    location.href = '/invoice.html?id=' + encodeURIComponent(r.id);
   }catch(err){ toast(err.message, true); }
 });
 
 function render(list){
   const tb=document.getElementById('rows');
   if(!list.length){
-    tb.innerHTML=`<tr><td colspan="6" style="padding:32px;text-align:center;color:var(--steel)">
-      No estimates yet. Click <strong>＋ New Estimate</strong> to start one.</td></tr>`;
+    tb.innerHTML=`<tr><td colspan="8" style="padding:32px;text-align:center;color:var(--steel)">
+      No invoices yet. Click <strong>＋ New Invoice</strong>, or convert an estimate from the estimate screen.</td></tr>`;
     return;
   }
-  tb.innerHTML=list.map(e=>`
-    <tr class="rowlink" data-open="${e.id}">
-      <td>${escapeHtml(e.name)}</td>
-      <td class="muted">${escapeHtml(e.client)||'—'}</td>
-      <td class="num">${money(e.total)}</td>
-      <td><span class="pill ${escapeHtml(e.status||'draft')}">${escapeHtml(e.status||'draft')}</span></td>
-      <td class="muted">${fmtDate(e.updatedAt)}</td>
-      <td class="num"><button class="act" data-del="${e.id}" title="Delete">✕</button></td>
-    </tr>`).join('');
+  tb.innerHTML=list.map(i=>{
+    const bal = (Number(i.total)||0) - (Number(i.amountPaid)||0);
+    return `<tr class="rowlink" data-open="${i.id}">
+      <td>${escapeHtml(i.name)}</td>
+      <td class="muted">${escapeHtml(i.client)||'—'}</td>
+      <td class="num">${money(i.total)}</td>
+      <td class="num">${money(i.amountPaid)}</td>
+      <td class="num">${money(bal)}</td>
+      <td><span class="pill ${escapeHtml(i.status||'unpaid')}">${escapeHtml(i.status||'unpaid')}</span></td>
+      <td class="muted">${fmtDate(i.updatedAt)}</td>
+      <td class="num"><button class="act" data-del="${i.id}" title="Delete">✕</button></td>
+    </tr>`;
+  }).join('');
 }
 document.getElementById('rows').addEventListener('click', async (e) => {
   const del = e.target.getAttribute && e.target.getAttribute('data-del');
   if(del){ e.stopPropagation();
-    if(!confirm('Delete this estimate permanently?')) return;
-    try{ await apiFetch('/api/estimates/'+del, { method:'DELETE' }); load(); toast('Estimate deleted.'); }
+    if(!confirm('Delete this invoice permanently?')) return;
+    try{ await apiFetch('/api/invoices/'+del, { method:'DELETE' }); load(); toast('Invoice deleted.'); }
     catch(err){ toast(err.message, true); }
     return;
   }
   const row = e.target.closest && e.target.closest('[data-open]');
-  if(row){ location.href='/estimate.html?id='+encodeURIComponent(row.getAttribute('data-open')); }
+  if(row){ location.href='/invoice.html?id='+encodeURIComponent(row.getAttribute('data-open')); }
 });
 
 async function load(){
-  const list = await apiFetch('/api/estimates');
+  const list = await apiFetch('/api/invoices');
   document.getElementById('loading').style.display='none';
   document.getElementById('list-card').style.display='block';
   render(list);
@@ -124,10 +127,9 @@ async function init(){
   try{
     const me = await apiFetch('/api/me');
     document.getElementById('who').textContent = me.username;
-    if(me.role==='admin') document.getElementById('owner-nav').style.display='';
   }catch(err){ return; }
   try{ await load(); }
-  catch(err){ document.getElementById('loading').textContent='Could not load estimates: '+err.message; }
+  catch(err){ document.getElementById('loading').textContent='Could not load invoices: '+err.message; }
 }
 init();
 </script>

@@ -344,7 +344,7 @@ function set(id,v){ document.getElementById(id).value = (v==null?'':v); }
 async function init(){
   let me;
   try{ me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username;
-    if(me.role==='admin') document.getElementById('owner-nav').style.display='';
+    if(me.role==='owner'||me.role==='admin'||me.platformAdmin) document.getElementById('owner-nav').style.display='';
   }catch(e){ return; }
   try{
     const [est, pb, comp] = await Promise.all([ apiFetch('/api/estimates/'+estId), apiFetch('/api/pricebook'), apiFetch('/api/company') ]);

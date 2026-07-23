@@ -123,7 +123,7 @@ async function init(){
   try{
     const me = await apiFetch('/api/me');
     document.getElementById('who').textContent = me.username;
-    if(me.role==='admin') document.getElementById('owner-nav').style.display='';
+    if(me.role==='owner'||me.role==='admin'||me.platformAdmin) document.getElementById('owner-nav').style.display='';
   }catch(err){ return; }
   try{ await load(); }
   catch(err){ document.getElementById('loading').textContent='Could not load estimates: '+err.message; }

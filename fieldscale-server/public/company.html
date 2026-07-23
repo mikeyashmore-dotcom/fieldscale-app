@@ -147,7 +147,7 @@ async function init(){
   try{
     const me=await apiFetch('/api/me');
     document.getElementById('who').textContent=me.username;
-    if(me.role==='admin') document.getElementById('owner-nav').style.display='';
+    if(me.role==='owner'||me.role==='admin'||me.platformAdmin) document.getElementById('owner-nav').style.display='';
   }catch(e){ return; }
   try{
     const r=await apiFetch('/api/company');

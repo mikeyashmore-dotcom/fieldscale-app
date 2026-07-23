@@ -79,6 +79,19 @@
   }
   .brand .mark::before{width:2px;height:14px;top:2px;left:8px;}
   .brand .mark::after{width:14px;height:2px;left:2px;top:8px;}
+  /* Shared top nav — matches the estimating pages so the header is consistent everywhere. */
+  .topnav{display:flex;gap:16px;align-items:center;margin-left:4px;}
+  .topnav a{color:var(--steel-light);font-size:13px;text-decoration:none;padding:2px 0;white-space:nowrap;font-family:'IBM Plex Sans',sans-serif;}
+  .topnav a:hover{color:var(--paper);}
+  .topnav a.active{color:var(--paper);border-bottom:2px solid var(--orange);padding-bottom:2px;}
+  /* On small screens let the top bar wrap instead of overflowing. The takeoff canvas itself is
+     best on a larger screen, but the header/nav stays usable on a phone. */
+  @media (max-width:820px){
+    .app{grid-template-rows:auto 1fr;}
+    .topbar{flex-wrap:wrap;height:auto;padding:8px 12px;gap:8px 14px;}
+    .proj-name{width:150px;}
+    .topnav{order:3;width:100%;gap:14px;}
+  }
   .proj-name{
     background:transparent;
     border:none;
@@ -807,6 +820,13 @@
 
   <div class="topbar">
     <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+    <nav class="topnav">
+      <a href="/" class="active">Takeoff</a>
+      <a href="/proposals.html">Estimates</a>
+      <a href="/estimates.html">Price Book</a>
+      <a href="/company.html">Company</a>
+      <a href="/admin.html">Owner</a>
+    </nav>
     <input class="proj-name" id="proj-name" value="Untitled Project — Sheet A1.01" />
     <div class="topbar-spacer"></div>
     <div class="scale-btn-wrap" id="search-btn-wrap">
@@ -853,7 +873,6 @@
         </div>
       </div>
     </div>
-    <button class="btn" id="estimating-link-btn" onclick="location.href='/proposals.html'" title="Go to Estimating" style="margin-right:6px;">🧮 Estimating</button>
     <div class="scale-btn-wrap" id="account-wrap">
       <button class="btn" id="account-toggle-btn">👤 <span id="account-username">Account</span></button>
       <div class="scale-popover" id="account-popover" style="width:220px;">

@@ -956,6 +956,62 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Full backup / export (company owner or admin) ----
+      // Bundles everything that's hard to replace — company profile, price book, every estimate,
+      // and every project's takeoff measurements — into one JSON file. Plan PDFs are NOT included
+      // (they're large and the contractor still has the originals); everything else is.
+      if (pathname === '/api/backup' && req.method === 'GET') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Company owners and admins only.' });
+        const company = companyById(me.companyId);
+        const projects = db.projects.filter(p => p.companyId === me.companyId).map(p => ({
+          id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt, hasPdf: !!p.hasPdf, takeoff: readTakeoff(p.id)
+        }));
+        const estimates = db.estimates.filter(e => e.companyId === me.companyId).map(e => ({
+          id: e.id, name: e.name, client: e.client, total: e.total, status: e.status,
+          createdAt: e.createdAt, updatedAt: e.updatedAt, doc: readEstimateDoc(e.id)
+        }));
+        return sendJSON(res, 200, {
+          fieldscaleBackup: 1, companyName: company ? company.name : '',
+          profile: readCompany(me.companyId), pricebook: readPricebook(me.companyId) || [],
+          projects, estimates
+        });
+      }
+      // Restore a backup file into THIS company. Additive/idempotent by id — re-importing the same
+      // file just refreshes the same records; it never touches another company's data.
+      if (pathname === '/api/restore' && req.method === 'POST') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Company owners and admins only.' });
+        const b = await readBody(req);
+        if (!b || b.fieldscaleBackup !== 1) return sendJSON(res, 400, { error: 'That is not a valid Fieldscale backup file.' });
+        if (b.profile && typeof b.profile === 'object') writeCompany(me.companyId, b.profile);
+        if (Array.isArray(b.pricebook)) writePricebook(me.companyId, b.pricebook);
+        let projN = 0, estN = 0;
+        (Array.isArray(b.projects) ? b.projects : []).forEach(p => {
+          let proj = db.projects.find(x => x.id === p.id && x.companyId === me.companyId);
+          if (!proj) {
+            proj = { id: (typeof p.id === 'string' && p.id) ? p.id : ('p_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, name: p.name || 'Restored project', hasPdf: false,
+              createdAt: p.createdAt || Date.now(), updatedAt: Date.now() };
+            db.projects.push(proj);
+          }
+          ensureProjectDir(proj.id);
+          if (p.takeoff) writeJsonAtomic(currentPath(proj.id), p.takeoff);
+          proj.updatedAt = Date.now(); projN++;
+        });
+        (Array.isArray(b.estimates) ? b.estimates : []).forEach(e => {
+          let est = db.estimates.find(x => x.id === e.id && x.companyId === me.companyId);
+          if (!est) {
+            est = { id: (typeof e.id === 'string' && e.id) ? e.id : ('e_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, name: e.name || 'Restored estimate', client: e.client || '',
+              total: e.total || 0, status: e.status || 'draft', createdAt: e.createdAt || Date.now(), updatedAt: Date.now() };
+            db.estimates.push(est);
+          }
+          if (e.doc) writeEstimateDoc(est.id, e.doc);
+          est.updatedAt = Date.now(); estN++;
+        });
+        saveDB(db);
+        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN });
+      }
+
       return sendJSON(res, 404, { error: 'Unknown API route.' });
     }
 

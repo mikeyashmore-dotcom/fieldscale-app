@@ -50,3 +50,17 @@ input.num{text-align:right;font-family:'IBM Plex Mono',monospace}
 .toast.err{background:var(--danger)}
 .loading{color:var(--steel);padding:40px;text-align:center}
 .muted{color:var(--steel)}
+
+/* ---- Mobile / small screens ---- */
+@media (max-width: 680px){
+  header{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:10px 14px;position:static}
+  header .brand{font-size:17px}
+  header nav{gap:14px;flex-wrap:wrap;order:3;width:100%}
+  header .spacer{display:none}
+  header .who{order:2}
+  .wrap{padding:16px 12px 72px}
+  h1{font-size:19px}
+  /* let wide tables scroll instead of overflowing the screen */
+  .card{overflow-x:auto}
+  th,td{padding:9px 10px;font-size:13px}
+}

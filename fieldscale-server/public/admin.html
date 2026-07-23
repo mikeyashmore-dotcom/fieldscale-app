@@ -52,6 +52,20 @@
   .loading{color:var(--steel);padding:40px;text-align:center}
   .muted{color:var(--steel)}
   .note{color:var(--steel);font-size:13px;margin-top:14px;line-height:1.5}
+  .btn{background:var(--blueprint-2);color:var(--paper);border:1px solid var(--cyan-dim);border-radius:var(--radius);
+       padding:8px 14px;font-size:13px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;margin-right:8px}
+  .btn:hover{background:var(--cyan-dim)}
+  .backup{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;margin-bottom:22px}
+  @media (max-width:680px){
+    header{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:10px 14px;position:static}
+    header nav{gap:14px;flex-wrap:wrap;order:3;width:100%}
+    header .spacer{display:none}
+    .wrap{padding:16px 12px 72px}
+    .card{overflow-x:auto}
+    table{min-width:600px}
+    .tiles{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+    .btn{margin-bottom:8px}
+  }
 </style>
 </head>
 <body>
@@ -76,6 +90,13 @@
   <div id="loading" class="loading">Loading…</div>
 
   <div id="content" style="display:none">
+    <div class="backup">
+      <strong>Backup &amp; Export</strong>
+      <p class="muted" style="margin:5px 0 12px;font-size:13px">Download everything that's hard to replace — estimates, price book, takeoff measurements, and your company profile — as one file. Keep it somewhere safe; you can restore it here anytime. <em>(Plan PDFs aren't included — you have the originals.)</em></p>
+      <button class="btn" id="backup-btn">⬇ Download backup</button>
+      <button class="btn" id="restore-btn">⬆ Restore from file</button>
+      <input type="file" id="restore-input" accept=".json,application/json" style="display:none">
+    </div>
     <div class="tiles" id="tiles"></div>
     <div class="card">
       <table>
@@ -221,6 +242,34 @@ async function init(){
     document.getElementById('loading').textContent = 'Could not load dashboard: ' + err.message;
   }
 }
+// ---- Backup & restore ----
+document.getElementById('backup-btn').addEventListener('click', async ()=>{
+  try{
+    const data = await apiFetch('/api/backup');
+    const blob = new Blob([JSON.stringify(data)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0,10);
+    const a = document.createElement('a'); a.href = url; a.download = 'fieldscale-backup-'+stamp+'.json'; a.click();
+    URL.revokeObjectURL(url);
+  }catch(err){ alert('Backup failed: ' + err.message); }
+});
+document.getElementById('restore-btn').addEventListener('click', ()=> document.getElementById('restore-input').click());
+document.getElementById('restore-input').addEventListener('change', (e)=>{
+  const file = e.target.files[0]; if(!file){ return; }
+  if(!confirm('Restore from this backup? It adds or updates your estimates, price book, takeoffs, and company profile.')){ e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = async ()=>{
+    try{
+      const res = await fetch('/api/restore', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+getToken() }, body: String(reader.result) });
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || 'Restore failed');
+      alert('Restored '+d.projects+' project(s) and '+d.estimates+' estimate(s).');
+      location.reload();
+    }catch(err){ alert('Restore failed: ' + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value='';
+});
 init();
 </script>
 </body>

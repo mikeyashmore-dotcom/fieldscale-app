@@ -838,11 +838,19 @@ const server = http.createServer(async (req, res) => {
           return sendJSON(res, 200, { ok: true });
         }
         if (req.method === 'GET') {
+          // No plan? Tell the client plainly (204) instead of a null-in-JSON body.
           if (!project.hasPdf || !fs.existsSync(planPath(project.id))) {
-            return sendJSON(res, 200, { pdfBase64: null });
+            res.writeHead(204); return res.end();
           }
-          const buf = fs.readFileSync(planPath(project.id));
-          return sendJSON(res, 200, { pdfBase64: buf.toString('base64') });
+          // Stream the raw PDF straight from disk. A 100MB plan set must NOT be read into memory
+          // and base64-inflated into one JSON string — that's what OOM'd/timed out on large sets.
+          const p = planPath(project.id);
+          const stat = fs.statSync(p);
+          res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': stat.size, 'Cache-Control': 'no-store' });
+          const rs = fs.createReadStream(p);
+          rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the plan.' }); else res.destroy(); });
+          rs.pipe(res);
+          return;
         }
       }
 

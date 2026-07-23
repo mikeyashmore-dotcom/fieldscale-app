@@ -27,7 +27,17 @@
   .rowdel:hover{color:var(--danger)}
   textarea{min-height:90px;resize:vertical}
   .lines-scroll{overflow-x:auto}
-  @media (max-width:760px){ .grid2{grid-template-columns:1fr} .row2{grid-template-columns:1fr} }
+  .costing{margin-bottom:18px}
+  .cost-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+  .cost-grid input.num{width:100%;font-family:'IBM Plex Mono',monospace}
+  .cost-out{display:flex;flex-wrap:wrap;gap:10px}
+  .stat{flex:1;min-width:120px;background:var(--paper);border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 12px}
+  .stat .lab{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-bottom:3px}
+  .stat .num{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--ink-navy)}
+  .stat.good .num{color:var(--good)}
+  .stat.bad .num{color:var(--danger)}
+  .cost-hint{font-size:12px;color:var(--steel);margin:10px 0 0}
+  @media (max-width:760px){ .grid2{grid-template-columns:1fr} .row2{grid-template-columns:1fr} .cost-grid{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -79,6 +89,17 @@
       </div>
     </div>
 
+    <div class="block costing">
+      <h3>Job costing</h3>
+      <div class="cost-grid">
+        <div class="field"><label>Contract price</label><input id="c-contract" class="num" inputmode="decimal" placeholder="0.00" /></div>
+        <div class="field"><label>Estimated cost (budget)</label><input id="c-budget" class="num" inputmode="decimal" placeholder="0.00" /></div>
+        <div class="field"><label>Actual cost to date</label><input id="c-actual" class="num" inputmode="decimal" placeholder="0.00" /></div>
+      </div>
+      <div class="cost-out" id="cost-out"></div>
+      <p class="cost-hint">Contract and budget carry over from the estimate. Log your real costs as the job runs to watch your margin.</p>
+    </div>
+
     <div class="block" style="padding:0;overflow:hidden">
       <div class="lines-scroll">
         <table class="lines">
@@ -115,6 +136,8 @@ async function apiFetch(path, options={}){
   return data;
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function num(id){ return parseFloat(document.getElementById(id).value)||0; }
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
 let doc = { client:{}, lines:[] };
@@ -149,6 +172,26 @@ document.getElementById('lines').addEventListener('click', e=>{
 });
 document.getElementById('add-blank').addEventListener('click', ()=>{ doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:'', code:'', unit:'', qty:1, done:false }); renderLines(); });
 
+function renderCosting(){
+  const contract=num('c-contract'), budget=num('c-budget'), actual=num('c-actual');
+  const estProfit=contract-budget;
+  const estMargin=contract>0 ? (estProfit/contract*100) : 0;
+  const actualProfit=contract-actual;
+  const actualMargin=contract>0 ? (actualProfit/contract*100) : 0;
+  const overUnder=budget-actual; // + = under budget, - = over
+  const cls=v=> v>0?'good':(v<0?'bad':'');
+  const stats=[
+    ['Est. profit', money(estProfit), cls(estProfit)],
+    ['Est. margin', (contract>0?estMargin.toFixed(1)+'%':'—'), cls(estProfit)],
+    ['Profit so far', money(actualProfit), cls(actualProfit)],
+    ['Margin so far', (contract>0?actualMargin.toFixed(1)+'%':'—'), cls(actualProfit)],
+    [overUnder>=0?'Under budget':'Over budget', money(Math.abs(overUnder)), cls(overUnder)]
+  ];
+  document.getElementById('cost-out').innerHTML=stats.map(s=>`
+    <div class="stat ${s[2]}"><div class="lab">${s[0]}</div><div class="num">${s[1]}</div></div>`).join('');
+}
+['c-contract','c-budget','c-actual'].forEach(id=>document.getElementById(id).addEventListener('input', renderCosting));
+
 function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 function syncDocFromForm(){
@@ -156,6 +199,7 @@ function syncDocFromForm(){
   doc.client={ name:val('cl-name') }; doc.project=val('project');
   doc.startDate=val('start-date'); doc.dueDate=val('due-date'); doc.notes=val('notes');
   doc.company=doc.company||{}; doc.fromEstimateId=doc.fromEstimateId||'';
+  doc.costing={ budget:num('c-budget'), contract:num('c-contract'), actualCost:num('c-actual') };
 }
 async function save(){
   syncDocFromForm();
@@ -174,6 +218,11 @@ function fillForm(){
   document.getElementById('status').value = statusVal;
   set('cl-name',(doc.client||{}).name); set('project',doc.project);
   set('start-date',doc.startDate); set('due-date',doc.dueDate); set('notes',doc.notes);
+  const c=doc.costing||{};
+  set('c-contract', c.contract!=null ? c.contract : '');
+  set('c-budget', c.budget!=null ? c.budget : '');
+  set('c-actual', c.actualCost!=null ? c.actualCost : '');
+  renderCosting();
 }
 let statusVal='scheduled';
 async function init(){

@@ -16,6 +16,9 @@
   .pill.hold{background:var(--paper);color:var(--steel)}
   .rowlink{cursor:pointer}
   .rowlink:hover td{background:#FbF9F3}
+  td.num{font-family:'IBM Plex Mono',monospace}
+  td.pos{color:var(--good);font-weight:600}
+  td.neg{color:var(--danger);font-weight:600}
   .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
   .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
   @media (max-width:680px){ .card{overflow-x:auto} table{min-width:520px} }
@@ -50,7 +53,7 @@
   <div class="card" id="list-card" style="display:none">
     <table>
       <thead>
-        <tr><th>Job</th><th>Client</th><th>Status</th><th>Updated</th><th></th></tr>
+        <tr><th>Job</th><th>Client</th><th>Status</th><th class="num">Contract</th><th class="num">Margin</th><th>Updated</th><th></th></tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
@@ -74,6 +77,8 @@ async function apiFetch(path, options={}){
   return data;
 }
 function fmtDate(ms){ if(!ms) return '—'; return new Date(ms).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function marginCls(m){ if(m==null) return 'muted'; if(m>0) return 'pos'; if(m<0) return 'neg'; return 'muted'; }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function pillClass(st){ st=(st||'').toLowerCase(); if(st==='in progress')return 'progress'; if(st==='on hold')return 'hold'; return st; }
 let toastTimer; function toast(msg,isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
@@ -87,7 +92,7 @@ document.getElementById('new-btn').addEventListener('click', async () => {
 function render(list){
   const tb=document.getElementById('rows');
   if(!list.length){
-    tb.innerHTML=`<tr><td colspan="5" style="padding:32px;text-align:center;color:var(--steel)">
+    tb.innerHTML=`<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--steel)">
       No jobs yet. Click <strong>＋ New Job</strong>, or convert an estimate from the estimate screen.</td></tr>`;
     return;
   }
@@ -96,6 +101,8 @@ function render(list){
       <td>${escapeHtml(j.name)}</td>
       <td class="muted">${escapeHtml(j.client)||'—'}</td>
       <td><span class="pill ${pillClass(j.status)}">${escapeHtml(j.status||'scheduled')}</span></td>
+      <td class="num">${j.contract?money(j.contract):'—'}</td>
+      <td class="num ${marginCls(j.margin)}">${j.margin==null?'—':j.margin.toFixed(1)+'%'}</td>
       <td class="muted">${fmtDate(j.updatedAt)}</td>
       <td class="num"><button class="act" data-del="${j.id}" title="Delete">✕</button></td>
     </tr>`).join('');

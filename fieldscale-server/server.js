@@ -1093,8 +1093,14 @@ const server = http.createServer(async (req, res) => {
       // ---- Projects/Jobs: list / create / convert-from-estimate ----
       if (pathname === '/api/jobs' && req.method === 'GET') {
         const list = db.jobs.filter(j => j.companyId === me.companyId)
-          .map(j => ({ id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
-                       createdAt: j.createdAt, updatedAt: j.updatedAt }))
+          .map(j => {
+            const c = (readJobDoc(j.id) || {}).costing || {};
+            const contract = Number(c.contract) || 0;
+            const profit = contract - (Number(c.budget) || 0);
+            const margin = contract > 0 ? Math.round(profit / contract * 1000) / 10 : null;
+            return { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
+                     contract, margin, createdAt: j.createdAt, updatedAt: j.updatedAt };
+          })
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);
       }
@@ -1114,11 +1120,16 @@ const server = http.createServer(async (req, res) => {
         const est = db.estimates.find(e => e.id === estimateId && e.companyId === me.companyId);
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         const edoc = readEstimateDoc(est.id);
+        // Freeze the job's budget from the estimate: cost basis = sum(qty x unitCost);
+        // contract (revenue for the work) = cost + markup. Tax is a pass-through, not revenue.
+        const budget = (edoc.lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0);
+        const contract = Math.round((budget * (1 + (Number(edoc.markupPct) || 0) / 100)) * 100) / 100;
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
           lines: (edoc.lines || []).map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),
             name: l.name, code: l.code, unit: l.unit, qty: Number(l.qty) || 0, done: false })),
-          startDate: '', dueDate: '', notes: edoc.notes || '', fromEstimateId: est.id
+          startDate: '', dueDate: '', notes: edoc.notes || '', fromEstimateId: est.id,
+          costing: { budget: Math.round(budget * 100) / 100, contract, actualCost: 0 }
         };
         const job = { id: 'j_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
           name: est.name || 'Job', client: (edoc.client && edoc.client.name) || est.client || '',

@@ -420,7 +420,10 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     let chunks = [];
     let size = 0;
-    const MAX = 25 * 1024 * 1024; // 25MB cap (project blobs can include a base64 PDF)
+    // Upload cap. Real architectural plan sets (a whole hotel, multi-sheet) plus their takeoff
+    // easily exceed 25MB — hitting the old cap dropped the connection mid-save ("Failed to fetch").
+    // Default 100MB; tune with MAX_UPLOAD_MB. (Mind server RAM: the body is buffered to decode it.)
+    const MAX = (parseInt(process.env.MAX_UPLOAD_MB, 10) || 100) * 1024 * 1024;
     req.on('data', (c) => {
       size += c.length;
       if (size > MAX) { reject(new Error('Request body too large')); req.destroy(); return; }

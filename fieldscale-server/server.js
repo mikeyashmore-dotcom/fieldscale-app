@@ -32,7 +32,9 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // How many AI calls one user may make per hour. Protects your Anthropic bill.
-const AI_CALLS_PER_HOUR = parseInt(process.env.AI_CALLS_PER_HOUR || '100', 10);
+// Set high enough that auto-naming a large plan set (commercial sets run 100-400+ sheets)
+// finishes in one pass; sheet naming is one cheap vision call each. Tune down via env if needed.
+const AI_CALLS_PER_HOUR = parseInt(process.env.AI_CALLS_PER_HOUR || '1000', 10);
 // Ceiling on the token budget any single AI request may ask for. Wall tracing is the
 // hungry one (a response full of coordinates); 8000 covers it with room to spare.
 const MAX_AI_TOKENS = parseInt(process.env.MAX_AI_TOKENS || '8000', 10);

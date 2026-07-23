@@ -1471,7 +1471,7 @@ async function apiFetch(path, options={}){
     throw new Error('Session expired — please log in again.');
   }
   const data = await res.json();
-  if(!res.ok) throw new Error(data.error || 'Request failed');
+  if(!res.ok){ const err = new Error(data.error || 'Request failed'); err.status = res.status; throw err; }
   return data;
 }
 
@@ -2587,36 +2587,54 @@ function renderPagesList(){
 // Reads each sheet's title/number (e.g. "FIRST FLOOR PLAN", "A1.01") via vision, so
 // the sheet list shows meaningful names instead of just "Page 1, Page 2…". Works
 // even on drawings with no embedded text, since it reads the image directly.
+let _nameResumeTimer = null;
 async function namePagesWithAI(){
-  for(let p=1; p<=state.numPages; p++){
-    if(isHidden(p)) continue;                       // don't pay to name sheets you excluded
-    if(state.pageNames[p] && (state.pageNames[p].number || state.pageNames[p].name)) continue; // you named it yourself
-    try{
-      const page = await state.pdfDoc.getPage(p);
-      const viewport = page.getViewport({scale:1.2});
-      const off = document.createElement('canvas');
-      off.width = viewport.width; off.height = viewport.height;
-      await page.render({canvasContext: off.getContext('2d'), viewport}).promise;
-      const maxW = 1200;
-      const scaleDown = Math.min(1, maxW/off.width);
-      let base64;
-      if(scaleDown<1){
-        const off2 = document.createElement('canvas');
-        off2.width = off.width*scaleDown; off2.height = off.height*scaleDown;
-        off2.getContext('2d').drawImage(off, 0,0, off2.width, off2.height);
-        base64 = off2.toDataURL('image/png').split(',')[1];
-      } else {
-        base64 = off.toDataURL('image/png').split(',')[1];
+  if(state._naming) return;               // never run two naming passes at once
+  state._naming = true;
+  try{
+    for(let p=1; p<=state.numPages; p++){
+      if(isHidden(p)) continue;                       // don't pay to name sheets you excluded
+      if(state.pageNames[p] && (state.pageNames[p].number || state.pageNames[p].name)) continue; // you named it yourself
+      try{
+        const page = await state.pdfDoc.getPage(p);
+        const viewport = page.getViewport({scale:1.2});
+        const off = document.createElement('canvas');
+        off.width = viewport.width; off.height = viewport.height;
+        await page.render({canvasContext: off.getContext('2d'), viewport}).promise;
+        const maxW = 1200;
+        const scaleDown = Math.min(1, maxW/off.width);
+        let base64;
+        if(scaleDown<1){
+          const off2 = document.createElement('canvas');
+          off2.width = off.width*scaleDown; off2.height = off.height*scaleDown;
+          off2.getContext('2d').drawImage(off, 0,0, off2.width, off2.height);
+          base64 = off2.toDataURL('image/png').split(',')[1];
+        } else {
+          base64 = off.toDataURL('image/png').split(',')[1];
+        }
+        const promptText = `This is one sheet from a construction/architectural drawing set. Identify the sheet's title (e.g. "FIRST FLOOR PLAN", "FRONT ELEVATION", "ELECTRICAL PLAN") and its sheet number if printed (e.g. "A1.01", "A-2", "S-101"), usually in the title block. Respond ONLY with valid JSON, no markdown fences: {"sheet_name": "string, or empty if not found", "sheet_number": "string, or empty if not found"}`;
+        const textOut = await callClaudeVision(base64, promptText, 200);
+        const cleaned = textOut.replace(/```json|```/g,'').trim();
+        const parsed = JSON.parse(cleaned);
+        state.pageNames[p] = {name: parsed.sheet_name||'', number: parsed.sheet_number||''};
+      }catch(err){
+        // Hit the hourly AI limit: don't burn every remaining sheet as a permanent error —
+        // leave them unnamed, tell the user, and resume automatically once the window resets.
+        if(err && err.status===429){
+          const m = (String(err.message).match(/about (\d+) minute/)||[])[1];
+          const waitMin = m ? parseInt(m,10) : 60;
+          showHint(`⏸ Sheet naming paused at page ${p} — hourly AI limit reached. The rest will finish automatically in about ${waitMin} min. You can keep measuring in the meantime.`);
+          renderPagesList();
+          clearTimeout(_nameResumeTimer);
+          _nameResumeTimer = setTimeout(()=>{ namePagesWithAI(); }, waitMin*60000 + 5000);
+          return; // finally clears the flag; the timer restarts the pass
+        }
+        state.pageNames[p] = {name:'', number:'', error: err.message};
       }
-      const promptText = `This is one sheet from a construction/architectural drawing set. Identify the sheet's title (e.g. "FIRST FLOOR PLAN", "FRONT ELEVATION", "ELECTRICAL PLAN") and its sheet number if printed (e.g. "A1.01", "A-2", "S-101"), usually in the title block. Respond ONLY with valid JSON, no markdown fences: {"sheet_name": "string, or empty if not found", "sheet_number": "string, or empty if not found"}`;
-      const textOut = await callClaudeVision(base64, promptText, 200);
-      const cleaned = textOut.replace(/```json|```/g,'').trim();
-      const parsed = JSON.parse(cleaned);
-      state.pageNames[p] = {name: parsed.sheet_name||'', number: parsed.sheet_number||''};
-    }catch(err){
-      state.pageNames[p] = {name:'', number:'', error: err.message};
+      renderPagesList(); // update progressively, sheet by sheet
     }
-    renderPagesList(); // update progressively, sheet by sheet
+  } finally {
+    state._naming = false;
   }
 }
 

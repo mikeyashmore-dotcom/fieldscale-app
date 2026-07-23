@@ -1878,9 +1878,12 @@ let pdfUploadedFor = null;   // project id whose PDF is already on the server
 
 async function uploadPdfIfNeeded(projectId){
   if(!state.pdfDoc || pdfUploadedFor === projectId) return;
-  const data = await state.pdfDoc.getData();
-  const pdfBase64 = uint8ToBase64(new Uint8Array(data));
-  await apiFetch('/api/projects/'+projectId+'/pdf', {method:'PUT', body: JSON.stringify({pdfBase64})});
+  const data = await state.pdfDoc.getData(); // raw PDF bytes (Uint8Array)
+  // Stream the raw bytes up (no base64, no JSON) so even a large multi-sheet plan set uploads
+  // cleanly instead of ballooning past the request-size limit.
+  await apiFetch('/api/projects/'+projectId+'/pdf', {
+    method:'PUT', headers:{'Content-Type':'application/pdf'}, body: data
+  });
   pdfUploadedFor = projectId;
 }
 function invalidatePdfCache(){ pdfUploadedFor = null; }

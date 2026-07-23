@@ -174,6 +174,20 @@ function writeInvoiceDoc(id, doc){
   if (!fs.existsSync(INVOICES_DIR)) fs.mkdirSync(INVOICES_DIR, { recursive: true });
   writeJsonAtomic(invoicePath(id), doc || {});
 }
+// ---------- Projects/Jobs (the won work to schedule and do) ----------
+const JOBS_DIR = path.join(DATA_DIR, 'jobs');
+function jobPath(id){ return path.join(JOBS_DIR, id + '.json'); }
+function readJobDoc(id){
+  const f = jobPath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writeJobDoc(id, doc){
+  if (!fs.existsSync(JOBS_DIR)) fs.mkdirSync(JOBS_DIR, { recursive: true });
+  writeJsonAtomic(jobPath(id), doc || {});
+}
+const JOB_STATUSES = ['scheduled', 'in progress', 'complete', 'on hold'];
+
 // Payment status from what's been paid against the total.
 function invoiceStatus(total, paid){
   total = Number(total) || 0; paid = Number(paid) || 0;
@@ -199,6 +213,7 @@ function loadDB() {
   parsed.projects = parsed.projects || [];
   parsed.estimates = parsed.estimates || [];
   parsed.invoices = parsed.invoices || [];
+  parsed.jobs = parsed.jobs || [];
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -1075,6 +1090,70 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Projects/Jobs: list / create / convert-from-estimate ----
+      if (pathname === '/api/jobs' && req.method === 'GET') {
+        const list = db.jobs.filter(j => j.companyId === me.companyId)
+          .map(j => ({ id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
+                       createdAt: j.createdAt, updatedAt: j.updatedAt }))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/jobs' && req.method === 'POST') {
+        const { name, client, doc } = await readBody(req);
+        const job = { id: 'j_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: name || 'Untitled Job', client: client || '', status: 'scheduled',
+          createdAt: Date.now(), updatedAt: Date.now() };
+        writeJobDoc(job.id, doc || {});
+        db.jobs.push(job);
+        saveDB(db);
+        return sendJSON(res, 200, { id: job.id });
+      }
+      // Turn a won estimate into a job (the scope of work to schedule and do).
+      if (pathname === '/api/jobs/from-estimate' && req.method === 'POST') {
+        const { estimateId } = await readBody(req);
+        const est = db.estimates.find(e => e.id === estimateId && e.companyId === me.companyId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        const edoc = readEstimateDoc(est.id);
+        const doc = {
+          company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
+          lines: (edoc.lines || []).map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),
+            name: l.name, code: l.code, unit: l.unit, qty: Number(l.qty) || 0, done: false })),
+          startDate: '', dueDate: '', notes: edoc.notes || '', fromEstimateId: est.id
+        };
+        const job = { id: 'j_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: est.name || 'Job', client: (edoc.client && edoc.client.name) || est.client || '',
+          status: 'scheduled', createdAt: Date.now(), updatedAt: Date.now() };
+        writeJobDoc(job.id, doc);
+        db.jobs.push(job);
+        saveDB(db);
+        return sendJSON(res, 200, { id: job.id });
+      }
+      const jobMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)$/);
+      if (jobMatch) {
+        const job = db.jobs.find(j => j.id === jobMatch[1] && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, { id: job.id, name: job.name, client: job.client, status: job.status,
+            createdAt: job.createdAt, updatedAt: job.updatedAt, doc: readJobDoc(job.id) });
+        }
+        if (req.method === 'PUT') {
+          const { name, client, status, doc } = await readBody(req);
+          if (name !== undefined) job.name = String(name).slice(0, 200);
+          if (client !== undefined) job.client = String(client).slice(0, 200);
+          if (status !== undefined && JOB_STATUSES.includes(status)) job.status = status;
+          if (doc !== undefined) writeJobDoc(job.id, doc);
+          job.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { id: job.id, updatedAt: job.updatedAt, status: job.status });
+        }
+        if (req.method === 'DELETE') {
+          db.jobs = db.jobs.filter(j => j.id !== job.id);
+          try { fs.unlinkSync(jobPath(job.id)); } catch (e) {}
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
+
       // ---- Full backup / export (company owner or admin) ----
       // Bundles everything that's hard to replace — company profile, price book, every estimate,
       // and every project's takeoff measurements — into one JSON file. Plan PDFs are NOT included
@@ -1093,10 +1172,14 @@ const server = http.createServer(async (req, res) => {
           id: i.id, name: i.name, client: i.client, total: i.total, amountPaid: i.amountPaid,
           createdAt: i.createdAt, updatedAt: i.updatedAt, doc: readInvoiceDoc(i.id)
         }));
+        const jobs = db.jobs.filter(j => j.companyId === me.companyId).map(j => ({
+          id: j.id, name: j.name, client: j.client, status: j.status,
+          createdAt: j.createdAt, updatedAt: j.updatedAt, doc: readJobDoc(j.id)
+        }));
         return sendJSON(res, 200, {
           fieldscaleBackup: 1, companyName: company ? company.name : '',
           profile: readCompany(me.companyId), pricebook: readPricebook(me.companyId) || [],
-          projects, estimates, invoices
+          projects, estimates, invoices, jobs
         });
       }
       // Restore a backup file into THIS company. Additive/idempotent by id — re-importing the same
@@ -1143,8 +1226,21 @@ const server = http.createServer(async (req, res) => {
           if (iv.doc) writeInvoiceDoc(inv.id, iv.doc);
           inv.updatedAt = Date.now(); invN++;
         });
+        let jobN = 0;
+        (Array.isArray(b.jobs) ? b.jobs : []).forEach(jb => {
+          let job = db.jobs.find(x => x.id === jb.id && x.companyId === me.companyId);
+          if (!job) {
+            job = { id: (typeof jb.id === 'string' && jb.id) ? jb.id : ('j_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, name: jb.name || 'Restored job', client: jb.client || '',
+              status: JOB_STATUSES.includes(jb.status) ? jb.status : 'scheduled',
+              createdAt: jb.createdAt || Date.now(), updatedAt: Date.now() };
+            db.jobs.push(job);
+          }
+          if (jb.doc) writeJobDoc(job.id, jb.doc);
+          job.updatedAt = Date.now(); jobN++;
+        });
         saveDB(db);
-        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN });
+        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN });
       }
 
       return sendJSON(res, 404, { error: 'Unknown API route.' });

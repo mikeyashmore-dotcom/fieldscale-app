@@ -1948,10 +1948,15 @@ async function restoreProjectState(data){
 
   ['wall','linear','area','count'].forEach(cat=> populateTypeDropdown(cat));
   syncCalibrationForPage();
-  if(data.pdfBase64){
+  let bytes = null;
+  if(data.pdfBytes){                       // preferred: raw bytes streamed from the server
+    bytes = data.pdfBytes;
+  } else if(data.pdfBase64){               // legacy: base64 (older snapshots / callers)
     const byteChars = atob(data.pdfBase64);
-    const bytes = new Uint8Array(byteChars.length);
+    bytes = new Uint8Array(byteChars.length);
     for(let i=0;i<byteChars.length;i++) bytes[i] = byteChars.charCodeAt(i);
+  }
+  if(bytes){
     state.pdfDoc = await pdfjsLib.getDocument({data:bytes}).promise;
     state.numPages = state.pdfDoc.numPages;
     state.pageNum = 1;
@@ -1997,13 +2002,17 @@ async function refreshProjectList(){
           currentProjectId = project.id;
           // The takeoff and the plan now come from two places. Fetch the plan only if
           // the project actually has one.
-          let pdfBase64 = null;
+          let pdfBytes = null;
           if(project.hasPdf){
             statusEl.textContent = 'Loading the plan set…';
-            const r = await apiFetch('/api/projects/'+id+'/pdf');
-            pdfBase64 = r.pdfBase64;
+            // The plan is streamed as raw bytes (not base64-in-JSON), so fetch it as an
+            // ArrayBuffer — big plan sets used to blow up as one giant JSON payload.
+            const token = getToken();
+            const resp = await fetch('/api/projects/'+id+'/pdf', { headers: token?{'Authorization':'Bearer '+token}:{} });
+            if(resp.status===401){ logout(); throw new Error('Session expired — please log in again.'); }
+            if(resp.ok && resp.status!==204){ pdfBytes = new Uint8Array(await resp.arrayBuffer()); }
           }
-          await restoreProjectState(Object.assign({}, project.data, {pdfBase64}));
+          await restoreProjectState(Object.assign({}, project.data, {pdfBytes}));
           pdfUploadedFor = project.id;   // it came FROM the server; don't re-upload it
           statusEl.textContent = `Loaded "${project.name}".`;
           document.getElementById('projects-popover').classList.remove('open');

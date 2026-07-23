@@ -108,6 +108,15 @@
           <tbody id="prows"></tbody>
         </table>
       </div>
+
+      <h1 style="margin-top:28px">Every Login</h1>
+      <p class="sub">Every account across all companies. Usernames &amp; activity only — passwords are encrypted and can't be shown (reset one to help someone in).</p>
+      <div class="card">
+        <table>
+          <thead><tr><th>Username</th><th>Company</th><th>Role</th><th>Status</th><th>Joined</th><th>Last login</th></tr></thead>
+          <tbody id="purows"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -175,6 +184,17 @@ function renderPlatform(companies){
     </tr>`).join('');
   document.getElementById('platform').style.display='block';
 }
+function renderPlatformUsers(users){
+  document.getElementById('purows').innerHTML = users.map(u => `
+    <tr>
+      <td>${escapeHtml(u.username)}${u.platformAdmin?' <span class="pill admin">platform</span>':''}</td>
+      <td class="muted">${escapeHtml(u.company)}</td>
+      <td><span class="pill ${(u.role==='owner'||u.role==='admin')?'admin':'member'}">${escapeHtml(u.role)}</span></td>
+      <td><span class="pill ${u.disabled?'disabled':'active'}">${u.disabled?'disabled':'active'}</span></td>
+      <td class="muted">${fmtDate(u.createdAt)}</td>
+      <td class="muted">${fmtDate(u.lastLoginAt)}</td>
+    </tr>`).join('');
+}
 
 async function init(){
   let me;
@@ -193,6 +213,7 @@ async function init(){
     render(data.users || []);
     if(me.platformAdmin){
       try{ const pc = await apiFetch('/api/platform/companies'); renderPlatform(pc.companies || []); }catch(e){}
+      try{ const pu = await apiFetch('/api/platform/users'); renderPlatformUsers(pu.users || []); }catch(e){}
     }
   }catch(err){
     document.getElementById('loading').textContent = 'Could not load dashboard: ' + err.message;

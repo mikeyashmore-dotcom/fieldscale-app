@@ -25,6 +25,11 @@
   .done-cell{text-align:center;width:44px}
   .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:15px;padding:2px 6px}
   .rowdel:hover{color:var(--danger)}
+  .rcpt-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--paper-line);border-radius:var(--radius);margin-bottom:6px;background:var(--paper)}
+  .rcpt-row .ic{flex:none;font-size:15px}
+  .rcpt-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rcpt-row .meta{color:var(--steel);font-size:11px;font-family:'IBM Plex Mono',monospace;flex:none}
+  .rcpt-row a.view{font-size:12px;cursor:pointer}
   textarea{min-height:90px;resize:vertical}
   .lines-scroll{overflow-x:auto}
   .costing{margin-bottom:18px}
@@ -116,6 +121,15 @@
       </div>
     </div>
     <div style="margin:10px 0 18px"><button class="btn ghost" id="add-cost">＋ Add cost</button></div>
+
+    <div class="block">
+      <h3>Receipts &amp; documents</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 10px">Attach receipts, photos or PDFs. They stay with this job for its whole life.</p>
+      <ul class="tasks" id="receipts" style="list-style:none;margin:0 0 10px;padding:0"></ul>
+      <input type="file" id="receipt-input" accept="image/*,application/pdf" multiple style="display:none" />
+      <button class="btn ghost" id="add-receipt">＋ Add receipt</button>
+      <span id="receipt-status" style="font-size:12px;color:var(--steel);margin-left:10px"></span>
+    </div>
 
     <div class="block" style="padding:0;overflow:hidden">
       <div style="padding:14px 14px 0"><h3 style="margin:0">Change orders</h3></div>
@@ -272,6 +286,53 @@ document.getElementById('add-cost').addEventListener('click', ()=>{
   renderCosts();
 });
 
+// ---- Receipts (files attached to the job, stored server-side for the life of the job) ----
+let receipts = [];
+function fmtSize(n){ n=Number(n)||0; if(n<1024) return n+' B'; if(n<1048576) return Math.round(n/1024)+' KB'; return (n/1048576).toFixed(1)+' MB'; }
+function renderReceipts(){
+  const ul=document.getElementById('receipts');
+  if(!receipts.length){ ul.innerHTML=`<li style="color:var(--steel);font-size:13px;padding:2px 0">No receipts yet.</li>`; return; }
+  ul.innerHTML=receipts.map(r=>`
+    <li class="rcpt-row">
+      <span class="ic">${(r.mime||'').indexOf('pdf')>=0?'📄':'🧾'}</span>
+      <span class="nm">${escapeHtml(r.name)}</span>
+      <span class="meta">${fmtSize(r.size)} · ${r.uploadedAt?new Date(r.uploadedAt).toLocaleDateString():''}</span>
+      <a class="view" data-view="${r.id}">View</a>
+      <button class="rowdel" data-rdel="${r.id}" title="Remove">✕</button>
+    </li>`).join('');
+}
+document.getElementById('add-receipt').addEventListener('click', ()=>document.getElementById('receipt-input').click());
+document.getElementById('receipt-input').addEventListener('change', async (e)=>{
+  const files=Array.from(e.target.files||[]); e.target.value='';
+  if(!files.length) return;
+  const st=document.getElementById('receipt-status');
+  for(const f of files){
+    if(f.size > 25*1024*1024){ toast(`"${f.name}" is over 25 MB.`, true); continue; }
+    st.textContent='Uploading '+f.name+'…';
+    try{
+      const res=await fetch('/api/jobs/'+jobId+'/receipts?name='+encodeURIComponent(f.name), {
+        method:'POST', headers:{'Content-Type': f.type||'application/octet-stream','Authorization':'Bearer '+getToken()}, body:f });
+      if(res.status===401){ location.href='/'; return; }
+      const data=await res.json(); if(!res.ok) throw new Error(data.error||'Upload failed');
+      receipts.push(data); renderReceipts();
+    }catch(err){ toast(err.message,true); }
+  }
+  st.textContent='';
+});
+document.getElementById('receipts').addEventListener('click', async (e)=>{
+  const v=e.target.getAttribute && e.target.getAttribute('data-view');
+  if(v){ try{
+      const res=await fetch('/api/jobs/'+jobId+'/receipts/'+v, {headers:{'Authorization':'Bearer '+getToken()}});
+      if(!res.ok) throw new Error('Could not open receipt.');
+      const blob=await res.blob(); const url=URL.createObjectURL(blob); window.open(url,'_blank');
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    }catch(err){ toast(err.message,true); } return; }
+  const d=e.target.getAttribute && e.target.getAttribute('data-rdel');
+  if(d){ if(!confirm('Remove this receipt? This permanently deletes the file.')) return;
+    try{ await apiFetch('/api/jobs/'+jobId+'/receipts/'+d,{method:'DELETE'}); receipts=receipts.filter(r=>r.id!==d); renderReceipts(); toast('Receipt removed.'); }
+    catch(err){ toast(err.message,true); } }
+});
+
 function renderChangeOrders(){
   const tb=document.getElementById('co-lines');
   const cos=doc.changeOrders||[];
@@ -420,6 +481,7 @@ function fillForm(){
   set('c-budget', c.budget!=null ? c.budget : '');
   renderChangeOrders();
   renderCosts();
+  renderReceipts();
   renderCosting();
 }
 let statusVal='scheduled';
@@ -432,6 +494,7 @@ async function init(){
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     doc.costs = doc.costs||[];
+    receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){
       doc.costs.push({ id:'x_migrated', category:'Other', description:'Actual cost (migrated)', amount:Number(doc.costing.actualCost), date:'' });

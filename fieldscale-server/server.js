@@ -220,6 +220,14 @@ function writeWorkOrderDoc(id, doc){
 }
 const WO_STATUSES = ['open', 'in progress', 'complete', 'on hold'];
 
+// ---------- Receipts attached to a job (kept on disk for the life of the job) ----------
+// Files live under data/receipts/<jobId>/<receiptId>; the metadata lives on the job record
+// (job.receipts), so a client save of the job doc can never clobber them.
+const RECEIPTS_DIR = path.join(DATA_DIR, 'receipts');
+function receiptDir(jobId){ return path.join(RECEIPTS_DIR, jobId); }
+function receiptPath(jobId, rid){ return path.join(receiptDir(jobId), rid); }
+const MAX_RECEIPT_BYTES = 25 * 1024 * 1024; // a phone photo or a PDF receipt, not a plan set
+
 // Payment status from what's been paid against the total.
 function invoiceStatus(total, paid){
   total = Number(total) || 0; paid = Number(paid) || 0;
@@ -1249,13 +1257,68 @@ const server = http.createServer(async (req, res) => {
         saveDB(db);
         return sendJSON(res, 200, { id: job.id });
       }
+      // Upload a receipt to a job (streamed raw bytes; metadata stored on the job record).
+      const rcptUpMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)\/receipts$/);
+      if (rcptUpMatch && req.method === 'POST') {
+        const job = db.jobs.find(j => j.id === rcptUpMatch[1] && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+        const rid = 'r_' + crypto.randomBytes(8).toString('hex');
+        const dir = receiptDir(job.id);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const tmp = receiptPath(job.id, rid) + '.tmp';
+        const ws = fs.createWriteStream(tmp);
+        let bytes = 0, failed = false;
+        const fail = (e, code) => { if (failed) return; failed = true; try { ws.destroy(); } catch (_) {} try { fs.unlinkSync(tmp); } catch (_) {} if (!res.headersSent) sendJSON(res, code || 500, { error: (e && e.message) || String(e) }); };
+        req.on('data', (c) => { bytes += c.length; if (bytes > MAX_RECEIPT_BYTES) { fail(new Error('Receipt is too large (max 25 MB).'), 413); try { req.destroy(); } catch (_) {} } });
+        ws.on('error', fail); req.on('error', fail);
+        ws.on('finish', () => {
+          if (failed) return;
+          try { fs.renameSync(tmp, receiptPath(job.id, rid)); } catch (e) { return fail(e); }
+          const meta = { id: rid, name: String((parsed.query && parsed.query.name) || 'receipt').slice(0, 200),
+            mime: String(req.headers['content-type'] || 'application/octet-stream').slice(0, 100),
+            size: bytes, uploadedAt: Date.now() };
+          job.receipts = job.receipts || [];
+          job.receipts.push(meta);
+          job.updatedAt = Date.now();
+          saveDB(db);
+          sendJSON(res, 200, meta);
+        });
+        req.pipe(ws);
+        return;
+      }
+      // Get (stream) or delete one receipt.
+      const rcptMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)\/receipts\/([a-zA-Z0-9_]+)$/);
+      if (rcptMatch) {
+        const job = db.jobs.find(j => j.id === rcptMatch[1] && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+        const meta = (job.receipts || []).find(r => r.id === rcptMatch[2]);
+        if (!meta) return sendJSON(res, 404, { error: 'Receipt not found.' });
+        if (req.method === 'GET') {
+          const f = receiptPath(job.id, meta.id);
+          if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'Receipt file missing.' });
+          const stat = fs.statSync(f);
+          res.writeHead(200, { 'Content-Type': meta.mime || 'application/octet-stream', 'Content-Length': stat.size,
+            'Content-Disposition': 'inline; filename="' + encodeURIComponent(meta.name) + '"', 'Cache-Control': 'private, max-age=3600' });
+          const rs = fs.createReadStream(f);
+          rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the receipt.' }); else res.destroy(); });
+          rs.pipe(res);
+          return;
+        }
+        if (req.method === 'DELETE') {
+          job.receipts = (job.receipts || []).filter(r => r.id !== meta.id);
+          try { fs.unlinkSync(receiptPath(job.id, meta.id)); } catch (e) {}
+          job.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
       const jobMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)$/);
       if (jobMatch) {
         const job = db.jobs.find(j => j.id === jobMatch[1] && j.companyId === me.companyId);
         if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
         if (req.method === 'GET') {
           return sendJSON(res, 200, { id: job.id, name: job.name, client: job.client, status: job.status,
-            createdAt: job.createdAt, updatedAt: job.updatedAt, doc: readJobDoc(job.id) });
+            createdAt: job.createdAt, updatedAt: job.updatedAt, receipts: job.receipts || [], doc: readJobDoc(job.id) });
         }
         if (req.method === 'PUT') {
           const { name, client, status, doc } = await readBody(req);
@@ -1270,6 +1333,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'DELETE') {
           db.jobs = db.jobs.filter(j => j.id !== job.id);
           try { fs.unlinkSync(jobPath(job.id)); } catch (e) {}
+          try { fs.rmSync(receiptDir(job.id), { recursive: true, force: true }); } catch (e) {}
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }

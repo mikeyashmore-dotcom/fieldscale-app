@@ -150,7 +150,8 @@
             <th id="csi-th">CSI Division</th>
             <th>Unit</th>
             <th class="num">Material&nbsp;$</th>
-            <th class="num">Labor&nbsp;$</th>
+            <th class="num">Labor&nbsp;hrs</th>
+            <th class="num">Rate&nbsp;$/hr</th>
             <th class="num">Waste&nbsp;%</th>
             <th class="num">Cost / unit</th>
             <th></th>
@@ -179,10 +180,10 @@
     </div>
 
     <p class="hint">
-      <strong>Material $</strong> and <strong>Labor $</strong> are the cost per unit (e.g. per square foot).
+      <strong>Material $</strong> is the material cost per unit. <strong>Labor</strong> = <strong>hours</strong> × <strong>rate ($/hr)</strong> per unit.
       <strong>Cost / unit</strong> is material + labor, with waste applied — it's what an estimate uses before your markup.
       Edit these to your real numbers; they're private to your account.
-      <br><strong>Importing a CSV?</strong> Columns: <em>Name, Category, Unit, Material, Labor, Waste</em> (a header row is detected automatically).
+      <br><strong>Importing a CSV?</strong> Columns: <em>Name, Category, Unit, Material, LaborHrs, LaborRate, Waste</em> (a header row is detected automatically).
       Tip: click <strong>Export CSV</strong> once to get a file in the exact format, fill it in, and import it back.
     </p>
 
@@ -223,8 +224,13 @@ async function apiFetch(path, options={}){
 
 let items = [];
 
+// Labor cost = hours x rate. Older items that only have a flat labor $ still count (fallback).
+function laborCost(it){
+  const h = Number(it.laborHours)||0, r = Number(it.laborRate)||0;
+  return (h>0 || r>0) ? h*r : (Number(it.labor)||0);
+}
 function unitCost(it){
-  const base = (Number(it.material)||0) + (Number(it.labor)||0);
+  const base = (Number(it.material)||0) + laborCost(it);
   return base * (1 + (Number(it.waste)||0)/100);
 }
 function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
@@ -244,7 +250,7 @@ function render(){
   const tb = document.getElementById('rows');
   tb.innerHTML = '';
   if(items.length === 0){
-    tb.innerHTML = `<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--steel)">
+    tb.innerHTML = `<tr><td colspan="8" style="padding:32px;text-align:center;color:var(--steel)">
       Your price book is empty. Click <strong>＋ Add item</strong> to build your own, or
       <strong>Load sample items</strong> to see how it works.</td></tr>`;
     return;
@@ -256,7 +262,8 @@ function render(){
       <td><input data-i="${i}" data-f="category" value="${escapeHtml(it.category)}" placeholder="${catPlaceholder}" style="width:240px" list="cat-list" /></td>
       <td><input data-i="${i}" data-f="unit" value="${escapeHtml(it.unit)}" placeholder="sqft" style="width:70px" list="unit-list" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="material" value="${it.material}" inputmode="decimal" style="width:90px" /></td>
-      <td class="num"><input class="num" data-i="${i}" data-f="labor" value="${it.labor}" inputmode="decimal" style="width:90px" /></td>
+      <td class="num"><input class="num" data-i="${i}" data-f="laborHours" value="${it.laborHours||0}" inputmode="decimal" style="width:80px" /></td>
+      <td class="num"><input class="num" data-i="${i}" data-f="laborRate" value="${it.laborRate||0}" inputmode="decimal" style="width:80px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="waste" value="${it.waste}" inputmode="decimal" style="width:70px" /></td>
       <td class="num unitcost" data-cost="${i}">${money(unitCost(it))}</td>
       <td class="num"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td>`;
@@ -269,7 +276,7 @@ document.getElementById('rows').addEventListener('input', e => {
   const el = e.target;
   const i = el.getAttribute('data-i'), f = el.getAttribute('data-f');
   if(i===null) return;
-  const num = (f==='material'||f==='labor'||f==='waste');
+  const num = (f==='material'||f==='laborHours'||f==='laborRate'||f==='waste');
   items[i][f] = num ? (parseFloat(el.value)||0) : el.value;
   if(num){ document.querySelector(`[data-cost="${i}"]`).textContent = money(unitCost(items[i])); }
   if(typeof renderAssemblies==='function' && assemblies.length) renderAssemblies();
@@ -280,7 +287,7 @@ document.getElementById('rows').addEventListener('click', e => {
 });
 
 document.getElementById('addRow').addEventListener('click', () => {
-  items.push({ id:'pi_'+Math.random().toString(16).slice(2,10), name:'', category:'', unit:'', material:0, labor:0, waste:0 });
+  items.push({ id:'pi_'+Math.random().toString(16).slice(2,10), name:'', category:'', unit:'', material:0, laborHours:0, laborRate:0, waste:0 });
   render(); if(assemblies.length) renderAssemblies();
   const inputs = document.querySelectorAll('#rows tr:last-child input');
   if(inputs[0]) inputs[0].focus();
@@ -316,18 +323,20 @@ function parseCSV(text){
 function importRows(rows){
   if(!rows.length) return 0;
   const first = rows[0].map(x => x.trim().toLowerCase());
-  const keywords = ['name','item','description','category','csi','code','division','section','unit','material','labor','labour','waste'];
+  const keywords = ['name','item','description','category','csi','code','division','section','unit','material','labor','labour','hour','hrs','rate','waste'];
   const hasHeader = first.some(h => keywords.some(k => h.includes(k)));
-  let idx = { name:0, category:1, unit:2, material:3, labor:4, waste:5 };
+  let idx = { name:0, category:1, unit:2, material:3, laborHours:4, laborRate:5, waste:6, labor:-1 };
   let dataRows = rows;
   if(hasHeader){
-    idx = { name:-1, category:-1, unit:-1, material:-1, labor:-1, waste:-1 };
+    idx = { name:-1, category:-1, unit:-1, material:-1, laborHours:-1, laborRate:-1, labor:-1, waste:-1 };
     first.forEach((h,j) => {
       if(idx.name<0 && (h.includes('name')||h.includes('item')||h.includes('description'))) idx.name=j;
       else if(idx.category<0 && (h.includes('category')||h.includes('csi')||h.includes('code')||h.includes('division')||h.includes('section'))) idx.category=j;
       else if(idx.unit<0 && h.includes('unit')) idx.unit=j;
       else if(idx.material<0 && h.includes('material')) idx.material=j;
-      else if(idx.labor<0 && (h.includes('labor')||h.includes('labour'))) idx.labor=j;
+      else if(idx.laborHours<0 && (h.includes('hour')||h.includes('hrs'))) idx.laborHours=j;
+      else if(idx.laborRate<0 && h.includes('rate')) idx.laborRate=j;
+      else if(idx.labor<0 && (h.includes('labor')||h.includes('labour'))) idx.labor=j; // legacy flat labor $
       else if(idx.waste<0 && h.includes('waste')) idx.waste=j;
     });
     dataRows = rows.slice(1);
@@ -341,6 +350,8 @@ function importRows(rows){
       id: 'pi_'+Math.random().toString(16).slice(2,10),
       name, category: get('category'), unit: get('unit'),
       material: parseFloat(get('material')) || 0,
+      laborHours: parseFloat(get('laborHours')) || 0,
+      laborRate: parseFloat(get('laborRate')) || 0,
       labor: parseFloat(get('labor')) || 0,
       waste: parseFloat(get('waste')) || 0
     });
@@ -365,9 +376,9 @@ document.getElementById('csv-input').addEventListener('change', e => {
 });
 function csvEscape(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 document.getElementById('export-csv-btn').addEventListener('click', () => {
-  const header = ['Name','Category','Unit','Material','Labor','Waste'];
+  const header = ['Name','Category','Unit','Material','LaborHrs','LaborRate','Waste'];
   const lines = [header.join(',')].concat(
-    items.map(it => [it.name, it.category, it.unit, it.material, it.labor, it.waste].map(csvEscape).join(',')));
+    items.map(it => [it.name, it.category, it.unit, it.material, it.laborHours||0, it.laborRate||0, it.waste].map(csvEscape).join(',')));
   const blob = new Blob([lines.join('\n')], { type:'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = 'price-book.csv'; a.click();
@@ -578,16 +589,16 @@ updateModeButtons();
 // user can see how the price book works. These are placeholder examples to edit or delete,
 // not a default and not tied to any one trade.
 const SAMPLE = [
-  { id:'s_slab',    name:'Slab on grade — 4"',          category:'03 - Concrete',                        unit:'sqft', material:3.50, labor:2.50, waste:5  },
-  { id:'s_cmu',     name:'CMU block — 8"',              category:'04 - Masonry',                         unit:'sqft', material:6.00, labor:4.00, waste:5  },
-  { id:'s_framing', name:'Wood wall framing',           category:'06 - Wood, Plastics & Composites',     unit:'sqft', material:2.50, labor:3.00, waste:10 },
-  { id:'s_insul',   name:'Batt insulation — walls',     category:'07 - Thermal & Moisture Protection',   unit:'sqft', material:0.55, labor:0.45, waste:10 },
-  { id:'s_door',    name:'Hollow metal door — install', category:'08 - Openings',                        unit:'each', material:350,  labor:150,  waste:0  },
-  { id:'s_drywall', name:'Drywall — hang & finish',     category:'09 - Finishes',                        unit:'sqft', material:0.55, labor:1.10, waste:10 },
-  { id:'s_paint',   name:'Paint — walls, 2 coats',      category:'09 - Finishes',                        unit:'sqft', material:0.25, labor:0.55, waste:5  },
-  { id:'s_plumb',   name:'Fixture rough-in',            category:'22 - Plumbing',                        unit:'each', material:120,  labor:280,  waste:0  },
-  { id:'s_duct',    name:'Ductwork — sheet metal',      category:'23 - HVAC',                            unit:'lnft', material:12,   labor:18,   waste:8  },
-  { id:'s_recept',  name:'Receptacle — install',        category:'26 - Electrical',                      unit:'each', material:8,    labor:35,   waste:0  }
+  { id:'s_slab',    name:'Slab on grade — 4"',          category:'03 - Concrete',                        unit:'sqft', material:3.50, laborHours:0.045, laborRate:55, waste:5  },
+  { id:'s_cmu',     name:'CMU block — 8"',              category:'04 - Masonry',                         unit:'sqft', material:6.00, laborHours:0.073, laborRate:55, waste:5  },
+  { id:'s_framing', name:'Wood wall framing',           category:'06 - Wood, Plastics & Composites',     unit:'sqft', material:2.50, laborHours:0.055, laborRate:55, waste:10 },
+  { id:'s_insul',   name:'Batt insulation — walls',     category:'07 - Thermal & Moisture Protection',   unit:'sqft', material:0.55, laborHours:0.010, laborRate:45, waste:10 },
+  { id:'s_door',    name:'Hollow metal door — install', category:'08 - Openings',                        unit:'each', material:350,  laborHours:2.5,   laborRate:60, waste:0  },
+  { id:'s_drywall', name:'Drywall — hang & finish',     category:'09 - Finishes',                        unit:'sqft', material:0.55, laborHours:0.026, laborRate:42, waste:10 },
+  { id:'s_paint',   name:'Paint — walls, 2 coats',      category:'09 - Finishes',                        unit:'sqft', material:0.25, laborHours:0.014, laborRate:40, waste:5  },
+  { id:'s_plumb',   name:'Fixture rough-in',            category:'22 - Plumbing',                        unit:'each', material:120,  laborHours:3.1,   laborRate:90, waste:0  },
+  { id:'s_duct',    name:'Ductwork — sheet metal',      category:'23 - HVAC',                            unit:'lnft', material:12,   laborHours:0.19,  laborRate:95, waste:8  },
+  { id:'s_recept',  name:'Receptacle — install',        category:'26 - Electrical',                      unit:'each', material:8,    laborHours:0.41,  laborRate:85, waste:0  }
 ];
 
 async function init(){
@@ -599,6 +610,8 @@ async function init(){
   try{
     const res = await apiFetch('/api/pricebook');
     items = res.items || [];
+    // Migrate legacy flat "Labor $" items into hours × rate (1 hr × the old $) so the new columns read sensibly.
+    items.forEach(it=>{ if((Number(it.labor)||0)>0 && !(Number(it.laborHours)||0) && !(Number(it.laborRate)||0)){ it.laborHours=1; it.laborRate=Number(it.labor)||0; } });
     assemblies = res.assemblies || [];
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';

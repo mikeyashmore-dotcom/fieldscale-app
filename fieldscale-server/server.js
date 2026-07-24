@@ -214,6 +214,7 @@ function templateBodyFrom(doc){
       id: 'l_' + crypto.randomBytes(6).toString('hex'),
       name: String(l.name || '').slice(0, 200), code: String(l.code || '').slice(0, 60),
       unit: String(l.unit || '').slice(0, 20), qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0,
+      material: Number(l.material) || 0, laborHours: Number(l.laborHours) || 0, laborRate: Number(l.laborRate) || 0,
       internalNote: String(l.internalNote || '').slice(0, 500)
     })).slice(0, 2000),
     markupPct: Number(doc.markupPct) || 0, taxPct: Number(doc.taxPct) || 0,
@@ -1102,7 +1103,9 @@ const server = http.createServer(async (req, res) => {
           category: String(it.category || '').slice(0, 60),
           unit: String(it.unit || '').slice(0, 20),
           material: Number(it.material) || 0,
-          labor: Number(it.labor) || 0,
+          laborHours: Number(it.laborHours) || 0,
+          laborRate: Number(it.laborRate) || 0,
+          labor: Number(it.labor) || 0, // legacy labor $ kept for backward compatibility
           waste: Number(it.waste) || 0
         }));
         let cleanAsm;

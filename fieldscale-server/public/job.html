@@ -73,6 +73,7 @@
       <div class="spacer"></div>
       <button class="btn ghost" id="to-wo-btn" title="Make a work order for the crew">→ Work Order</button>
       <button class="btn ghost" id="to-invoice-btn" title="Bill this job">→ Invoice</button>
+      <button class="btn ghost" id="pdf-btn" title="Print or save a job sheet">Generate PDF</button>
       <button class="btn primary" id="save-btn">Save</button>
     </div>
 
@@ -325,6 +326,78 @@ async function save(){
   await apiFetch('/api/jobs/'+jobId, { method:'PUT', body: JSON.stringify({ name:jobName, client:doc.client.name, status:val('status'), doc }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Job saved.'); }catch(err){ toast(err.message,true); } });
+document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ await save(); await openJobPDF(); }catch(err){ toast(err.message,true); } });
+
+let _company=null;
+async function getCompany(){ if(_company) return _company; try{ const r=await apiFetch('/api/company'); _company=r.profile||{}; }catch(e){ _company={}; } return _company; }
+const PDF_CSS=`*{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
+  .co .sub{color:#7C8896;font-size:12px}
+  .doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:#E8722C;letter-spacing:1px}
+  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+  .parties{display:flex;gap:40px;margin-bottom:20px;flex-wrap:wrap}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties .val{font-size:13px;line-height:1.5}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  th.r,td.r{text-align:right} th.c,td.c{text-align:center}
+  td{padding:8px 10px;border-bottom:1px solid #E4DFCF;vertical-align:top}
+  .totals{width:320px;margin-left:auto}.totals .tr{display:flex;justify-content:space-between;padding:5px 0}
+  .totals .tr.total{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:#0E2A47}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  .sec .body{white-space:pre-wrap;line-height:1.5}
+  .foot{margin-top:34px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  @media print{ body{padding:0} .noprint{display:none} @page{margin:16mm} }
+  .bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
+  .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
+  .spacer40{height:52px}`;
+function printWindow(title, bodyHtml){
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>${PDF_CSS}</style></head><body>
+  <div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div>
+  <div class="spacer40 noprint"></div>${bodyHtml}</body></html>`;
+  const w=window.open('','_blank');
+  if(!w){ toast('Please allow pop-ups to generate the PDF.', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+function pdfHeader(co, docLabel, metaLines){
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
+  return `<div class="head">
+    <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
+    <div class="doc"><div class="big">${docLabel}</div><div class="meta">${metaLines.filter(Boolean).join('<br>')}</div></div>
+  </div>`;
+}
+async function openJobPDF(){
+  const co=await getCompany();
+  const cost=doc.costing||{}; const coAdj=approvedCO();
+  const contract=(Number(cost.contract)||0)+coAdj.price, budget=(Number(cost.budget)||0)+coAdj.cost, actual=costsTotal();
+  const estProfit=contract-budget, margin=contract>0?(estProfit/contract*100):0;
+  const rows=(doc.lines||[]).map((l,i)=>`<tr>
+      <td class="c">${l.done?'☑':'☐'}</td><td>${escapeHtml(l.name)}${l.code?`<div style="color:#7C8896;font-size:11px">${escapeHtml(l.code)}</div>`:''}</td>
+      <td class="r">${Number(l.qty)||0}</td><td>${escapeHtml(l.unit)}</td></tr>`).join('');
+  const cos=(doc.changeOrders||[]).map(c=>`<tr><td>${escapeHtml(c.description)||'—'}</td><td class="c">${escapeHtml(c.status)}</td>
+      <td class="r">${money(c.priceDelta)}</td><td class="r">${money(c.costDelta)}</td></tr>`).join('');
+  const cl=doc.client||{};
+  const body=pdfHeader(co,'JOB',[ 'Status: '+(val('status')||'—'),
+      doc.startDate?('Start: '+escapeHtml(doc.startDate)):'', doc.dueDate?('Due: '+escapeHtml(doc.dueDate)):'' ])
+    + `<div style="font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47;margin-bottom:12px">${escapeHtml(jobName)}</div>`
+    + `<div class="parties"><div><h4>Client</h4><div class="val"><strong>${escapeHtml(cl.name||'—')}</strong></div></div>
+        ${doc.project?`<div><h4>Project</h4><div class="val">${escapeHtml(doc.project)}</div></div>`:''}</div>`
+    + `<table><thead><tr><th class="c">Done</th><th>Scope of work</th><th class="r">Qty</th><th>Unit</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="4" style="text-align:center;color:#7C8896;padding:16px">No scope items.</td></tr>'}</tbody></table>`
+    + `<div class="totals">
+        <div class="tr"><span>Contract</span><span>${money(contract)}</span></div>
+        <div class="tr"><span>Budget (est. cost)</span><span>${money(budget)}</span></div>
+        <div class="tr"><span>Actual cost to date</span><span>${money(actual)}</span></div>
+        <div class="tr total"><span>Est. profit (${margin.toFixed(1)}%)</span><span>${money(estProfit)}</span></div></div>`
+    + (cos?`<div class="sec"><h4>Change orders</h4></div><table><thead><tr><th>Description</th><th class="c">Status</th><th class="r">Price</th><th class="r">Cost</th></tr></thead><tbody>${cos}</tbody></table>`:'')
+    + (doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:'')
+    + `<div class="foot">${escapeHtml(co.name||'')} — job sheet</div>`;
+  printWindow(jobName||'Job', body);
+}
 document.getElementById('to-wo-btn').addEventListener('click', async ()=>{
   if(!confirm('Create a work order from this job? Its scope items become the task checklist.')) return;
   try{ await save(); const r=await apiFetch('/api/workorders/from-job',{method:'POST',body:JSON.stringify({jobId})}); location.href='/workorder.html?id='+encodeURIComponent(r.id); }

@@ -46,6 +46,7 @@
   input.num{text-align:right;font-family:'IBM Plex Mono',monospace}
   .cell-name input{min-width:180px}
   .unitcost{color:var(--steel);font-family:'IBM Plex Mono',monospace}
+  select.unit-sel{padding:6px 4px;width:72px;font-family:'IBM Plex Mono',monospace}
   .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:var(--radius)}
   .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
   .toolbar{display:flex;gap:8px;align-items:center;margin:18px 0;flex-wrap:wrap}
@@ -234,6 +235,16 @@ function unitCost(it){
   return base * (1 + (Number(it.waste)||0)/100);
 }
 function money(n){ return '$' + (Math.round(n*100)/100).toFixed(2); }
+// Units: a small dropdown (legacy free-text values are mapped/kept so nothing is lost).
+const UNIT_OPTS=['SF','LF','EA','CY','HR','LS'];
+const UNIT_MAP={sqft:'SF',sf:'SF',lnft:'LF',lf:'LF',lin:'LF',each:'EA',ea:'EA',cuyd:'CY',cy:'CY',cy3:'CY',hour:'HR',hr:'HR',hrs:'HR',ls:'LS'};
+function normUnit(u){ u=(u||'').trim(); return UNIT_MAP[u.toLowerCase()]||u; }
+function unitSelect(attr, i, cur){
+  const n=normUnit(cur); const opts=UNIT_OPTS.slice();
+  if(n && !opts.includes(n)) opts.unshift(n);
+  return `<select class="unit-sel" data-${attr[0]}="${i}" data-${attr[1]}="unit"><option value="">—</option>`+
+    opts.map(u=>`<option ${u===n?'selected':''}>${u}</option>`).join('')+`</select>`;
+}
 
 function render(){
   // Category suggestions depend on the code system: Residential = 2-digit CSI divisions,
@@ -260,7 +271,7 @@ function render(){
     tr.innerHTML = `
       <td class="cell-name"><input data-i="${i}" data-f="name" value="${escapeHtml(it.name)}" placeholder="Item name" /></td>
       <td><input data-i="${i}" data-f="category" value="${escapeHtml(it.category)}" placeholder="${catPlaceholder}" style="width:240px" list="cat-list" /></td>
-      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(it.unit)}" placeholder="sqft" style="width:70px" list="unit-list" /></td>
+      <td>${unitSelect(['i','f'], i, it.unit)}</td>
       <td class="num"><input class="num" data-i="${i}" data-f="material" value="${it.material}" inputmode="decimal" style="width:90px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="laborHours" value="${it.laborHours||0}" inputmode="decimal" style="width:80px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="laborRate" value="${it.laborRate||0}" inputmode="decimal" style="width:80px" /></td>
@@ -426,7 +437,7 @@ function renderAssemblies(){
     <div class="asm-card">
       <div class="asm-head">
         <div class="f grow"><label>Assembly name</label><input data-ai="${ai}" data-af="name" value="${escapeHtml(a.name)}" placeholder="e.g. Insulated 2×4 wall" /></div>
-        <div class="f"><label>Unit</label><input data-ai="${ai}" data-af="unit" value="${escapeHtml(a.unit)}" placeholder="sqft" style="width:80px" list="unit-list" /></div>
+        <div class="f"><label>Unit</label>${unitSelect(['ai','af'], ai, a.unit)}</div>
         <div class="f"><label>Code / category</label><input data-ai="${ai}" data-af="category" value="${escapeHtml(a.category)}" placeholder="optional" style="width:150px" list="cat-list" /></div>
         <div class="cost"><div class="lab">Cost / unit</div><div class="v" data-acost="${ai}">${money(asmUnitCost(a))}</div></div>
       </div>

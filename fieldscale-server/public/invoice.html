@@ -25,6 +25,7 @@
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .lines td,.lines th{padding:8px 8px}
   .lines input{padding:6px 7px}
+  .lines select.unit-sel{padding:6px 4px;width:66px;font-family:'IBM Plex Mono',monospace}
   .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:var(--radius)}
   .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
   .amt{font-family:'IBM Plex Mono',monospace;white-space:nowrap}
@@ -167,6 +168,16 @@ async function apiFetch(path, options={}){
 }
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Units: a small dropdown (legacy free-text values are mapped/kept so nothing is lost).
+const UNIT_OPTS=['SF','LF','EA','CY','HR','LS'];
+const UNIT_MAP={sqft:'SF',sf:'SF',lnft:'LF',lf:'LF',lin:'LF',each:'EA',ea:'EA',cuyd:'CY',cy:'CY',cy3:'CY',hour:'HR',hr:'HR',hrs:'HR',ls:'LS'};
+function normUnit(u){ u=(u||'').trim(); return UNIT_MAP[u.toLowerCase()]||u; }
+function unitSelect(i, cur){
+  const n=normUnit(cur); const opts=UNIT_OPTS.slice();
+  if(n && !opts.includes(n)) opts.unshift(n);
+  return `<select class="unit-sel" data-i="${i}" data-f="unit"><option value="">—</option>`+
+    opts.map(u=>`<option ${u===n?'selected':''}>${u}</option>`).join('')+`</select>`;
+}
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
 let doc = { company:{}, client:{}, lines:[], taxPct:0, amountPaid:0, discount:0, discountType:"pct", deposit:0, depositType:"pct" };
@@ -218,7 +229,7 @@ function renderLines(){
       <td><input data-i="${i}" data-f="name" value="${escapeHtml(l.name)}" placeholder="Description" /></td>
       <td><input data-i="${i}" data-f="code" value="${escapeHtml(l.code)}" style="width:130px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="qty" value="${l.qty}" inputmode="decimal" style="width:78px" /></td>
-      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(l.unit)}" placeholder="ea" style="width:66px" /></td>
+      <td>${unitSelect(i, l.unit)}</td>
       <td class="num"><span class="dollar">$<input class="num" data-i="${i}" data-f="unitCost" value="${l.unitCost}" inputmode="decimal" placeholder="0.00" style="width:84px" /></span></td>
       <td class="num amt" data-amt="${i}">${money(amt)}</td>
       <td class="num"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td>
@@ -292,7 +303,7 @@ function openInvoicePDF(){
   const rows=doc.lines.map((l,i)=>`<tr>
       <td class="c">${i+1}</td>
       <td>${escapeHtml(l.name)}${l.code?`<div class="code">${escapeHtml(l.code)}</div>`:''}</td>
-      <td class="r">${Number(l.qty)||0}</td><td>${escapeHtml(l.unit)}</td>
+      <td class="r">${Number(l.qty)||0}</td><td>${escapeHtml(normUnit(l.unit))}</td>
       <td class="r">${money(l.unitCost)}</td>
       <td class="r">${money((Number(l.qty)||0)*(Number(l.unitCost)||0))}</td>
     </tr>`).join('');

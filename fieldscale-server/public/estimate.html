@@ -26,6 +26,9 @@
   .lines input.internal-note::placeholder{color:var(--steel-light)}
   .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:var(--radius)}
   .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  .lines select.unit-sel{padding:6px 4px;width:62px;font-family:'IBM Plex Mono',monospace}
+  .mode-tog{background:var(--paper);border:1px solid var(--paper-line);color:var(--ink);cursor:pointer;font-size:11px;padding:4px 8px;border-radius:var(--radius);white-space:nowrap;font-family:'IBM Plex Mono',monospace}
+  .mode-tog:hover{border-color:var(--cyan-dim);color:var(--cyan-dim)}
   .amt{font-family:'IBM Plex Mono',monospace;white-space:nowrap}
   .dollar{display:inline-flex;align-items:center;gap:2px;justify-content:flex-end;color:var(--steel)}
   .lines-scroll{overflow-x:auto}
@@ -134,9 +137,9 @@
       <table class="lines">
         <thead>
           <tr>
-            <th>Description</th><th>Code</th><th class="num">Qty</th><th>Unit&nbsp;(ea/sqft)</th>
+            <th>Description</th><th>Code</th><th class="num">Qty</th><th>Unit</th>
             <th class="num">Material&nbsp;$</th><th class="num">Labor&nbsp;hrs</th><th class="num">Rate&nbsp;$/hr</th>
-            <th class="num">Unit&nbsp;cost&nbsp;$</th><th class="num">Amount</th><th></th>
+            <th class="num">Unit&nbsp;price&nbsp;$</th><th class="num">Amount</th><th>Pricing</th><th></th>
           </tr>
         </thead>
         <tbody id="lines"></tbody>
@@ -200,8 +203,29 @@ let estName = 'Untitled Estimate';
 
 function pbLabor(it){ const h=Number(it.laborHours)||0, r=Number(it.laborRate)||0; return (h>0||r>0)?h*r:(Number(it.labor)||0); }
 function pbUnitCost(it){ return Math.round(((Number(it.material)||0)+pbLabor(it))*(1+(Number(it.waste)||0)/100)*100)/100; }
-// A line's unit cost is material + labor hours × rate (kept in sync on l.unitCost for totals/PDF/invoice).
-function lineUnitCost(l){ return (Number(l.material)||0) + (Number(l.laborHours)||0)*(Number(l.laborRate)||0); }
+// Two ways to price a line:
+//  • flat    — you type a unit price; line total = qty × unit price.
+//  • buildup — you type TOTAL material $ and TOTAL labor (hrs × rate); line total = that; and the
+//              unit price shown = total ÷ qty (price per unit).
+function lineAmount(l){
+  if(l.mode==='flat') return (Number(l.qty)||0)*(Number(l.unitPrice)||0);
+  return (Number(l.material)||0) + (Number(l.laborHours)||0)*(Number(l.laborRate)||0);
+}
+function lineUnitPrice(l){
+  const q=Number(l.qty)||0;
+  if(l.mode==='flat') return Number(l.unitPrice)||0;
+  return q>0 ? lineAmount(l)/q : lineAmount(l);
+}
+// Units: a small dropdown. Legacy free-text units are mapped/kept so nothing is lost.
+const UNIT_OPTS=['SF','LF','EA','CY','HR','LS'];
+const UNIT_MAP={sqft:'SF',sf:'SF',lnft:'LF',lf:'LF',lin:'LF',each:'EA',ea:'EA',cuyd:'CY',cy:'CY',cy3:'CY',hour:'HR',hr:'HR',hrs:'HR',ls:'LS'};
+function normUnit(u){ u=(u||'').trim(); return UNIT_MAP[u.toLowerCase()]||u; }
+function unitSelect(i, cur){
+  const n=normUnit(cur); const opts=UNIT_OPTS.slice();
+  if(n && !opts.includes(n)) opts.unshift(n);
+  return `<select class="unit-sel" data-i="${i}" data-f="unit"><option value="">—</option>`+
+    opts.map(u=>`<option ${u===n?'selected':''}>${u}</option>`).join('')+`</select>`;
+}
 // An assembly's cost per unit = sum of each component's (per-unit qty x that item's unit cost).
 function assemblyUnitCost(a){
   const byId={}; pricebook.forEach(it=>byId[it.id]=it);
@@ -210,7 +234,7 @@ function assemblyUnitCost(a){
 }
 
 function computeTotals(){
-  const subtotal = doc.lines.reduce((s,l)=> s + (Number(l.qty)||0)*lineUnitCost(l), 0);
+  const subtotal = doc.lines.reduce((s,l)=> s + lineAmount(l), 0);
   const markup = subtotal*(Number(doc.markupPct)||0)/100;
   const price = subtotal + markup;
   // Discount comes off the price (after markup) and before tax — a % of price or a flat $ amount.
@@ -233,48 +257,70 @@ function renderTotals(){
 function renderLines(){
   const tb=document.getElementById('lines');
   if(!doc.lines.length){
-    tb.innerHTML=`<tr><td colspan="10" style="padding:26px;text-align:center;color:var(--steel)">
+    tb.innerHTML=`<tr><td colspan="11" style="padding:26px;text-align:center;color:var(--steel)">
       No line items yet. Add from your price book below, or add a blank line.</td></tr>`;
     renderTotals(); return;
   }
   tb.innerHTML=doc.lines.map((l,i)=>{
-    const uc=lineUnitCost(l);
-    const amt=(Number(l.qty)||0)*uc;
+    const flat = l.mode==='flat';
+    const amt = lineAmount(l);
+    const up  = lineUnitPrice(l);
+    const upVal = flat ? (Number(l.unitPrice)||0) : Math.round(up*10000)/10000;
+    // Build-up inputs are live only in build-up mode; the flat unit-price box is live only in flat mode.
+    const dis = flat ? 'disabled' : '';
+    const upDis = flat ? '' : 'disabled';
+    const off = 'style="opacity:.4"';
     return `<tr>
       <td><input data-i="${i}" data-f="name" value="${escapeHtml(l.name)}" placeholder="Description" />
         <input class="internal-note" data-i="${i}" data-f="internalNote" value="${escapeHtml(l.internalNote||'')}" placeholder="🔒 Internal note — not shown to the customer" /></td>
       <td><input data-i="${i}" data-f="code" value="${escapeHtml(l.code)}" style="width:120px" /></td>
       <td class="num"><input class="num" data-i="${i}" data-f="qty" value="${l.qty}" inputmode="decimal" style="width:70px" /></td>
-      <td><input data-i="${i}" data-f="unit" value="${escapeHtml(l.unit)}" placeholder="ea" style="width:60px" /></td>
-      <td class="num"><span class="dollar">$<input class="num" data-i="${i}" data-f="material" value="${l.material||0}" inputmode="decimal" placeholder="0.00" style="width:78px" /></span></td>
-      <td class="num"><input class="num" data-i="${i}" data-f="laborHours" value="${l.laborHours||0}" inputmode="decimal" style="width:64px" /></td>
-      <td class="num"><span class="dollar">$<input class="num" data-i="${i}" data-f="laborRate" value="${l.laborRate||0}" inputmode="decimal" style="width:64px" /></span></td>
-      <td class="num amt" data-uc="${i}" style="color:var(--steel)">${money(uc)}</td>
+      <td>${unitSelect(i, l.unit)}</td>
+      <td class="num" ${flat?off:''}><span class="dollar">$<input class="num" data-i="${i}" data-f="material" value="${l.material||0}" inputmode="decimal" placeholder="0.00" style="width:78px" ${dis} /></span></td>
+      <td class="num" ${flat?off:''}><input class="num" data-i="${i}" data-f="laborHours" value="${l.laborHours||0}" inputmode="decimal" style="width:64px" ${dis} /></td>
+      <td class="num" ${flat?off:''}><span class="dollar">$<input class="num" data-i="${i}" data-f="laborRate" value="${l.laborRate||0}" inputmode="decimal" style="width:64px" ${dis} /></span></td>
+      <td class="num"><span class="dollar">$<input class="num" data-i="${i}" data-f="unitPrice" data-up="${i}" value="${upVal}" inputmode="decimal" style="width:80px${flat?'':';color:var(--steel);background:#f7f7f5'}" ${upDis} title="${flat?'Flat unit price':'Price per unit = total ÷ qty'}" /></span></td>
       <td class="num amt" data-amt="${i}">${money(amt)}</td>
+      <td class="num"><button class="mode-tog" data-mode="${i}" title="Switch between a flat unit price and the material + labor build-up">${flat?'Flat':'Build-up'}</button></td>
       <td class="num"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td>
     </tr>`;
   }).join('');
   renderTotals();
 }
+function recalcLine(i){
+  const l=doc.lines[i];
+  l.unitCost=lineUnitPrice(l);          // per-unit price kept in sync for totals / PDF / invoice
+  const amtCell=document.querySelector(`[data-amt="${i}"]`); if(amtCell) amtCell.textContent=money(lineAmount(l));
+  // In build-up mode the unit-price box is a read-only display of total ÷ qty — refresh it.
+  if(l.mode!=='flat'){ const up=document.querySelector(`[data-up="${i}"]`); if(up) up.value=Math.round(lineUnitPrice(l)*10000)/10000; }
+  renderTotals();
+}
 document.getElementById('lines').addEventListener('input', e=>{
   const el=e.target, i=el.getAttribute('data-i'), f=el.getAttribute('data-f');
   if(i===null||i===undefined) return;
-  const num=(f==='qty'||f==='material'||f==='laborHours'||f==='laborRate');
+  const num=(f==='qty'||f==='material'||f==='laborHours'||f==='laborRate'||f==='unitPrice');
   doc.lines[i][f]= num ? (parseFloat(el.value)||0) : el.value;
-  if(num){
-    const l=doc.lines[i];
-    const uc=lineUnitCost(l); l.unitCost=uc;
-    const ucCell=document.querySelector(`[data-uc="${i}"]`); if(ucCell) ucCell.textContent=money(uc);
-    const cell=document.querySelector(`[data-amt="${i}"]`); if(cell) cell.textContent=money((Number(l.qty)||0)*uc);
-    renderTotals();
-  }
+  if(num || f==='unit') recalcLine(i);
 });
 document.getElementById('lines').addEventListener('click', e=>{
   const d=e.target.getAttribute && e.target.getAttribute('data-del');
-  if(d!==null && d!==undefined){ doc.lines.splice(Number(d),1); renderLines(); }
+  if(d!==null && d!==undefined){ doc.lines.splice(Number(d),1); renderLines(); return; }
+  const m=e.target.getAttribute && e.target.getAttribute('data-mode');
+  if(m!==null && m!==undefined){
+    const l=doc.lines[Number(m)];
+    if(l.mode==='flat'){
+      // flat → build-up: seed material with the current line total so the amount doesn't jump.
+      l.mode='buildup'; l.material=Math.round(lineAmount(l)*100)/100; l.laborHours=0; l.laborRate=0;
+    } else {
+      // build-up → flat: lock in the current per-unit price.
+      l.mode='flat'; l.unitPrice=Math.round(lineUnitPrice(l)*100)/100;
+    }
+    l.unitCost=lineUnitPrice(l);
+    renderLines();
+  }
 });
 document.getElementById('add-blank').addEventListener('click', ()=>{
-  doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:'', code:'', unit:'', qty:1, material:0, laborHours:0, laborRate:0, unitCost:0 });
+  doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:'', code:'', unit:'', qty:1, mode:'flat', unitPrice:0, material:0, laborHours:0, laborRate:0, unitCost:0 });
   renderLines();
 });
 document.getElementById('add-pb').addEventListener('click', ()=>{
@@ -282,16 +328,16 @@ document.getElementById('add-pb').addEventListener('click', ()=>{
   const v=sel.value; if(v==='') return;
   if(v.startsWith('asm:')){
     const a=assemblies[Number(v.slice(4))]; if(!a) return;
-    const uc=assemblyUnitCost(a);   // a bundle — its whole cost sits in Material on the line
-    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:a.name, code:a.category||'', unit:a.unit||'', qty:1, material:uc, laborHours:0, laborRate:0, unitCost:uc });
+    const uc=Math.round(assemblyUnitCost(a)*100)/100;   // a bundle — comes in as a flat unit price
+    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:a.name, code:a.category||'', unit:a.unit||'', qty:1, mode:'flat', unitPrice:uc, material:0, laborHours:0, laborRate:0, unitCost:uc });
   } else {
     const it=pricebook[Number(v.slice(3))]; if(!it) return;
     let lh=Number(it.laborHours)||0, lr=Number(it.laborRate)||0;
     if(!lh && !lr && (Number(it.labor)||0)>0){ lh=1; lr=Number(it.labor)||0; }  // migrate a legacy labor-$ item
     const labor=lh*lr;
-    const uc=((Number(it.material)||0)+labor)*(1+(Number(it.waste)||0)/100);  // waste folded into material
-    const mat=Math.round((uc-labor)*1e6)/1e6;         // 6 dp: clean display, no total drift
-    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:it.name, code:it.category||'', unit:it.unit||'', qty:1, material:mat, laborHours:lh, laborRate:lr, unitCost:mat+labor });
+    // Price-book items are per-unit; they come in as a flat unit price (waste folded in).
+    const uc=Math.round(((Number(it.material)||0)+labor)*(1+(Number(it.waste)||0)/100)*100)/100;
+    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:it.name, code:it.category||'', unit:it.unit||'', qty:1, mode:'flat', unitPrice:uc, material:Number(it.material)||0, laborHours:lh, laborRate:lr, unitCost:uc });
   }
   sel.value='';
   renderLines();
@@ -322,7 +368,7 @@ function syncDocFromForm(){
   doc.discountType=(doc.discountType==='amt'?'amt':'pct');
   // Keep each line's unitCost = material + labor(hrs×rate) at full precision so the invoice, PDF and
   // server totals match the estimate exactly (rounding it here would drift the invoice by pennies).
-  (doc.lines||[]).forEach(l=>{ l.unitCost=lineUnitCost(l); });
+  (doc.lines||[]).forEach(l=>{ l.unitCost=lineUnitPrice(l); });
 }
 function val(id){ return document.getElementById(id).value; }
 
@@ -408,9 +454,9 @@ function proposalDocHTML(forDownload){
       <td class="c">${i+1}</td>
       <td>${escapeHtml(l.name)}${l.code?`<div class="code">${escapeHtml(l.code)}</div>`:''}</td>
       <td class="r">${Number(l.qty)||0}</td>
-      <td>${escapeHtml(l.unit)}</td>
-      <td class="r">${money(l.unitCost)}</td>
-      <td class="r">${money((Number(l.qty)||0)*(Number(l.unitCost)||0))}</td>
+      <td>${escapeHtml(normUnit(l.unit))}</td>
+      <td class="r">${money(lineUnitPrice(l))}</td>
+      <td class="r">${money(lineAmount(l))}</td>
     </tr>`).join('');
   const co=doc.company||{}, cl=doc.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
@@ -543,9 +589,14 @@ async function init(){
     estName = est.name || 'Untitled Estimate';
     doc = Object.assign({ company:{}, client:{}, lines:[], markupPct:0, taxPct:0, discount:0, discountType:'pct' }, est.doc||{});
     doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];
-    // Migrate older lines (only a flat unitCost) into the new material/labor build-up: put the old
-    // unit price into Material so nothing changes on screen and it's editable going forward.
-    doc.lines.forEach(l=>{ if(l.material===undefined && l.laborHours===undefined && l.laborRate===undefined){ l.material=Number(l.unitCost)||0; l.laborHours=0; l.laborRate=0; } });
+    // Migrate older lines onto the flat/build-up model. Any line without a pricing mode becomes a
+    // flat line at its existing per-unit price, so totals are unchanged and it's editable going forward.
+    doc.lines.forEach(l=>{
+      if(l.material===undefined) l.material=0;
+      if(l.laborHours===undefined) l.laborHours=0;
+      if(l.laborRate===undefined) l.laborRate=0;
+      if(!l.mode){ l.mode='flat'; l.unitPrice=Number(l.unitCost)||((Number(l.material)||0)+(Number(l.laborHours)||0)*(Number(l.laborRate)||0)); }
+    });
     // New estimate with no company entered yet → prefill from the saved Company Profile.
     const prof = comp.profile || {};
     if(!doc.company.name && !doc.company.phone && !doc.company.email && !doc.company.address){

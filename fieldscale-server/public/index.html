@@ -170,6 +170,13 @@
     font-size:14px;padding:2px 5px;line-height:1;
   }
   .pages-collapse-btn:hover{color:var(--orange);}
+  /* Drag handle on the right edge to widen/narrow the sheet list */
+  .pages-resize{
+    position:absolute;top:0;right:0;bottom:0;width:6px;cursor:ew-resize;z-index:6;
+  }
+  .pages-resize:hover,.pages-resize.dragging{background:var(--cyan-dim);}
+  body.pages-resizing{cursor:ew-resize;user-select:none;}
+  @media (max-width:680px){ .pages-resize{display:none;} }
   .pages-list{flex:1;overflow-y:auto;padding:6px;white-space:nowrap;}
   .page-list-row{
     display:flex;align-items:center;gap:8px;
@@ -949,6 +956,7 @@
       <button class="pages-collapse-btn" id="pages-collapse-btn" title="Collapse">‹</button>
     </div>
     <div class="pages-list" id="pages-list"></div>
+    <div class="pages-resize" id="pages-resize" title="Drag to resize the sheet list"></div>
   </div>
   <button class="pages-reopen-tab" id="pages-reopen-tab" title="Show sheet list">☰ SHEETS</button>
 
@@ -2513,8 +2521,11 @@ async function renderPage(){
 }
 
 // ---------- Pages panel (collapsible sheet list) ----------
+const PAGES_MIN_W = 160, PAGES_MAX_W = 560;
+let pagesWidth = parseInt(localStorage.getItem('fieldscale_pages_width') || '220', 10);
+if(!(pagesWidth >= PAGES_MIN_W && pagesWidth <= PAGES_MAX_W)) pagesWidth = 220;
 function openPagesPanel(){
-  document.documentElement.style.setProperty('--pages-width', '220px');
+  document.documentElement.style.setProperty('--pages-width', pagesWidth + 'px');
   document.getElementById('pages-reopen-tab').classList.remove('show');
   positionFloatingPanels();
 }
@@ -2523,8 +2534,50 @@ function collapsePagesPanel(){
   document.getElementById('pages-reopen-tab').classList.add('show');
   positionFloatingPanels();
 }
+function pagesPanelOpen(){
+  return getComputedStyle(document.documentElement).getPropertyValue('--pages-width').trim() !== '0px';
+}
 document.getElementById('pages-collapse-btn').addEventListener('click', collapsePagesPanel);
 document.getElementById('pages-reopen-tab').addEventListener('click', openPagesPanel);
+
+// Drag the right edge to widen/narrow the sheet list; the size is remembered.
+(function(){
+  const handle = document.getElementById('pages-resize');
+  let startX = 0, startW = 0, dragging = false;
+  function onMove(e){
+    if(!dragging) return;
+    const w = Math.min(PAGES_MAX_W, Math.max(PAGES_MIN_W, startW + (e.clientX - startX)));
+    pagesWidth = Math.round(w);
+    document.documentElement.style.setProperty('--pages-width', pagesWidth + 'px');
+    positionFloatingPanels();
+  }
+  function onUp(){
+    if(!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.classList.remove('pages-resizing');
+    localStorage.setItem('fieldscale_pages_width', String(pagesWidth));
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  handle.addEventListener('mousedown', (e)=>{
+    if(!pagesPanelOpen()) return;          // nothing to resize while collapsed
+    e.preventDefault();
+    dragging = true; startX = e.clientX;
+    startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pages-width'), 10) || pagesWidth;
+    handle.classList.add('dragging');
+    document.body.classList.add('pages-resizing');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+  // Double-click the handle to reset to the default width.
+  handle.addEventListener('dblclick', ()=>{
+    pagesWidth = 220;
+    localStorage.setItem('fieldscale_pages_width', '220');
+    document.documentElement.style.setProperty('--pages-width', '220px');
+    positionFloatingPanels();
+  });
+})();
 
 function renderPagesList(){
   const container = document.getElementById('pages-list');

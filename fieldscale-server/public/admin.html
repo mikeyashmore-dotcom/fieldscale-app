@@ -56,6 +56,9 @@
        padding:8px 14px;font-size:13px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;margin-right:8px}
   .btn:hover{background:var(--cyan-dim)}
   .backup{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;margin-bottom:22px}
+  td.mods{white-space:normal;min-width:220px}
+  .modtog{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;margin:2px 8px 2px 0;color:var(--charcoal);cursor:pointer}
+  .modtog input{margin:0}
   @media (max-width:680px){
     header{flex-wrap:wrap;height:auto;min-height:52px;padding:8px 12px;gap:10px 14px;position:static}
     header nav{gap:14px;flex-wrap:wrap;order:3;width:100%}
@@ -67,6 +70,7 @@
     .btn{margin-bottom:8px}
   }
 </style>
+<script src="/app-nav.js"></script>
 </head>
 <body>
 <header>
@@ -129,7 +133,7 @@
       <div class="tiles" id="ptiles"></div>
       <div class="card">
         <table>
-          <thead><tr><th>Company</th><th>Owner</th><th>Joined</th><th class="num">Users</th><th class="num">Projects</th><th class="num">Estimates</th><th class="num">AI calls</th></tr></thead>
+          <thead><tr><th>Company</th><th>Owner</th><th>Joined</th><th class="num">Users</th><th class="num">Projects</th><th class="num">Estimates</th><th class="num">AI calls</th><th>Modules (à la carte)</th></tr></thead>
           <tbody id="prows"></tbody>
         </table>
       </div>
@@ -192,14 +196,19 @@ function render(users){
   document.getElementById('rows').innerHTML = rows;
 }
 
+let ALL_MODULES = ['takeoff','estimating','invoicing','jobs'];
+const MODULE_LABEL = { takeoff:'Takeoff', estimating:'Estimating', invoicing:'Invoicing', jobs:'Jobs / PM' };
 function renderPlatform(companies){
   const t = { u:0, p:0, e:0, a:0 };
   companies.forEach(c => { t.u+=c.users; t.p+=c.projects; t.e+=c.estimates; t.a+=c.aiCalls; });
   document.getElementById('ptiles').innerHTML =
     tile(companies.length,'Companies') + tile(t.u,'Total users') +
     tile(t.p,'Projects') + tile(t.e,'Estimates') + tile(t.a,'AI calls');
-  document.getElementById('prows').innerHTML = companies.map(c => `
-    <tr>
+  document.getElementById('prows').innerHTML = companies.map(c => {
+    const on = new Set(c.modules || ALL_MODULES);
+    const mods = ALL_MODULES.map(m=>`<label class="modtog" title="${escapeHtml(MODULE_LABEL[m]||m)}">
+      <input type="checkbox" data-cid="${c.id}" data-mod="${m}" ${on.has(m)?'checked':''}/> ${escapeHtml(MODULE_LABEL[m]||m)}</label>`).join('');
+    return `<tr>
       <td>${escapeHtml(c.name)}</td>
       <td class="muted">${escapeHtml(c.owner)}</td>
       <td class="muted">${fmtDate(c.createdAt)}</td>
@@ -207,9 +216,22 @@ function renderPlatform(companies){
       <td class="num">${c.projects}</td>
       <td class="num">${c.estimates}</td>
       <td class="num">${c.aiCalls}</td>
-    </tr>`).join('');
+      <td class="mods" data-modrow="${c.id}">${mods}</td>
+    </tr>`;
+  }).join('');
   document.getElementById('platform').style.display='block';
 }
+// Toggle a company's module access (platform admin).
+document.getElementById('prows').addEventListener('change', async (e)=>{
+  const cb = e.target; const cid = cb.getAttribute && cb.getAttribute('data-cid');
+  if(!cid) return;
+  const cell = document.querySelector(`[data-modrow="${cid}"]`);
+  const mods = [...cell.querySelectorAll('input[type=checkbox]')].filter(x=>x.checked).map(x=>x.getAttribute('data-mod'));
+  cell.querySelectorAll('input').forEach(x=>x.disabled=true);
+  try{ await apiFetch('/api/platform/companies/'+cid+'/modules', { method:'PUT', body: JSON.stringify({ modules: mods }) }); }
+  catch(err){ alert(err.message); cb.checked=!cb.checked; }
+  finally{ cell.querySelectorAll('input').forEach(x=>x.disabled=false); }
+});
 function renderPlatformUsers(users){
   document.getElementById('purows').innerHTML = users.map(u => `
     <tr>
@@ -238,7 +260,7 @@ async function init(){
     document.getElementById('content').style.display='block';
     render(data.users || []);
     if(me.platformAdmin){
-      try{ const pc = await apiFetch('/api/platform/companies'); renderPlatform(pc.companies || []); }catch(e){}
+      try{ const pc = await apiFetch('/api/platform/companies'); if(Array.isArray(pc.allModules)) ALL_MODULES=pc.allModules; renderPlatform(pc.companies || []); }catch(e){}
       try{ const pu = await apiFetch('/api/platform/users'); renderPlatformUsers(pu.users || []); }catch(e){}
     }
   }catch(err){

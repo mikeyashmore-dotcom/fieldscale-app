@@ -455,6 +455,15 @@ function companyAdminCount(companyId) {
 }
 function companyById(id) { return db.companies.find(c => c.id === id) || null; }
 
+// ---------- Modular ("à la carte") access: which parts of the product a company can use ----------
+// A company can be sold just the takeoff, just estimating, etc. Company profile + owner tools are
+// always available. If a company has no explicit list yet, everything is on (no behaviour change).
+const ALL_MODULES = ['takeoff', 'estimating', 'invoicing', 'jobs'];
+function companyModules(company) {
+  if (!company || !Array.isArray(company.modules)) return ALL_MODULES.slice();
+  return ALL_MODULES.filter(m => company.modules.includes(m));
+}
+
 // ---------- Auto-incrementing invoice numbers (per company) ----------
 // The company record holds a running counter: a prefix (e.g. "INV-"), the next integer to use,
 // and the zero-pad width. We seed it the first time a user types an invoice number, then count up.
@@ -670,7 +679,8 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, {
           username: me.username, role: me.role, id: me.id,
           companyId: me.companyId, companyName: company ? company.name : '',
-          platformAdmin: isPlatformAdmin(me)
+          platformAdmin: isPlatformAdmin(me),
+          modules: companyModules(company)
         });
       }
 
@@ -800,10 +810,23 @@ const server = http.createServer(async (req, res) => {
             users: users.length,
             projects: db.projects.filter(p => p.companyId === c.id).length,
             estimates: db.estimates.filter(e => e.companyId === c.id).length,
-            aiCalls: users.reduce((s, u) => s + (u.aiCalls || 0), 0)
+            aiCalls: users.reduce((s, u) => s + (u.aiCalls || 0), 0),
+            modules: companyModules(c)
           };
         }).sort((a, b) => a.createdAt - b.createdAt);
-        return sendJSON(res, 200, { companies });
+        return sendJSON(res, 200, { companies, allModules: ALL_MODULES });
+      }
+      // Set which modules a company can use (platform admin only).
+      const compModMatch = pathname.match(/^\/api\/platform\/companies\/([a-zA-Z0-9_]+)\/modules$/);
+      if (compModMatch && req.method === 'PUT') {
+        if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+        const company = companyById(compModMatch[1]);
+        if (!company) return sendJSON(res, 404, { error: 'Company not found.' });
+        const { modules } = await readBody(req);
+        if (!Array.isArray(modules)) return sendJSON(res, 400, { error: 'modules must be an array.' });
+        company.modules = ALL_MODULES.filter(m => modules.includes(m));
+        saveDB(db);
+        return sendJSON(res, 200, { id: company.id, modules: companyModules(company) });
       }
 
       // GET /api/platform/users — every account on the platform (platform admin only).

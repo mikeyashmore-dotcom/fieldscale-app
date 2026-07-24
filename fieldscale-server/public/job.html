@@ -94,11 +94,25 @@
       <div class="cost-grid">
         <div class="field"><label>Contract price</label><input id="c-contract" class="num" inputmode="decimal" placeholder="0.00" /></div>
         <div class="field"><label>Estimated cost (budget)</label><input id="c-budget" class="num" inputmode="decimal" placeholder="0.00" /></div>
-        <div class="field"><label>Actual cost to date</label><input id="c-actual" class="num" inputmode="decimal" placeholder="0.00" /></div>
+        <div class="field"><label>Actual cost to date</label><input id="c-actual" class="num" inputmode="decimal" placeholder="0.00" readonly title="Total of the costs logged below" style="background:var(--paper)" /></div>
       </div>
       <div class="cost-out" id="cost-out"></div>
-      <p class="cost-hint">Contract and budget carry over from the estimate. Log your real costs as the job runs to watch your margin. Approved change orders below adjust these numbers automatically.</p>
+      <p class="cost-hint">Contract and budget carry over from the estimate. Log real costs below and “actual cost to date” totals them automatically. Approved change orders adjust the contract and budget.</p>
     </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0;display:flex;align-items:baseline;gap:10px">
+        <h3 style="margin:0">Actual costs</h3>
+        <span id="cost-breakdown" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel)"></span>
+      </div>
+      <div class="lines-scroll">
+        <table class="lines cost-table">
+          <thead><tr><th>Category</th><th>Description</th><th class="num">Amount</th><th>Date</th><th></th></tr></thead>
+          <tbody id="cost-lines"></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin:10px 0 18px"><button class="btn ghost" id="add-cost">＋ Add cost</button></div>
 
     <div class="block" style="padding:0;overflow:hidden">
       <div style="padding:14px 14px 0"><h3 style="margin:0">Change orders</h3></div>
@@ -189,9 +203,12 @@ function approvedCO(){
     return a;
   }, {price:0, cost:0});
 }
+const COST_CATEGORIES=['Labor','Material','Subcontractor','Equipment','Other'];
+function costsTotal(){ return (doc.costs||[]).reduce((s,c)=>s+(Number(c.amount)||0),0); }
 function renderCosting(){
   const co=approvedCO();
-  const baseContract=num('c-contract'), baseBudget=num('c-budget'), actual=num('c-actual');
+  const baseContract=num('c-contract'), baseBudget=num('c-budget'), actual=costsTotal();
+  document.getElementById('c-actual').value = actual ? actual : '';
   const contract=baseContract+co.price, budget=baseBudget+co.cost;
   const estProfit=contract-budget;
   const estMargin=contract>0 ? (estProfit/contract*100) : 0;
@@ -211,7 +228,46 @@ function renderCosting(){
   document.getElementById('cost-out').innerHTML=stats.map(s=>`
     <div class="stat ${s[2]}"><div class="lab">${s[0]}</div><div class="num">${s[1]}</div></div>`).join('');
 }
-['c-contract','c-budget','c-actual'].forEach(id=>document.getElementById(id).addEventListener('input', renderCosting));
+['c-contract','c-budget'].forEach(id=>document.getElementById(id).addEventListener('input', renderCosting));
+
+// ---- Actual costs (labor / material / sub / equipment), rolled into "actual cost to date" ----
+function renderCostBreakdown(){
+  const by={}; (doc.costs||[]).forEach(c=>{ const k=c.category||'Other'; by[k]=(by[k]||0)+(Number(c.amount)||0); });
+  const parts=COST_CATEGORIES.filter(k=>by[k]).map(k=>`${k}: ${money(by[k])}`);
+  document.getElementById('cost-breakdown').textContent = parts.length ? parts.join('  ·  ') : '';
+}
+function renderCosts(){
+  const tb=document.getElementById('cost-lines');
+  const costs=doc.costs||[];
+  if(!costs.length){ tb.innerHTML=`<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--steel)">No costs logged yet. Add labor, material, subcontractor and equipment costs as the job runs.</td></tr>`; renderCostBreakdown(); return; }
+  tb.innerHTML=costs.map((c,i)=>`
+    <tr>
+      <td><select data-xi="${i}" data-xf="category">${COST_CATEGORIES.map(k=>`<option${(c.category||'Other')===k?' selected':''}>${k}</option>`).join('')}</select></td>
+      <td><input type="text" data-xi="${i}" data-xf="description" value="${escapeHtml(c.description)}" placeholder="e.g. crew day, supplier PO" /></td>
+      <td class="num"><input class="num" data-xi="${i}" data-xf="amount" value="${c.amount}" inputmode="decimal" style="width:100px" /></td>
+      <td><input type="date" data-xi="${i}" data-xf="date" value="${escapeHtml(c.date)}" /></td>
+      <td class="num"><button class="rowdel" data-xdel="${i}" title="Remove">✕</button></td>
+    </tr>`).join('');
+  renderCostBreakdown();
+}
+document.getElementById('cost-lines').addEventListener('input', e=>{
+  const el=e.target, i=el.getAttribute('data-xi'), f=el.getAttribute('data-xf');
+  if(i===null) return;
+  if(f==='amount'){ doc.costs[i].amount=parseFloat(el.value)||0; renderCosting(); renderCostBreakdown(); }
+  else doc.costs[i][f]=el.value;
+});
+document.getElementById('cost-lines').addEventListener('change', e=>{
+  const el=e.target; if(el.getAttribute('data-xf')==='category'){ doc.costs[el.getAttribute('data-xi')].category=el.value; renderCostBreakdown(); }
+});
+document.getElementById('cost-lines').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-xdel');
+  if(d!==null && d!==undefined){ doc.costs.splice(Number(d),1); renderCosts(); renderCosting(); }
+});
+document.getElementById('add-cost').addEventListener('click', ()=>{
+  doc.costs=doc.costs||[];
+  doc.costs.push({ id:'x_'+Math.random().toString(16).slice(2,8), category:'Labor', description:'', amount:0, date:'' });
+  renderCosts();
+});
 
 function renderChangeOrders(){
   const tb=document.getElementById('co-lines');
@@ -257,7 +313,9 @@ function syncDocFromForm(){
   doc.client={ name:val('cl-name') }; doc.project=val('project');
   doc.startDate=val('start-date'); doc.dueDate=val('due-date'); doc.notes=val('notes');
   doc.company=doc.company||{}; doc.fromEstimateId=doc.fromEstimateId||'';
-  doc.costing={ budget:num('c-budget'), contract:num('c-contract'), actualCost:num('c-actual') };
+  doc.costs=doc.costs||[];
+  // actualCost stays in sync with the logged costs, so older readers still see a single number.
+  doc.costing={ budget:num('c-budget'), contract:num('c-contract'), actualCost:costsTotal() };
   doc.changeOrders=doc.changeOrders||[];
 }
 async function save(){
@@ -280,8 +338,8 @@ function fillForm(){
   const c=doc.costing||{};
   set('c-contract', c.contract!=null ? c.contract : '');
   set('c-budget', c.budget!=null ? c.budget : '');
-  set('c-actual', c.actualCost!=null ? c.actualCost : '');
   renderChangeOrders();
+  renderCosts();
   renderCosting();
 }
 let statusVal='scheduled';
@@ -293,6 +351,11 @@ async function init(){
     statusVal = j.status || 'scheduled';
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
+    doc.costs = doc.costs||[];
+    // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
+    if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){
+      doc.costs.push({ id:'x_migrated', category:'Other', description:'Actual cost (migrated)', amount:Number(doc.costing.actualCost), date:'' });
+    }
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     fillForm(); renderLines();

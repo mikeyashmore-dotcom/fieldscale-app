@@ -137,6 +137,7 @@
         <div class="tr"><span>Discount <input class="pct" id="t-disc" inputmode="decimal" value="0" /><button type="button" class="disc-type" id="t-disc-type" title="Switch between percent off and a dollar amount">%</button></span><span class="v" id="t-discv">$0.00</span></div>
         <div class="tr"><span>Tax <input class="pct" id="t-tax" inputmode="decimal" value="0" />%</span><span class="v" id="t-tx">$0.00</span></div>
         <div class="tr total"><span>Total</span><span class="v" id="t-total">$0.00</span></div>
+        <div class="tr" id="deposit-row"><span>Deposit due <input class="pct" id="t-dep" inputmode="decimal" value="0" /><button type="button" class="disc-type" id="t-dep-type" title="Switch between percent of the total and a dollar amount">%</button></span><span class="v" id="t-depv">$0.00</span></div>
         <div class="tr"><span>Amount paid $<input class="pay" id="t-paid" inputmode="decimal" value="0" /></span><span class="v" id="t-paidv">$0.00</span></div>
         <div class="tr balance" id="balance-row"><span>Balance due</span><span class="v" id="t-balance">$0.00</span></div>
       </div>
@@ -167,7 +168,7 @@ function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleStrin
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
-let doc = { company:{}, client:{}, lines:[], taxPct:0, amountPaid:0, discount:0, discountType:'pct' };
+let doc = { company:{}, client:{}, lines:[], taxPct:0, amountPaid:0, discount:0, discountType:"pct", deposit:0, depositType:"pct" };
 let pricebook = [];
 let invName = 'Untitled Invoice';
 
@@ -183,7 +184,11 @@ function computeTotals(){
   const tax = taxable*(Number(doc.taxPct)||0)/100;
   const total = taxable + tax;
   const paid = Number(doc.amountPaid)||0;
-  return { subtotal, discount, tax, total, paid, balance: total - paid };
+  // Deposit due upfront: a % of the total or a flat $ (informational — the balance still tracks payments).
+  const depInput = Number(doc.deposit)||0;
+  let deposit = doc.depositType==='amt' ? depInput : total*depInput/100;
+  deposit = Math.min(Math.max(deposit,0), total);
+  return { subtotal, discount, tax, total, deposit, paid, balance: total - paid };
 }
 function statusOf(t){ if(t.paid<=0) return 'unpaid'; if(t.paid+0.005>=t.total) return 'paid'; return 'partial'; }
 function renderTotals(){
@@ -192,6 +197,7 @@ function renderTotals(){
   document.getElementById('t-discv').textContent = t.discount>0 ? '-'+money(t.discount) : money(0);
   document.getElementById('t-tx').textContent=money(t.tax);
   document.getElementById('t-total').textContent=money(t.total);
+  document.getElementById('t-depv').textContent=money(t.deposit);
   document.getElementById('t-paidv').textContent=money(t.paid);
   document.getElementById('t-balance').textContent=money(t.balance);
   const st=statusOf(t);
@@ -250,6 +256,12 @@ document.getElementById('t-disc-type').addEventListener('click', ()=>{
   document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
   renderTotals();
 });
+document.getElementById('t-dep').addEventListener('input', ()=>{ doc.deposit=parseFloat(document.getElementById('t-dep').value)||0; renderTotals(); });
+document.getElementById('t-dep-type').addEventListener('click', ()=>{
+  doc.depositType = doc.depositType==='amt' ? 'pct' : 'amt';
+  document.getElementById('t-dep-type').textContent = doc.depositType==='amt' ? '$' : '%';
+  renderTotals();
+});
 document.getElementById('t-tax').addEventListener('input', ()=>{ doc.taxPct=parseFloat(document.getElementById('t-tax').value)||0; renderTotals(); });
 document.getElementById('t-paid').addEventListener('input', ()=>{ doc.amountPaid=parseFloat(document.getElementById('t-paid').value)||0; renderTotals(); });
 
@@ -264,6 +276,7 @@ function syncDocFromForm(){
   doc.notes=val('notes'); doc.terms=val('terms');
   doc.taxPct=parseFloat(val('t-tax'))||0; doc.amountPaid=parseFloat(val('t-paid'))||0;
   doc.discount=parseFloat(val('t-disc'))||0; doc.discountType=(doc.discountType==='amt'?'amt':'pct');
+  doc.deposit=parseFloat(val('t-dep'))||0; doc.depositType=(doc.depositType==='amt'?'amt':'pct');
 }
 async function save(){
   syncDocFromForm();
@@ -338,6 +351,7 @@ function openInvoicePDF(){
     ${t.discount>0?`<div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
     ${doc.taxPct?`<div class="tr"><span>Tax (${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
+    ${t.deposit>0.005?`<div class="tr"><span>Deposit due${doc.depositType!=='amt'&&doc.deposit?` (${doc.deposit}%)`:''}</span><span>${money(t.deposit)}</span></div>`:''}
     ${t.paid>0?`<div class="tr"><span>Amount paid</span><span>-${money(t.paid)}</span></div>`:''}
     <div class="tr balance"><span>${t.balance<=0.005?'Paid in full':'Balance due'}</span><span>${money(Math.max(0,t.balance))}</span></div>
   </div>
@@ -361,6 +375,8 @@ function fillForm(){
   document.getElementById('t-paid').value=doc.amountPaid||0;
   document.getElementById('t-disc').value=doc.discount||0;
   document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
+  document.getElementById('t-dep').value=doc.deposit||0;
+  document.getElementById('t-dep-type').textContent = doc.depositType==='amt' ? '$' : '%';
 }
 async function init(){
   let me;
@@ -368,7 +384,7 @@ async function init(){
   try{
     const [inv, pb, comp] = await Promise.all([ apiFetch('/api/invoices/'+invId), apiFetch('/api/pricebook'), apiFetch('/api/company') ]);
     invName = inv.name || 'Untitled Invoice';
-    doc = Object.assign({ company:{}, client:{}, lines:[], taxPct:0, amountPaid:0, discount:0, discountType:'pct' }, inv.doc||{});
+    doc = Object.assign({ company:{}, client:{}, lines:[], taxPct:0, amountPaid:0, discount:0, discountType:"pct", deposit:0, depositType:"pct" }, inv.doc||{});
     doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];
     if(typeof doc.amountPaid!=='number') doc.amountPaid = inv.amountPaid||0;
     const prof = comp.profile || {};

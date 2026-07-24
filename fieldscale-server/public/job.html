@@ -31,6 +31,11 @@
   .rcpt-row .meta{color:var(--steel);font-size:11px;font-family:'IBM Plex Mono',monospace;flex:none}
   .rcpt-row a.view{font-size:12px;cursor:pointer}
   .dash{border-left:3px solid var(--orange);padding:12px 14px}
+  .log-entry{border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;background:var(--paper)}
+  .log-head{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  .log-head input[type=date]{width:auto}
+  .log-head .weather{flex:1}
+  .log-entry textarea{min-height:44px}
   textarea{min-height:90px;resize:vertical}
   .lines-scroll{overflow-x:auto}
   .costing{margin-bottom:18px}
@@ -156,6 +161,13 @@
       </div>
     </div>
     <div style="margin:10px 0 18px"><button class="btn ghost" id="add-blank">＋ Add scope line</button></div>
+
+    <div class="block">
+      <h3>Daily logs</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 10px">A quick record of each day on site — weather, who was there, and what got done. Attach site photos in Receipts above.</p>
+      <div id="logs"></div>
+      <button class="btn ghost" id="add-log" style="margin-top:6px">＋ Add day</button>
+    </div>
 
     <div class="block">
       <h3>Notes</h3>
@@ -392,6 +404,37 @@ document.getElementById('add-co').addEventListener('click', ()=>{
   renderChangeOrders();
 });
 
+// ---- Daily logs (a record of each day on site) ----
+function renderDailyLogs(){
+  const wrap=document.getElementById('logs');
+  const logs=doc.dailyLogs||[];
+  if(!logs.length){ wrap.innerHTML=`<div style="color:var(--steel);font-size:13px;padding:2px 0">No daily logs yet.</div>`; return; }
+  wrap.innerHTML=logs.map((l,i)=>`
+    <div class="log-entry">
+      <div class="log-head">
+        <input type="date" data-li="${i}" data-lf="date" value="${escapeHtml(l.date)}" />
+        <input class="weather" type="text" data-li="${i}" data-lf="weather" value="${escapeHtml(l.weather)}" placeholder="Weather (e.g. 72° clear)" />
+        <input type="text" data-li="${i}" data-lf="crew" value="${escapeHtml(l.crew)}" placeholder="Crew on site" style="flex:1" />
+        <button class="rowdel" data-ldel="${i}" title="Remove day">✕</button>
+      </div>
+      <textarea data-li="${i}" data-lf="workDone" placeholder="Work completed, deliveries, delays, inspections…">${escapeHtml(l.workDone)}</textarea>
+    </div>`).join('');
+}
+document.getElementById('logs').addEventListener('input', e=>{
+  const el=e.target, i=el.getAttribute('data-li'), f=el.getAttribute('data-lf');
+  if(i===null||i===undefined||!f) return;
+  doc.dailyLogs[i][f]=el.value;
+});
+document.getElementById('logs').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-ldel');
+  if(d!==null && d!==undefined){ doc.dailyLogs.splice(Number(d),1); renderDailyLogs(); }
+});
+document.getElementById('add-log').addEventListener('click', ()=>{
+  doc.dailyLogs=doc.dailyLogs||[];
+  doc.dailyLogs.unshift({ id:'dl_'+Math.random().toString(16).slice(2,8), date:'', weather:'', crew:'', workDone:'' });
+  renderDailyLogs();
+});
+
 function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 function syncDocFromForm(){
@@ -403,6 +446,7 @@ function syncDocFromForm(){
   // actualCost stays in sync with the logged costs, so older readers still see a single number.
   doc.costing={ budget:num('c-budget'), contract:num('c-contract'), actualCost:costsTotal() };
   doc.changeOrders=doc.changeOrders||[];
+  doc.dailyLogs=doc.dailyLogs||[];
 }
 async function save(){
   syncDocFromForm();
@@ -477,6 +521,7 @@ async function openJobPDF(){
         <div class="tr"><span>Actual cost to date</span><span>${money(actual)}</span></div>
         <div class="tr total"><span>Est. profit (${margin.toFixed(1)}%)</span><span>${money(estProfit)}</span></div></div>`
     + (cos?`<div class="sec"><h4>Change orders</h4></div><table><thead><tr><th>Description</th><th class="c">Status</th><th class="r">Price</th><th class="r">Cost</th></tr></thead><tbody>${cos}</tbody></table>`:'')
+    + ((doc.dailyLogs||[]).length?`<div class="sec"><h4>Daily logs</h4></div><table><thead><tr><th>Date</th><th>Weather</th><th>Crew</th><th>Work done</th></tr></thead><tbody>${doc.dailyLogs.map(l=>`<tr><td>${escapeHtml(l.date)||'—'}</td><td>${escapeHtml(l.weather)}</td><td>${escapeHtml(l.crew)}</td><td>${escapeHtml(l.workDone)}</td></tr>`).join('')}</tbody></table>`:'')
     + (doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:'')
     + `<div class="foot">${escapeHtml(co.name||'')} — job sheet</div>`;
   printWindow(jobName||'Job', body);
@@ -504,6 +549,7 @@ function fillForm(){
   renderChangeOrders();
   renderCosts();
   renderReceipts();
+  renderDailyLogs();
   renderCosting();
 }
 let statusVal='scheduled';
@@ -515,7 +561,7 @@ async function init(){
     statusVal = j.status || 'scheduled';
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
-    doc.costs = doc.costs||[];
+    doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
     receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){

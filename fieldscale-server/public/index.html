@@ -165,11 +165,6 @@
     font-family:'Oswald',sans-serif;font-size:12px;font-weight:600;
     color:var(--ink-navy);text-transform:uppercase;letter-spacing:0.5px;margin:0;
   }
-  .pages-collapse-btn{
-    background:none;border:none;color:var(--steel);cursor:pointer;
-    font-size:14px;padding:2px 5px;line-height:1;
-  }
-  .pages-collapse-btn:hover{color:var(--orange);}
   /* Drag handle on the right edge to widen/narrow the sheet list */
   .pages-resize{
     position:absolute;top:0;right:0;bottom:0;width:6px;cursor:ew-resize;z-index:6;
@@ -206,6 +201,20 @@
   }
   .pages-reopen-tab:hover{background:var(--orange);}
   .pages-reopen-tab.show{display:block;}
+
+  /* Collapse tab — same look as the reopen tab, but sits just outside the panel's right edge
+     (follows the panel as it's resized) so opening and closing use a matching tab. */
+  .pages-collapse-tab{
+    display:none;
+    position:fixed;left:calc(56px + var(--pages-width, 0px));top:64px;z-index:41;
+    background:var(--blueprint-2);color:#fff;border:1px solid var(--cyan-dim);
+    border-left:none;border-radius:0 4px 4px 0;
+    padding:8px 5px;cursor:pointer;font-size:11px;
+    writing-mode:vertical-rl;text-orientation:mixed;letter-spacing:0.5px;
+  }
+  .pages-collapse-tab:hover{background:var(--orange);}
+  .pages-collapse-tab.show{display:block;}
+  @media (max-width:680px){ .pages-collapse-tab{display:none !important;} }
 
   .tool{
     width:38px;height:38px;
@@ -953,11 +962,11 @@
   <div class="pages-panel" id="pages-panel">
     <div class="pages-panel-header">
       <h4>Sheets</h4>
-      <button class="pages-collapse-btn" id="pages-collapse-btn" title="Collapse">‹</button>
     </div>
     <div class="pages-list" id="pages-list"></div>
     <div class="pages-resize" id="pages-resize" title="Drag to resize the sheet list"></div>
   </div>
+  <button class="pages-collapse-tab" id="pages-collapse-tab" title="Hide sheet list">‹ SHEETS</button>
   <button class="pages-reopen-tab" id="pages-reopen-tab" title="Show sheet list">☰ SHEETS</button>
 
   <div class="stage-wrap" id="stage-wrap">
@@ -2527,17 +2536,19 @@ if(!(pagesWidth >= PAGES_MIN_W && pagesWidth <= PAGES_MAX_W)) pagesWidth = 220;
 function openPagesPanel(){
   document.documentElement.style.setProperty('--pages-width', pagesWidth + 'px');
   document.getElementById('pages-reopen-tab').classList.remove('show');
+  document.getElementById('pages-collapse-tab').classList.add('show');
   positionFloatingPanels();
 }
 function collapsePagesPanel(){
   document.documentElement.style.setProperty('--pages-width', '0px');
   document.getElementById('pages-reopen-tab').classList.add('show');
+  document.getElementById('pages-collapse-tab').classList.remove('show');
   positionFloatingPanels();
 }
 function pagesPanelOpen(){
   return getComputedStyle(document.documentElement).getPropertyValue('--pages-width').trim() !== '0px';
 }
-document.getElementById('pages-collapse-btn').addEventListener('click', collapsePagesPanel);
+document.getElementById('pages-collapse-tab').addEventListener('click', collapsePagesPanel);
 document.getElementById('pages-reopen-tab').addEventListener('click', openPagesPanel);
 
 // Drag the right edge to widen/narrow the sheet list; the size is remembered.

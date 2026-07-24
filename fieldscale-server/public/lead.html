@@ -125,7 +125,13 @@ async function save(){
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Lead saved.'); }catch(err){ toast(err.message,true); } });
 document.getElementById('to-est-btn').addEventListener('click', async ()=>{
-  if(!confirm('Start an estimate from this lead? The customer info carries over and the lead moves to “Estimating”.')) return;
+  const nm=(val('lead-name')||'').trim();
+  if(!nm || nm.toLowerCase()==='new lead'){
+    toast('Add the customer’s name at the top first — that’s what carries onto the estimate.', true);
+    const f=document.getElementById('lead-name'); f.focus(); f.select();
+    return;
+  }
+  if(!confirm('Start an estimate from this lead? “'+nm+'” and the project details carry over, and the lead moves to “Estimating”.')) return;
   try{ await save(); const r=await apiFetch('/api/estimates/from-lead',{method:'POST',body:JSON.stringify({leadId})}); location.href='/estimate.html?id='+encodeURIComponent(r.id); }
   catch(err){ toast(err.message,true); }
 });

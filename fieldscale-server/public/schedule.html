@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Schedule</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .calbar{display:flex;align-items:center;gap:10px;margin:0 0 14px;flex-wrap:wrap}
+  .calbar h2{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;margin:0;min-width:190px}
+  .calbar .spacer{flex:1}
+  .navbtn{background:#fff;border:1px solid var(--steel-light);border-radius:var(--radius);cursor:pointer;font-size:15px;padding:5px 11px;color:var(--charcoal)}
+  .navbtn:hover{border-color:var(--cyan-dim);color:var(--cyan-dim)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:var(--steel)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .dot.scheduled{background:var(--cyan-dim)} .dot.progress{background:var(--orange-dim)}
+  .dot.hold{background:var(--steel)} .dot.complete{background:var(--good)}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--paper-line);border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
+  .cal .dow{background:var(--paper);font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);padding:7px 8px;text-align:center}
+  .cell{background:#fff;min-height:96px;padding:5px 6px;position:relative}
+  .cell.out{background:#FaF8F2}
+  .cell .dnum{font-size:12px;color:var(--steel);font-family:'IBM Plex Mono',monospace}
+  .cell.today .dnum{background:var(--orange);color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+  .chip{display:block;margin-top:3px;padding:2px 6px;border-radius:3px;font-size:11px;color:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip.scheduled{background:var(--cyan-dim)} .chip.progress{background:var(--orange-dim)}
+  .chip.hold{background:var(--steel)} .chip.complete{background:var(--good)}
+  .chip.start{border-left:3px solid rgba(255,255,255,.85)}
+  .agenda{margin-top:30px}
+  .agenda h2{font-family:'Oswald',sans-serif;font-size:18px;font-weight:600;margin:0 0 10px}
+  .arow{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 12px;margin-bottom:6px;cursor:pointer}
+  .arow:hover{border-color:var(--cyan-dim)}
+  .arow .when{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel);min-width:150px}
+  .arow .nm{flex:1;font-weight:500}
+  .arow .cl{color:var(--steel);font-size:13px}
+  .arow .amt{font-family:'IBM Plex Mono',monospace;font-size:13px}
+  .empty{color:var(--steel);padding:22px;text-align:center}
+  .unsched{margin-top:24px;color:var(--steel);font-size:13px}
+  .unsched a{margin-right:10px}
+  @media (max-width:680px){ .cell{min-height:70px} .chip{font-size:10px} .calbar h2{min-width:150px;font-size:17px} }
+</style>
+<meta name="fs-module" content="jobs">
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/leads.html">Leads</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
+    <a href="/schedule.html" class="active">Schedule</a>
+    <a href="/workorders.html">Work Orders</a>
+    <a href="/invoices.html">Invoices</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/reports.html">Reports</a>
+    <a href="/company.html">Company</a>
+    <a href="/admin.html" id="owner-nav">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <h1>Schedule</h1>
+  <p class="sub">Your jobs on a calendar, by start and due date. Set dates on each job to place it here.</p>
+  <div id="loading" class="loading">Loading…</div>
+  <div id="content" style="display:none">
+    <div class="calbar">
+      <button class="navbtn" id="prev" title="Previous month">‹</button>
+      <h2 id="month-title"></h2>
+      <button class="navbtn" id="next" title="Next month">›</button>
+      <button class="navbtn" id="today-btn">Today</button>
+      <div class="spacer"></div>
+    </div>
+    <div class="legend">
+      <span><i class="dot scheduled"></i>Scheduled</span>
+      <span><i class="dot progress"></i>In progress</span>
+      <span><i class="dot hold"></i>On hold</span>
+      <span><i class="dot complete"></i>Complete</span>
+    </div>
+    <div class="cal" id="cal"></div>
+
+    <div class="agenda">
+      <h2>Upcoming</h2>
+      <div id="agenda"></div>
+    </div>
+    <div class="unsched" id="unsched"></div>
+  </div>
+</div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path){
+  const res=await fetch(path,{headers:{'Authorization':'Bearer '+getToken()}});
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json(); if(!res.ok) throw new Error(data.error||'Request failed'); return data;
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n){ n=Number(n)||0; return '$'+n.toLocaleString(undefined,{maximumFractionDigits:0}); }
+// Map a job status to a short css class.
+function scls(s){ s=(s||'scheduled'); if(s==='in progress')return 'progress'; if(s==='on hold')return 'hold'; if(s==='complete')return 'complete'; return 'scheduled'; }
+// Parse a yyyy-mm-dd string into a LOCAL date (avoid UTC shift). Returns null if blank/invalid.
+function pd(s){ if(!s)return null; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); if(!m)return null; return new Date(+m[1],+m[2]-1,+m[3]); }
+function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fmtWhen(j){ const s=pd(j.start), d=pd(j.due); const o={month:'short',day:'numeric'};
+  if(s&&d) return s.toLocaleDateString(undefined,o)+' → '+d.toLocaleDateString(undefined,o);
+  if(s) return 'Starts '+s.toLocaleDateString(undefined,o); if(d) return 'Due '+d.toLocaleDateString(undefined,o); return ''; }
+
+let jobs=[], view=new Date();
+const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function renderCal(){
+  const y=view.getFullYear(), m=view.getMonth();
+  document.getElementById('month-title').textContent=MONTHS[m]+' '+y;
+  const first=new Date(y,m,1), startDow=first.getDay();
+  const gridStart=new Date(y,m,1-startDow);
+  const today=new Date(); const todayStr=ymd(today);
+  let html=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="dow">${d}</div>`).join('');
+  for(let i=0;i<42;i++){
+    const day=new Date(gridStart.getFullYear(),gridStart.getMonth(),gridStart.getDate()+i);
+    const dStr=ymd(day), inMonth=day.getMonth()===m;
+    // jobs active on this day: start<=day<=due (or single-day on start, or on due if only due)
+    const chips=jobs.filter(j=>{
+      const s=pd(j.start), d=pd(j.due); if(!s&&!d) return false;
+      const lo=s||d, hi=d||s; return day>=stripT(lo) && day<=stripT(hi);
+    }).map(j=>{ const isStart = j.start && ymd(pd(j.start))===dStr;
+      return `<span class="chip ${scls(j.status)}${isStart?' start':''}" title="${esc(j.name)} — ${esc(j.status)}" onclick="location.href='/job.html?id=${esc(j.id)}'">${esc(j.name)}</span>`;
+    }).join('');
+    html+=`<div class="cell${inMonth?'':' out'}${dStr===todayStr?' today':''}"><span class="dnum">${day.getDate()}</span>${chips}</div>`;
+  }
+  document.getElementById('cal').innerHTML=html;
+}
+function stripT(d){ return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
+
+function renderAgenda(){
+  const today=stripT(new Date());
+  const dated=jobs.filter(j=>pd(j.start)||pd(j.due));
+  const upcoming=dated.filter(j=>{ const end=pd(j.due)||pd(j.start); return stripT(end)>=today; })
+    .sort((a,b)=>(pd(a.start)||pd(a.due))-(pd(b.start)||pd(b.due)));
+  const el=document.getElementById('agenda');
+  if(!upcoming.length){ el.innerHTML='<div class="empty">No upcoming scheduled jobs. Add start/due dates on a job to see it here.</div>'; }
+  else el.innerHTML=upcoming.slice(0,20).map(j=>`<div class="arow" onclick="location.href='/job.html?id=${esc(j.id)}'">
+    <span class="dot ${scls(j.status)}"></span>
+    <span class="when">${esc(fmtWhen(j))}</span>
+    <span class="nm">${esc(j.name)}</span>
+    <span class="cl">${esc(j.client)||''}</span>
+    <span class="amt">${j.contract?money(j.contract):''}</span></div>`).join('');
+  const un=jobs.filter(j=>!pd(j.start)&&!pd(j.due));
+  document.getElementById('unsched').innerHTML = un.length
+    ? '<strong>'+un.length+'</strong> job'+(un.length>1?'s':'')+' with no dates yet: '+un.slice(0,12).map(j=>`<a href="/job.html?id=${esc(j.id)}">${esc(j.name)}</a>`).join('')
+    : '';
+}
+
+document.getElementById('prev').addEventListener('click',()=>{ view=new Date(view.getFullYear(),view.getMonth()-1,1); renderCal(); });
+document.getElementById('next').addEventListener('click',()=>{ view=new Date(view.getFullYear(),view.getMonth()+1,1); renderCal(); });
+document.getElementById('today-btn').addEventListener('click',()=>{ view=new Date(); renderCal(); });
+
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{
+    jobs=await apiFetch('/api/schedule');
+    renderCal(); renderAgenda();
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+  }catch(err){ document.getElementById('loading').textContent='Could not load the schedule: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

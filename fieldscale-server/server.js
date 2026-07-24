@@ -1444,6 +1444,22 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { ar, jobs, estimates: est });
       }
 
+      // ---- Schedule: jobs with their start/due dates for the calendar ----
+      if (pathname === '/api/schedule' && req.method === 'GET') {
+        const list = db.jobs.filter(j => j.companyId === me.companyId)
+          .map(j => {
+            const jd = readJobDoc(j.id) || {};
+            const c = jd.costing || {};
+            const co = (jd.changeOrders || []).reduce((a, x) => {
+              if (x.status === 'approved') a.price += Number(x.priceDelta) || 0; return a;
+            }, { price: 0 });
+            return { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
+                     start: jd.startDate || '', due: jd.dueDate || '',
+                     contract: Math.round(((Number(c.contract) || 0) + co.price) * 100) / 100 };
+          });
+        return sendJSON(res, 200, list);
+      }
+
       // ---- Projects/Jobs: list / create / convert-from-estimate ----
       if (pathname === '/api/jobs' && req.method === 'GET') {
         const list = db.jobs.filter(j => j.companyId === me.companyId)

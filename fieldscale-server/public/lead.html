@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Lead</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<meta name="fs-module" content="crm">
+<script src="/app-nav.js"></script>
+<style>
+  .wrap{max-width:920px}
+  .pagebar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .pagebar input.title{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;border:none;border-bottom:1px solid var(--paper-line);background:transparent;width:300px;padding:4px 2px}
+  .pagebar input.title:focus{border-bottom-color:var(--cyan-dim)}
+  .pagebar .spacer{flex:1}
+  .pagebar select{width:auto;padding:6px 8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:18px}
+  .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
+  .field{margin-bottom:8px}
+  .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  textarea{min-height:80px;resize:vertical}
+  input.num{font-family:'IBM Plex Mono',monospace}
+  @media (max-width:760px){ .grid2{grid-template-columns:1fr} .row2{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/leads.html" class="active">Leads</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
+    <a href="/workorders.html">Work Orders</a>
+    <a href="/invoices.html">Invoices</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/company.html">Company</a>
+    <a href="/admin.html" id="owner-nav">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="loading">Loading…</div>
+  <div id="content" style="display:none">
+    <div class="pagebar">
+      <a href="/leads.html" class="btn ghost">← Leads</a>
+      <input class="title" id="lead-name" placeholder="Lead / customer name" />
+      <select id="stage">
+        <option value="new">New</option>
+        <option value="contacted">Contacted</option>
+        <option value="estimating">Estimating</option>
+        <option value="won">Won</option>
+        <option value="lost">Lost</option>
+        <option value="on hold">On hold</option>
+      </select>
+      <div class="spacer"></div>
+      <a class="btn ghost" id="open-est" style="display:none" title="Open the estimate created from this lead">Open estimate</a>
+      <button class="btn ghost" id="to-est-btn" title="Start an estimate from this lead">→ Estimate</button>
+      <button class="btn primary" id="save-btn">Save</button>
+    </div>
+
+    <div class="grid2">
+      <div class="block" style="margin-bottom:0">
+        <h3>Contact</h3>
+        <div class="row2">
+          <div class="field"><label>Phone</label><input id="phone" /></div>
+          <div class="field"><label>Email</label><input id="email" /></div>
+        </div>
+        <div class="field"><label>Project address</label><input id="address" /></div>
+      </div>
+      <div class="block" style="margin-bottom:0">
+        <h3>Opportunity</h3>
+        <div class="field"><label>Type of work</label><input id="work-type" placeholder="e.g. Kitchen remodel" /></div>
+        <div class="row2">
+          <div class="field"><label>Estimated value $</label><input id="value" class="num" inputmode="decimal" placeholder="0" /></div>
+          <div class="field"><label>Lead source</label><input id="source" placeholder="Referral, website, …" /></div>
+        </div>
+        <div class="field"><label>Follow-up date</label><input id="follow-up" type="date" /></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Notes</h3>
+      <textarea id="notes" placeholder="What they want, budget, timeline, conversation notes…"></textarea>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+const leadId = new URLSearchParams(location.search).get('id');
+if(!leadId){ location.href='/leads.html'; }
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+function val(id){ return document.getElementById(id).value; }
+function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
+
+let doc={};
+async function save(){
+  await apiFetch('/api/leads/'+leadId, { method:'PUT', body: JSON.stringify({
+    name: val('lead-name')||'New Lead', workType: val('work-type'), value: parseFloat(val('value'))||0,
+    stage: val('stage'), source: val('source'), followUp: val('follow-up'),
+    doc: { phone: val('phone'), email: val('email'), address: val('address'), notes: val('notes') }
+  }) });
+}
+document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Lead saved.'); }catch(err){ toast(err.message,true); } });
+document.getElementById('to-est-btn').addEventListener('click', async ()=>{
+  if(!confirm('Start an estimate from this lead? The customer info carries over and the lead moves to “Estimating”.')) return;
+  try{ await save(); const r=await apiFetch('/api/estimates/from-lead',{method:'POST',body:JSON.stringify({leadId})}); location.href='/estimate.html?id='+encodeURIComponent(r.id); }
+  catch(err){ toast(err.message,true); }
+});
+
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{
+    const l=await apiFetch('/api/leads/'+leadId);
+    set('lead-name', l.name); document.getElementById('stage').value=l.stage||'new';
+    set('work-type', l.workType); set('value', l.value||''); set('source', l.source); set('follow-up', l.followUp);
+    doc=l.doc||{};
+    set('phone', doc.phone); set('email', doc.email); set('address', doc.address); set('notes', doc.notes);
+    if(l.estimateId){ const oe=document.getElementById('open-est'); oe.href='/estimate.html?id='+encodeURIComponent(l.estimateId); oe.style.display=''; }
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+  }catch(err){ document.getElementById('loading').textContent='Could not load lead: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

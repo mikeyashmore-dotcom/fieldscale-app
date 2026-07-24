@@ -262,6 +262,20 @@ function writeWorkOrderDoc(id, doc){
 }
 const WO_STATUSES = ['open', 'in progress', 'complete', 'on hold'];
 
+// ---------- Leads / CRM (the sales front of the funnel: lead -> estimate -> job -> invoice) ----------
+const LEADS_DIR = path.join(DATA_DIR, 'leads');
+function leadPath(id){ return path.join(LEADS_DIR, id + '.json'); }
+function readLeadDoc(id){
+  const f = leadPath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writeLeadDoc(id, doc){
+  if (!fs.existsSync(LEADS_DIR)) fs.mkdirSync(LEADS_DIR, { recursive: true });
+  writeJsonAtomic(leadPath(id), doc || {});
+}
+const LEAD_STAGES = ['new', 'contacted', 'estimating', 'won', 'lost', 'on hold'];
+
 // ---------- Receipts attached to a job (kept on disk for the life of the job) ----------
 // Files live under data/receipts/<jobId>/<receiptId>; the metadata lives on the job record
 // (job.receipts), so a client save of the job doc can never clobber them.
@@ -298,6 +312,7 @@ function loadDB() {
   parsed.invoices = parsed.invoices || [];
   parsed.jobs = parsed.jobs || [];
   parsed.workOrders = parsed.workOrders || [];
+  parsed.leads = parsed.leads || [];
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -474,7 +489,7 @@ function companyById(id) { return db.companies.find(c => c.id === id) || null; }
 // ---------- Modular ("à la carte") access: which parts of the product a company can use ----------
 // A company can be sold just the takeoff, just estimating, etc. Company profile + owner tools are
 // always available. If a company has no explicit list yet, everything is on (no behaviour change).
-const ALL_MODULES = ['takeoff', 'estimating', 'invoicing', 'jobs'];
+const ALL_MODULES = ['takeoff', 'estimating', 'invoicing', 'jobs', 'crm'];
 function companyModules(company) {
   if (!company || !Array.isArray(company.modules)) return ALL_MODULES.slice();
   return ALL_MODULES.filter(m => company.modules.includes(m));
@@ -1599,6 +1614,73 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Leads / CRM: list / create / get / put / delete / convert-to-estimate ----
+      if (pathname === '/api/leads' && req.method === 'GET') {
+        const list = db.leads.filter(l => l.companyId === me.companyId)
+          .map(l => ({ id: l.id, name: l.name, workType: l.workType || '', value: Number(l.value) || 0,
+                       stage: l.stage || 'new', source: l.source || '', followUp: l.followUp || '',
+                       createdAt: l.createdAt, updatedAt: l.updatedAt }))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/leads' && req.method === 'POST') {
+        const { name, doc } = await readBody(req);
+        const lead = { id: 'ld_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: name || 'New Lead', workType: '', value: 0, stage: 'new', source: '', followUp: '',
+          createdAt: Date.now(), updatedAt: Date.now() };
+        writeLeadDoc(lead.id, doc || {});
+        db.leads.push(lead);
+        saveDB(db);
+        return sendJSON(res, 200, { id: lead.id });
+      }
+      // Turn a lead into an estimate — prefill the client from the lead, mark the lead as estimating.
+      if (pathname === '/api/estimates/from-lead' && req.method === 'POST') {
+        const { leadId } = await readBody(req);
+        const lead = db.leads.find(l => l.id === leadId && l.companyId === me.companyId);
+        if (!lead) return sendJSON(res, 404, { error: 'Lead not found.' });
+        const ld = readLeadDoc(lead.id);
+        const doc = { company: {}, client: { name: lead.name || '', address: ld.address || '' },
+          project: lead.workType || '', lines: [], markupPct: 0, taxPct: 0,
+          notes: ld.notes ? ('From lead: ' + ld.notes) : '', discount: 0, discountType: 'pct' };
+        const est = { id: 'e_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: (lead.name ? lead.name + ' — ' : '') + (lead.workType || 'Estimate'), client: lead.name || '',
+          total: 0, status: 'draft', createdAt: Date.now(), updatedAt: Date.now() };
+        writeEstimateDoc(est.id, doc);
+        db.estimates.push(est);
+        lead.stage = 'estimating'; lead.estimateId = est.id; lead.updatedAt = Date.now();
+        saveDB(db);
+        return sendJSON(res, 200, { id: est.id });
+      }
+      const leadMatch = pathname.match(/^\/api\/leads\/([a-zA-Z0-9_]+)$/);
+      if (leadMatch) {
+        const lead = db.leads.find(l => l.id === leadMatch[1] && l.companyId === me.companyId);
+        if (!lead) return sendJSON(res, 404, { error: 'Lead not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, { id: lead.id, name: lead.name, workType: lead.workType, value: lead.value,
+            stage: lead.stage, source: lead.source, followUp: lead.followUp, estimateId: lead.estimateId || '',
+            createdAt: lead.createdAt, updatedAt: lead.updatedAt, doc: readLeadDoc(lead.id) });
+        }
+        if (req.method === 'PUT') {
+          const { name, workType, value, stage, source, followUp, doc } = await readBody(req);
+          if (name !== undefined) lead.name = String(name).slice(0, 200);
+          if (workType !== undefined) lead.workType = String(workType).slice(0, 120);
+          if (value !== undefined) lead.value = Number(value) || 0;
+          if (stage !== undefined && LEAD_STAGES.includes(stage)) lead.stage = stage;
+          if (source !== undefined) lead.source = String(source).slice(0, 120);
+          if (followUp !== undefined) lead.followUp = String(followUp).slice(0, 20);
+          if (doc !== undefined) writeLeadDoc(lead.id, doc);
+          lead.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { id: lead.id, updatedAt: lead.updatedAt, stage: lead.stage });
+        }
+        if (req.method === 'DELETE') {
+          db.leads = db.leads.filter(l => l.id !== lead.id);
+          try { fs.unlinkSync(leadPath(lead.id)); } catch (e) {}
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
+
       // ---- Full backup / export (company owner or admin) ----
       // Bundles everything that's hard to replace — company profile, price book, every estimate,
       // and every project's takeoff measurements — into one JSON file. Plan PDFs are NOT included
@@ -1632,6 +1714,10 @@ const server = http.createServer(async (req, res) => {
           assemblies: readAssemblies(me.companyId),
           templates: db.templates.filter(t => t.companyId === me.companyId).map(t => ({
             id: t.id, name: t.name, createdAt: t.createdAt, updatedAt: t.updatedAt, doc: readTemplateDoc(t.id)
+          })),
+          leads: db.leads.filter(l => l.companyId === me.companyId).map(l => ({
+            id: l.id, name: l.name, workType: l.workType, value: l.value, stage: l.stage, source: l.source,
+            followUp: l.followUp, createdAt: l.createdAt, updatedAt: l.updatedAt, doc: readLeadDoc(l.id)
           })),
           projects, estimates, invoices, jobs, workOrders
         });
@@ -1718,8 +1804,22 @@ const server = http.createServer(async (req, res) => {
           if (wb.doc) writeWorkOrderDoc(wo.id, wb.doc);
           wo.updatedAt = Date.now(); woN++;
         });
+        let leadN = 0;
+        (Array.isArray(b.leads) ? b.leads : []).forEach(lb => {
+          let lead = db.leads.find(x => x.id === lb.id && x.companyId === me.companyId);
+          if (!lead) {
+            lead = { id: (typeof lb.id === 'string' && lb.id) ? lb.id : ('ld_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, name: lb.name || 'Restored lead', workType: lb.workType || '',
+              value: Number(lb.value) || 0, stage: LEAD_STAGES.includes(lb.stage) ? lb.stage : 'new',
+              source: lb.source || '', followUp: lb.followUp || '',
+              createdAt: lb.createdAt || Date.now(), updatedAt: Date.now() };
+            db.leads.push(lead);
+          }
+          if (lb.doc) writeLeadDoc(lead.id, lb.doc);
+          lead.updatedAt = Date.now(); leadN++;
+        });
         saveDB(db);
-        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN, workOrders: woN });
+        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN, workOrders: woN, leads: leadN });
       }
 
       return sendJSON(res, 404, { error: 'Unknown API route.' });

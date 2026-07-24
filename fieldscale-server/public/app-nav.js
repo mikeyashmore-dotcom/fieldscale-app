@@ -8,12 +8,13 @@
   // Which module each nav destination belongs to. Anything not listed (Company, Owner) is always on.
   var NAV_MODULE = {
     '/': 'takeoff', '/index.html': 'takeoff',
+    '/leads.html': 'crm', '/lead.html': 'crm',
     '/proposals.html': 'estimating', '/estimate.html': 'estimating', '/estimates.html': 'estimating',
     '/invoices.html': 'invoicing', '/invoice.html': 'invoicing',
     '/jobs.html': 'jobs', '/job.html': 'jobs', '/workorders.html': 'jobs', '/workorder.html': 'jobs'
   };
-  var LANDING = { takeoff: '/', estimating: '/proposals.html', jobs: '/jobs.html', invoicing: '/invoices.html' };
-  var ORDER = ['takeoff', 'estimating', 'jobs', 'invoicing'];
+  var LANDING = { takeoff: '/', crm: '/leads.html', estimating: '/proposals.html', jobs: '/jobs.html', invoicing: '/invoices.html' };
+  var ORDER = ['crm', 'takeoff', 'estimating', 'jobs', 'invoicing'];
 
   function pageModule() {
     var m = document.querySelector('meta[name="fs-module"]');

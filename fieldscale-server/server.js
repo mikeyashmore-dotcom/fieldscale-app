@@ -1243,9 +1243,12 @@ const server = http.createServer(async (req, res) => {
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         const edoc = readEstimateDoc(est.id);
         const mk = 1 + (Number(edoc.markupPct) || 0) / 100;
+        // Fold markup into each unit price at FULL precision (don't round per line) so the invoice
+        // total equals the estimate the customer approved — rounding each line first made the
+        // invoice drift from the estimate by a few cents up to a dollar or two.
         const lines = (edoc.lines || []).map(l => ({
           id: 'l_' + crypto.randomBytes(6).toString('hex'), name: l.name, code: l.code, unit: l.unit,
-          qty: Number(l.qty) || 0, unitCost: Math.round((Number(l.unitCost) || 0) * mk * 100) / 100
+          qty: Number(l.qty) || 0, unitCost: (Number(l.unitCost) || 0) * mk
         }));
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',

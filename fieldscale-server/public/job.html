@@ -47,6 +47,7 @@
     <a href="/">Takeoff</a>
     <a href="/proposals.html">Estimates</a>
     <a href="/jobs.html" class="active">Jobs</a>
+    <a href="/workorders.html">Work Orders</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
     <a href="/company.html">Company</a>
@@ -70,6 +71,7 @@
         <option value="complete">Complete</option>
       </select>
       <div class="spacer"></div>
+      <button class="btn ghost" id="to-wo-btn" title="Make a work order for the crew">→ Work Order</button>
       <button class="btn ghost" id="to-invoice-btn" title="Bill this job">→ Invoice</button>
       <button class="btn primary" id="save-btn">Save</button>
     </div>
@@ -323,6 +325,11 @@ async function save(){
   await apiFetch('/api/jobs/'+jobId, { method:'PUT', body: JSON.stringify({ name:jobName, client:doc.client.name, status:val('status'), doc }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Job saved.'); }catch(err){ toast(err.message,true); } });
+document.getElementById('to-wo-btn').addEventListener('click', async ()=>{
+  if(!confirm('Create a work order from this job? Its scope items become the task checklist.')) return;
+  try{ await save(); const r=await apiFetch('/api/workorders/from-job',{method:'POST',body:JSON.stringify({jobId})}); location.href='/workorder.html?id='+encodeURIComponent(r.id); }
+  catch(err){ toast(err.message,true); }
+});
 document.getElementById('to-invoice-btn').addEventListener('click', async ()=>{
   if(!doc.fromEstimateId){ toast('This job has no source estimate to bill from. Create the invoice from the estimate.', true); return; }
   if(!confirm('Create an invoice from this job’s estimate?')) return;

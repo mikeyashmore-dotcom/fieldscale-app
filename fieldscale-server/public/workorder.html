@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Work Order</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .wrap{max-width:920px}
+  .pagebar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .pagebar input.title{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;border:none;border-bottom:1px solid var(--paper-line);background:transparent;width:300px;padding:4px 2px}
+  .pagebar input.title:focus{border-bottom-color:var(--cyan-dim)}
+  .pagebar .spacer{flex:1}
+  .pagebar select{width:auto;padding:6px 8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:18px}
+  .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
+  .field{margin-bottom:8px}
+  .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  textarea{min-height:70px;resize:vertical}
+  .tasks{list-style:none;margin:0;padding:0}
+  .task-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .task-row input[type=checkbox]{width:16px;height:16px;flex:none;margin:0}
+  .task-row input[type=text]{flex:1;width:auto}
+  .task-row.done input[type=text]{text-decoration:line-through;color:var(--steel)}
+  .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:15px;padding:2px 6px}
+  .rowdel:hover{color:var(--danger)}
+  @media (max-width:760px){ .grid2{grid-template-columns:1fr} .row2{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
+    <a href="/workorders.html" class="active">Work Orders</a>
+    <a href="/invoices.html">Invoices</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/company.html">Company</a>
+    <a href="/admin.html" id="owner-nav">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="loading">Loading…</div>
+  <div id="content" style="display:none">
+    <div class="pagebar">
+      <a href="/workorders.html" class="btn ghost">← Work Orders</a>
+      <input class="title" id="wo-title" placeholder="Work order title" />
+      <select id="status">
+        <option value="open">Open</option>
+        <option value="in progress">In progress</option>
+        <option value="on hold">On hold</option>
+        <option value="complete">Complete</option>
+      </select>
+      <div class="spacer"></div>
+      <button class="btn primary" id="save-btn">Save</button>
+    </div>
+
+    <div class="grid2">
+      <div class="block" style="margin-bottom:0">
+        <h3>Assignment</h3>
+        <div class="field"><label>Assigned to (employee / sub)</label><input id="assignee" placeholder="Name or crew" /></div>
+        <div class="field"><label>Job</label><input id="job-name" placeholder="Related job (optional)" /></div>
+        <div class="field"><label>Client</label><input id="client" /></div>
+      </div>
+      <div class="block" style="margin-bottom:0">
+        <h3>Schedule</h3>
+        <div class="row2">
+          <div class="field"><label>Scheduled date</label><input id="sched-date" type="date" /></div>
+          <div class="field"><label>Estimated hours</label><input id="est-hours" class="num" inputmode="decimal" placeholder="0" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Scope of work / instructions</h3>
+      <textarea id="instructions" placeholder="What needs to be done, how, and any access or safety notes…"></textarea>
+    </div>
+
+    <div class="block">
+      <h3>Task checklist</h3>
+      <ul class="tasks" id="tasks"></ul>
+      <button class="btn ghost" id="add-task" style="margin-top:6px">＋ Add task</button>
+    </div>
+
+    <div class="grid2">
+      <div class="block" style="margin-bottom:0"><h3>Materials needed</h3><textarea id="materials" placeholder="List materials to bring / order"></textarea></div>
+      <div class="block" style="margin-bottom:0"><h3>Equipment needed</h3><textarea id="equipment" placeholder="Tools / equipment"></textarea></div>
+    </div>
+
+    <div class="block" style="margin-top:18px">
+      <h3>Notes</h3>
+      <textarea id="notes" placeholder="Worker notes, completion notes…"></textarea>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+const woId = new URLSearchParams(location.search).get('id');
+if(!woId){ location.href='/workorders.html'; }
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+
+let doc = { tasks:[] };
+let woTitle='Untitled Work Order', statusVal='open';
+
+function renderTasks(){
+  const ul=document.getElementById('tasks');
+  if(!(doc.tasks||[]).length){ ul.innerHTML=`<li style="color:var(--steel);font-size:13px;padding:4px 0">No tasks yet. Add the steps this work order covers.</li>`; return; }
+  ul.innerHTML=doc.tasks.map((t,i)=>`
+    <li class="task-row ${t.done?'done':''}">
+      <input type="checkbox" data-i="${i}" data-f="done" ${t.done?'checked':''} />
+      <input type="text" data-i="${i}" data-f="text" value="${escapeHtml(t.text)}" placeholder="Task" />
+      <button class="rowdel" data-del="${i}" title="Remove">✕</button>
+    </li>`).join('');
+}
+document.getElementById('tasks').addEventListener('input', e=>{
+  const el=e.target, i=el.getAttribute('data-i'), f=el.getAttribute('data-f');
+  if(i===null||i===undefined) return;
+  if(f==='text') doc.tasks[i].text=el.value;
+});
+document.getElementById('tasks').addEventListener('change', e=>{
+  const el=e.target; if(el.getAttribute('data-f')==='done'){ const i=el.getAttribute('data-i'); doc.tasks[i].done=el.checked; renderTasks(); }
+});
+document.getElementById('tasks').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-del');
+  if(d!==null && d!==undefined){ doc.tasks.splice(Number(d),1); renderTasks(); }
+});
+document.getElementById('add-task').addEventListener('click', ()=>{
+  doc.tasks=doc.tasks||[];
+  doc.tasks.push({ id:'wt_'+Math.random().toString(16).slice(2,8), text:'', done:false });
+  renderTasks();
+});
+
+function val(id){ return document.getElementById(id).value; }
+function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
+function syncDocFromForm(){
+  woTitle=val('wo-title')||'Untitled Work Order';
+  doc.instructions=val('instructions'); doc.materials=val('materials'); doc.equipment=val('equipment');
+  doc.notes=val('notes'); doc.estHours=val('est-hours'); doc.client=val('client');
+  doc.tasks=doc.tasks||[];
+}
+async function save(){
+  syncDocFromForm();
+  await apiFetch('/api/workorders/'+woId, { method:'PUT', body: JSON.stringify({
+    title:woTitle, assignee:val('assignee'), jobName:val('job-name'),
+    status:val('status'), scheduledDate:val('sched-date'), doc }) });
+}
+document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Work order saved.'); }catch(err){ toast(err.message,true); } });
+
+function fillForm(){
+  set('wo-title',woTitle);
+  document.getElementById('status').value=statusVal;
+  set('assignee',assigneeVal); set('job-name',jobNameVal); set('sched-date',schedVal);
+  set('client',doc.client); set('est-hours',doc.estHours);
+  set('instructions',doc.instructions); set('materials',doc.materials); set('equipment',doc.equipment); set('notes',doc.notes);
+  renderTasks();
+}
+let assigneeVal='', jobNameVal='', schedVal='';
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{
+    const w = await apiFetch('/api/workorders/'+woId);
+    woTitle=w.title||'Untitled Work Order'; statusVal=w.status||'open';
+    assigneeVal=w.assignee||''; jobNameVal=w.jobName||''; schedVal=w.scheduledDate||'';
+    doc = Object.assign({ tasks:[] }, w.doc||{});
+    doc.tasks = doc.tasks||[];
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+    fillForm();
+  }catch(err){ document.getElementById('loading').textContent='Could not load work order: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

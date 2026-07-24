@@ -19,6 +19,20 @@
   .rowlink:hover td{background:#FbF9F3}
   .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
   .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  .tpl-wrap{position:relative}
+  .tpl-popover{display:none;position:absolute;top:38px;left:0;width:280px;max-height:60vh;overflow-y:auto;
+    background:#fff;border:1px solid var(--cyan-dim);border-radius:4px;box-shadow:0 8px 28px rgba(0,0,0,0.28);
+    z-index:80;padding:12px;color:var(--charcoal)}
+  .tpl-popover.open{display:block}
+  .tpl-popover h4{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--ink-navy);margin:0 0 8px;font-weight:600}
+  .tpl-list{display:flex;flex-direction:column;gap:2px}
+  .tpl-item{display:flex;align-items:center;gap:8px;padding:7px 6px;border-radius:3px;cursor:pointer}
+  .tpl-item:hover{background:var(--paper)}
+  .tpl-item .tnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .tpl-item .tdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:13px;padding:2px 6px}
+  .tpl-item .tdel:hover{color:var(--danger)}
+  .tpl-empty{color:var(--steel);font-size:12.5px;padding:6px 2px}
+  .tpl-note{font-size:11px;color:var(--steel);line-height:1.4;margin:10px 0 0;border-top:1px solid var(--paper-line);padding-top:10px}
 </style>
 </head>
 <body>
@@ -45,6 +59,14 @@
 
   <div class="toolbar">
     <button class="btn primary" id="new-btn">＋ New Estimate</button>
+    <div class="tpl-wrap">
+      <button class="btn" id="tpl-btn">＋ From Template ▾</button>
+      <div class="tpl-popover" id="tpl-popover">
+        <h4>New estimate from a template</h4>
+        <div id="tpl-list" class="tpl-list"><div class="tpl-empty">Loading…</div></div>
+        <p class="tpl-note">Save any estimate as a template with <strong>Save as Template</strong> on the estimate screen.</p>
+      </div>
+    </div>
   </div>
 
   <div id="loading" class="loading">Loading…</div>
@@ -85,6 +107,46 @@ document.getElementById('new-btn').addEventListener('click', async () => {
     const r = await apiFetch('/api/estimates', { method:'POST', body: JSON.stringify({ name:'Untitled Estimate' }) });
     location.href = '/estimate.html?id=' + encodeURIComponent(r.id);
   }catch(err){ toast(err.message, true); }
+});
+
+// ---- Templates popover ----
+const tplBtn = document.getElementById('tpl-btn');
+const tplPopover = document.getElementById('tpl-popover');
+function renderTemplates(list){
+  const el = document.getElementById('tpl-list');
+  if(!list.length){ el.innerHTML = '<div class="tpl-empty">No templates yet.</div>'; return; }
+  el.innerHTML = list.map(t=>`
+    <div class="tpl-item" data-use="${t.id}">
+      <span class="tnm">${escapeHtml(t.name)}</span>
+      <button class="tdel" data-del="${t.id}" title="Delete template">✕</button>
+    </div>`).join('');
+}
+async function loadTemplates(){
+  try{ const list = await apiFetch('/api/templates'); renderTemplates(list); }
+  catch(err){ document.getElementById('tpl-list').innerHTML = '<div class="tpl-empty">Could not load templates.</div>'; }
+}
+tplBtn.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  const open = tplPopover.classList.toggle('open');
+  if(open) loadTemplates();
+});
+document.getElementById('tpl-list').addEventListener('click', async (e)=>{
+  const del = e.target.getAttribute && e.target.getAttribute('data-del');
+  if(del){ e.stopPropagation();
+    if(!confirm('Delete this template? Estimates already created from it are not affected.')) return;
+    try{ await apiFetch('/api/templates/'+del, { method:'DELETE' }); loadTemplates(); toast('Template deleted.'); }
+    catch(err){ toast(err.message, true); }
+    return;
+  }
+  const row = e.target.closest && e.target.closest('[data-use]');
+  if(row){
+    try{ const r = await apiFetch('/api/estimates/from-template', { method:'POST', body: JSON.stringify({ templateId: row.getAttribute('data-use') }) });
+      location.href = '/estimate.html?id=' + encodeURIComponent(r.id);
+    }catch(err){ toast(err.message, true); }
+  }
+});
+document.addEventListener('click', (e)=>{
+  if(tplPopover.classList.contains('open') && !tplPopover.contains(e.target) && e.target!==tplBtn){ tplPopover.classList.remove('open'); }
 });
 
 function render(list){

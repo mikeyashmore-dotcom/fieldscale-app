@@ -73,6 +73,7 @@
       <input class="title" id="est-name" placeholder="Estimate name" />
       <div class="spacer"></div>
       <button class="btn ghost" id="save-btn">Save</button>
+      <button class="btn ghost" id="save-tpl-btn" title="Save these line items, markup, tax, notes & terms as a reusable template">Save as Template</button>
       <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">→ Job</button>
       <button class="btn ghost" id="to-invoice-btn">→ Invoice</button>
       <button class="btn ghost" id="download-pdf-btn" title="Download a PDF file">⬇ Download PDF</button>
@@ -272,6 +273,15 @@ async function save(){
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{
   try{ await save(); toast('Estimate saved.'); }catch(err){ toast(err.message,true); }
+});
+document.getElementById('save-tpl-btn').addEventListener('click', async ()=>{
+  const name = prompt('Name this template:', estName || 'Untitled template');
+  if(name===null) return;
+  try{
+    await save();  // persist current edits first
+    await apiFetch('/api/templates', { method:'POST', body: JSON.stringify({ name: name.trim() || estName, doc }) });
+    toast('Saved as template.');
+  }catch(err){ toast(err.message, true); }
 });
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{
   try{ await save(); openProposalPDF(); }catch(err){ toast(err.message,true); }

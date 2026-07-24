@@ -39,6 +39,17 @@
   .totals input.pct{width:64px;text-align:right;font-family:'IBM Plex Mono',monospace;padding:4px 6px}
   .disc-type{margin-left:4px;border:1px solid var(--steel-light);background:#fff;border-radius:var(--radius);width:24px;height:24px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--charcoal);vertical-align:middle}
   .disc-type:hover{border-color:var(--cyan-dim)}
+  .ver-wrap{position:relative;display:inline-block}
+  .ver-popover{display:none;position:absolute;top:38px;right:0;width:300px;max-height:60vh;overflow-y:auto;background:#fff;border:1px solid var(--cyan-dim);border-radius:4px;box-shadow:0 8px 28px rgba(0,0,0,.28);z-index:80;padding:12px}
+  .ver-popover.open{display:block}
+  .ver-list{margin-top:10px;display:flex;flex-direction:column;gap:2px}
+  .ver-item{display:flex;align-items:center;gap:8px;padding:7px 6px;border-radius:3px;border-bottom:1px solid var(--paper-line)}
+  .ver-item:last-child{border-bottom:none}
+  .ver-item .vinfo{flex:1;min-width:0}
+  .ver-item .vlabel{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ver-item .vmeta{font-size:11px;color:var(--steel);font-family:'IBM Plex Mono',monospace}
+  .ver-item .btn.tiny{font-size:11px;padding:4px 10px}
+  .ver-empty{color:var(--steel);font-size:12.5px;padding:6px 2px}
   textarea{min-height:80px;resize:vertical}
   .note-blocks .block{margin-bottom:14px}
   @media (max-width:760px){
@@ -79,6 +90,13 @@
       <input class="title" id="est-name" placeholder="Estimate name" />
       <div class="spacer"></div>
       <button class="btn ghost" id="save-btn">Save</button>
+      <div class="ver-wrap">
+        <button class="btn ghost" id="ver-btn" title="Save and restore versions of this estimate">Versions ▾</button>
+        <div class="ver-popover" id="ver-popover">
+          <button class="btn primary" id="ver-save" style="width:100%">＋ Save current as a version</button>
+          <div id="ver-list" class="ver-list"><div class="ver-empty">No saved versions yet.</div></div>
+        </div>
+      </div>
       <button class="btn ghost" id="save-tpl-btn" title="Save these line items, markup, tax, notes & terms as a reusable template">Save as Template</button>
       <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">→ Job</button>
       <button class="btn ghost" id="to-invoice-btn">→ Invoice</button>
@@ -305,6 +323,37 @@ document.getElementById('save-tpl-btn').addEventListener('click', async ()=>{
     toast('Saved as template.');
   }catch(err){ toast(err.message, true); }
 });
+// ---- Versions (revision history) ----
+const verBtn=document.getElementById('ver-btn'), verPop=document.getElementById('ver-popover');
+function fmtDT(ms){ try{ return new Date(ms).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch(e){ return ''; } }
+function renderVersions(list){
+  const el=document.getElementById('ver-list');
+  if(!list.length){ el.innerHTML='<div class="ver-empty">No saved versions yet. Save one before big changes so you can roll back.</div>'; return; }
+  el.innerHTML=list.map(v=>`
+    <div class="ver-item">
+      <div class="vinfo"><div class="vlabel">${escapeHtml(v.label)}</div><div class="vmeta">${fmtDT(v.createdAt)} · ${money(v.total||0)}</div></div>
+      <button class="btn ghost tiny" data-restore="${v.id}">Restore</button>
+    </div>`).join('');
+}
+async function loadVersions(){
+  try{ renderVersions(await apiFetch('/api/estimates/'+estId+'/revisions')); }
+  catch(err){ document.getElementById('ver-list').innerHTML='<div class="ver-empty">Could not load versions.</div>'; }
+}
+verBtn.addEventListener('click',(e)=>{ e.stopPropagation(); const open=verPop.classList.toggle('open'); if(open) loadVersions(); });
+document.getElementById('ver-save').addEventListener('click', async ()=>{
+  const label=prompt('Name this version:', 'Version — '+new Date().toLocaleDateString());
+  if(label===null) return;
+  try{ await save(); await apiFetch('/api/estimates/'+estId+'/revisions',{method:'POST',body:JSON.stringify({label:label.trim()})}); toast('Version saved.'); loadVersions(); }
+  catch(err){ toast(err.message,true); }
+});
+document.getElementById('ver-list').addEventListener('click', async (e)=>{
+  const rid=e.target.getAttribute && e.target.getAttribute('data-restore'); if(!rid) return;
+  if(!confirm('Restore this version? Your current estimate will be replaced (save a version first if you want to keep it).')) return;
+  try{ await apiFetch('/api/estimates/'+estId+'/restore',{method:'POST',body:JSON.stringify({revisionId:rid})}); toast('Version restored.'); setTimeout(()=>location.reload(),400); }
+  catch(err){ toast(err.message,true); }
+});
+document.addEventListener('click',(e)=>{ if(verPop.classList.contains('open') && !verPop.contains(e.target) && e.target!==verBtn) verPop.classList.remove('open'); });
+
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{
   try{ await save(); openProposalPDF(); }catch(err){ toast(err.message,true); }
 });

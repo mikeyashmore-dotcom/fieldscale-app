@@ -179,6 +179,20 @@ function writeEstimateDoc(id, doc){
   if (!fs.existsSync(ESTIMATES_DIR)) fs.mkdirSync(ESTIMATES_DIR, { recursive: true });
   writeJsonAtomic(estimatePath(id), doc || {});
 }
+// Estimate versions (revision history) — snapshots of the estimate doc on disk.
+const EST_REV_DIR = path.join(DATA_DIR, 'estimate-revisions');
+function estRevDir(estId){ return path.join(EST_REV_DIR, estId); }
+function estRevPath(estId, rid){ return path.join(estRevDir(estId), rid + '.json'); }
+function readEstRev(estId, rid){
+  const f = estRevPath(estId, rid);
+  if (!fs.existsSync(f)) return null;
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return null; }
+}
+function writeEstRev(estId, rid, snapshot){
+  const d = estRevDir(estId);
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  writeJsonAtomic(estRevPath(estId, rid), snapshot || {});
+}
 
 // ---------- Reusable estimate templates (the estimate body, minus client-specific info) ----------
 const TEMPLATES_DIR = path.join(DATA_DIR, 'templates');
@@ -1189,6 +1203,44 @@ const server = http.createServer(async (req, res) => {
         }
       }
       // ---- Estimating: one estimate (get / update / delete; must belong to this user) ----
+      // ---- Estimate versions (revision history) ----
+      const estRevListMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)\/revisions$/);
+      if (estRevListMatch) {
+        const est = db.estimates.find(e => e.id === estRevListMatch[1] && e.companyId === me.companyId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, (est.revisions || []).slice().sort((a, b) => b.createdAt - a.createdAt));
+        }
+        if (req.method === 'POST') {
+          const { label } = await readBody(req);
+          const rid = 'rev_' + crypto.randomBytes(6).toString('hex');
+          writeEstRev(est.id, rid, { doc: readEstimateDoc(est.id), name: est.name, client: est.client, total: est.total });
+          est.revisions = est.revisions || [];
+          est.revisions.push({ id: rid, label: String(label || '').slice(0, 120) || ('Version ' + (est.revisions.length + 1)),
+            total: est.total || 0, createdAt: Date.now() });
+          if (est.revisions.length > 50) { // keep the last 50; drop the oldest files
+            est.revisions.slice(0, est.revisions.length - 50).forEach(r => { try { fs.unlinkSync(estRevPath(est.id, r.id)); } catch (e) {} });
+            est.revisions = est.revisions.slice(-50);
+          }
+          saveDB(db);
+          return sendJSON(res, 200, { id: rid });
+        }
+      }
+      const estRestoreMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)\/restore$/);
+      if (estRestoreMatch && req.method === 'POST') {
+        const est = db.estimates.find(e => e.id === estRestoreMatch[1] && e.companyId === me.companyId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        const { revisionId } = await readBody(req);
+        const snap = readEstRev(est.id, revisionId);
+        if (!snap) return sendJSON(res, 404, { error: 'Version not found.' });
+        writeEstimateDoc(est.id, snap.doc || {});
+        if (typeof snap.total === 'number') est.total = snap.total;
+        if (snap.client !== undefined) est.client = snap.client;
+        est.updatedAt = Date.now();
+        saveDB(db);
+        return sendJSON(res, 200, { ok: true });
+      }
+
       const estMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)$/);
       if (estMatch) {
         const est = db.estimates.find(e => e.id === estMatch[1] && e.companyId === me.companyId);
@@ -1211,6 +1263,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'DELETE') {
           db.estimates = db.estimates.filter(e => e.id !== est.id);
           try { fs.unlinkSync(estimatePath(est.id)); } catch (e) {}
+          try { fs.rmSync(estRevDir(est.id), { recursive: true, force: true }); } catch (e) {}
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }

@@ -486,6 +486,26 @@
   ::-webkit-scrollbar-track{background:transparent;}
 
   /* Scale popover */
+  .legend-btn-wrap{position:relative;display:inline-flex;gap:2px;align-items:center;}
+  .legend-popover{
+    display:none;position:absolute;top:38px;right:0;width:250px;max-height:60vh;overflow-y:auto;
+    background:#fff;border:1px solid var(--cyan-dim);border-radius:4px;
+    box-shadow:0 8px 28px rgba(0,0,0,0.35);z-index:80;color:var(--charcoal);padding:12px;
+    font-family:'IBM Plex Sans',sans-serif;
+  }
+  .legend-popover.open{display:block;}
+  .legend-popover h4{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:0.5px;
+    text-transform:uppercase;color:var(--ink-navy);margin:0 0 6px;font-weight:600;}
+  .legend-popover .lp-note{font-size:10.5px;color:var(--steel);line-height:1.4;margin-bottom:8px;}
+  .lp-row{display:flex;align-items:center;gap:8px;padding:5px 4px;border-radius:3px;cursor:pointer;font-size:12.5px;}
+  .lp-row:hover{background:var(--paper);}
+  .lp-row input{margin:0;flex:none;}
+  .lp-row .sw{width:12px;height:12px;border:1px solid rgba(0,0,0,0.25);border-radius:2px;flex:none;}
+  .lp-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lp-row .qt{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--steel);flex:none;}
+  .lp-actions{display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--paper-line);padding-top:10px;}
+  .btn.tiny{font-size:11px;padding:4px 10px;}
+  .legend-popover .lp-empty{font-size:12px;color:var(--steel);padding:6px 2px;}
   .scale-btn-wrap{position:relative;}
   .scale-popover{
     display:none;
@@ -911,7 +931,19 @@
       <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#fff;min-width:42px;text-align:center;" id="zoom-label">100%</span>
       <button class="btn icon" id="zoom-in">+</button>
     </div>
-    <button class="btn" id="legend-toggle-btn" title="Show/hide the takeoff legend on the sheet" style="display:none;">▤ Legend</button>
+    <div class="legend-btn-wrap" id="legend-btn-wrap" style="display:none;">
+      <button class="btn" id="legend-toggle-btn" title="Show/hide the takeoff legend on the sheet">▤ Legend</button>
+      <button class="btn icon" id="legend-menu-btn" title="Choose which items show on the legend">▾</button>
+      <div class="legend-popover" id="legend-popover">
+        <h4>Show on legend</h4>
+        <div class="lp-note" id="lp-note">Pick which takeoff items appear in the legend on this sheet.</div>
+        <div id="legend-items-list"></div>
+        <div class="lp-actions">
+          <button class="btn tiny" id="legend-all-btn">All</button>
+          <button class="btn tiny" id="legend-none-btn">None</button>
+        </div>
+      </div>
+    </div>
     <div class="scale-btn-wrap">
       <button class="btn" id="scale-toggle-btn" disabled>
         <span class="dot" id="calib-dot" style="display:inline-block;margin-right:6px;"></span><span id="calib-label">Not calibrated</span> ▾
@@ -1235,6 +1267,7 @@ const state = {
   showHiddenPages:false, // reveals them in the list so they can be brought back
   showLegend:true,    // the on-drawing legend of what's been taken off on this sheet
   legendPos:null,     // {x,y} in native pixels — dragged by the user; null = default corner
+  legendHidden:{},    // { rowKey: true } — takeoff types the user excluded from the legend
   projectMeta:{ address:'', client:'', planDate:'', bidDue:'' },
   shiftHeld:false,
   selection:[],   // [{kind:'wall'|'area'|'count', id}] — what's currently picked
@@ -1310,6 +1343,7 @@ els.fileInput.addEventListener('change', async (e)=>{
   state.hiddenPages = [];    // hidden sheets referred to the old set
   state.showHiddenPages = false;
   state.legendPos = null;
+  state.legendHidden = {};
   openPagesPanel();
   await renderPage();
   indexDocument(); // runs in the background; doesn't block viewing/measuring
@@ -1937,6 +1971,7 @@ async function serializeProjectState(){
     hiddenPages: state.hiddenPages,
     showLegend: state.showLegend,
     legendPos: state.legendPos,
+    legendHidden: state.legendHidden,
     numPages: state.numPages
   };
 }
@@ -1955,6 +1990,7 @@ async function restoreProjectState(data){
   state.hiddenPages = data.hiddenPages || [];
   state.showLegend = data.showLegend !== false;
   state.legendPos = data.legendPos || null;
+  state.legendHidden = data.legendHidden || {};
 
   // Per-sheet scales. Projects saved before scales were per-sheet have a single
   // `calibration` — that one scale was in force everywhere, so copy it onto every
@@ -2247,7 +2283,7 @@ function npResetToBlank(name){
   state.projectMeta = {address:'', client:'', planDate:'', bidDue:''};
   state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
-  state.hiddenPages=[]; state.legendPos=null;
+  state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; state.searchHighlights=[]; state.searchHighlightPage=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
@@ -2738,10 +2774,13 @@ function applyZoomToDom(){
 document.getElementById('zoom-in').addEventListener('click', ()=>{ state.zoom=Math.min(4,state.zoom*1.2); applyZoomToDom(); });
 document.getElementById('zoom-out').addEventListener('click', ()=>{ state.zoom=Math.max(0.2,state.zoom/1.2); applyZoomToDom(); });
 
-// ---------- Legend toggle ----------
+// ---------- Legend toggle + per-item selection ----------
 const legendBtn = document.getElementById('legend-toggle-btn');
+const legendWrap = document.getElementById('legend-btn-wrap');
+const legendPopover = document.getElementById('legend-popover');
+const legendMenuBtn = document.getElementById('legend-menu-btn');
 function refreshLegendBtn(){
-  legendBtn.style.display = state.pdfDoc ? 'inline-block' : 'none';
+  legendWrap.style.display = state.pdfDoc ? 'inline-flex' : 'none';
   legendBtn.classList.toggle('primary', state.showLegend);
   legendBtn.textContent = state.showLegend ? '▤ Legend' : '▢ Legend';
 }
@@ -2749,6 +2788,44 @@ legendBtn.addEventListener('click', ()=>{
   state.showLegend = !state.showLegend;
   refreshLegendBtn();
   redrawOverlay();
+});
+// Popover: check/uncheck which takeoff items appear in the legend on this sheet.
+function renderLegendMenu(){
+  const list = document.getElementById('legend-items-list');
+  const rows = legendRowsForPage();
+  if(!rows.length){ list.innerHTML = '<div class="lp-empty">Nothing taken off on this sheet yet.</div>'; return; }
+  list.innerHTML = rows.map(r=>`
+    <label class="lp-row" data-key="${encodeURIComponent(r.key)}">
+      <input type="checkbox" ${state.legendHidden[r.key] ? '' : 'checked'} />
+      <span class="sw" style="background:${escapeHtml(r.color)}"></span>
+      <span class="nm">${escapeHtml(r.label)}</span>
+      <span class="qt">${r.qty.toFixed(1)} ${escapeHtml(r.unit)}</span>
+    </label>`).join('');
+}
+function openLegendMenu(){ renderLegendMenu(); legendPopover.classList.add('open'); }
+function closeLegendMenu(){ legendPopover.classList.remove('open'); }
+legendMenuBtn.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  legendPopover.classList.contains('open') ? closeLegendMenu() : openLegendMenu();
+});
+document.getElementById('legend-items-list').addEventListener('change', (e)=>{
+  const row = e.target.closest && e.target.closest('.lp-row'); if(!row) return;
+  const key = decodeURIComponent(row.getAttribute('data-key'));
+  if(e.target.checked) delete state.legendHidden[key]; else state.legendHidden[key] = true;
+  redrawOverlay(); markDirty();
+});
+document.getElementById('legend-all-btn').addEventListener('click', ()=>{
+  legendRowsForPage().forEach(r=> delete state.legendHidden[r.key]);
+  renderLegendMenu(); redrawOverlay(); markDirty();
+});
+document.getElementById('legend-none-btn').addEventListener('click', ()=>{
+  legendRowsForPage().forEach(r=> state.legendHidden[r.key] = true);
+  renderLegendMenu(); redrawOverlay(); markDirty();
+});
+document.addEventListener('click', (e)=>{
+  if(legendPopover.classList.contains('open') && !legendPopover.contains(e.target) && e.target!==legendMenuBtn){
+    closeLegendMenu();
+  }
 });
 
 // ---------- Draw bar ----------
@@ -4769,22 +4846,27 @@ function drawWallPath(points, thicknessIn, color, isPreview){
 // itself is, so the sheet and the schedule always agree. Drag it anywhere with the pan tool.
 let legendRect = null;   // last drawn bounds, in native px — used for hit-testing the drag
 
+// All takeoff groups on the current sheet (every one, including those excluded from the legend).
 function legendRowsForPage(){
   const groups = new Map();
   state.items.filter(it => (it.pageNum||1) === state.pageNum).forEach(it=>{
     const r = resolveItemDisplay(it);
     const key = `${it.category}|${it.typeId}|${r.unit}`;
-    if(!groups.has(key)) groups.set(key, {label:r.label, color:r.color, unit:r.unit, type:r.type, qty:0});
+    if(!groups.has(key)) groups.set(key, {key, label:r.label, color:r.color, unit:r.unit, type:r.type, qty:0});
     groups.get(key).qty += r.qty;
   });
   return [...groups.values()].sort((a,b)=> a.label.localeCompare(b.label) || a.unit.localeCompare(b.unit));
+}
+// Only the groups the user has chosen to show — what actually gets stamped on the sheet.
+function legendVisibleRows(){
+  return legendRowsForPage().filter(r => !state.legendHidden[r.key]);
 }
 
 function drawLegend(){
   legendRect = null;
   if(!state.showLegend || !state.pdfDoc) return;
-  const rows = legendRowsForPage();
-  if(!rows.length) return;   // nothing taken off here yet — don't clutter the sheet
+  const rows = legendVisibleRows();
+  if(!rows.length) return;   // nothing to show here — don't clutter the sheet
 
   const pad = 12, rowH = 22, titleH = 26, swatch = 12;
   const font = "500 13px 'IBM Plex Sans', sans-serif";

@@ -41,6 +41,8 @@
   .totals .tr.balance.clear{color:var(--good)}
   .totals input.pct,.totals input.pay{width:90px;text-align:right;font-family:'IBM Plex Mono',monospace;padding:4px 6px}
   .totals input.pct{width:64px}
+  .disc-type{margin-left:4px;border:1px solid var(--steel-light);background:#fff;border-radius:var(--radius);width:24px;height:24px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--charcoal);vertical-align:middle}
+  .disc-type:hover{border-color:var(--cyan-dim)}
   textarea{min-height:80px;resize:vertical}
   .note-blocks .block{margin-bottom:14px}
   @media (max-width:760px){ .grid2{grid-template-columns:1fr} .bottom{grid-template-columns:1fr} .row3{grid-template-columns:1fr 1fr} .pagebar input.title{width:100%;order:5} }
@@ -132,6 +134,7 @@
       </div>
       <div class="totals">
         <div class="tr"><span>Subtotal</span><span class="v" id="t-sub">$0.00</span></div>
+        <div class="tr"><span>Discount <input class="pct" id="t-disc" inputmode="decimal" value="0" /><button type="button" class="disc-type" id="t-disc-type" title="Switch between percent off and a dollar amount">%</button></span><span class="v" id="t-discv">$0.00</span></div>
         <div class="tr"><span>Tax <input class="pct" id="t-tax" inputmode="decimal" value="0" />%</span><span class="v" id="t-tx">$0.00</span></div>
         <div class="tr total"><span>Total</span><span class="v" id="t-total">$0.00</span></div>
         <div class="tr"><span>Amount paid $<input class="pay" id="t-paid" inputmode="decimal" value="0" /></span><span class="v" id="t-paidv">$0.00</span></div>
@@ -164,7 +167,7 @@ function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleStrin
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
-let doc = { company:{}, client:{}, lines:[], taxPct:0, amountPaid:0 };
+let doc = { company:{}, client:{}, lines:[], taxPct:0, amountPaid:0, discount:0, discountType:'pct' };
 let pricebook = [];
 let invName = 'Untitled Invoice';
 
@@ -172,15 +175,21 @@ function pbUnitCost(it){ return Math.round(((Number(it.material)||0)+(Number(it.
 
 function computeTotals(){
   const subtotal = doc.lines.reduce((s,l)=> s + (Number(l.qty)||0)*(Number(l.unitCost)||0), 0);
-  const tax = subtotal*(Number(doc.taxPct)||0)/100;
-  const total = subtotal + tax;
+  // Discount is entered as a % of the subtotal or a flat $ amount, and comes off before tax.
+  const discInput = Number(doc.discount)||0;
+  let discount = doc.discountType==='amt' ? discInput : subtotal*discInput/100;
+  discount = Math.min(Math.max(discount,0), subtotal); // never negative, never more than the subtotal
+  const taxable = subtotal - discount;
+  const tax = taxable*(Number(doc.taxPct)||0)/100;
+  const total = taxable + tax;
   const paid = Number(doc.amountPaid)||0;
-  return { subtotal, tax, total, paid, balance: total - paid };
+  return { subtotal, discount, tax, total, paid, balance: total - paid };
 }
 function statusOf(t){ if(t.paid<=0) return 'unpaid'; if(t.paid+0.005>=t.total) return 'paid'; return 'partial'; }
 function renderTotals(){
   const t=computeTotals();
   document.getElementById('t-sub').textContent=money(t.subtotal);
+  document.getElementById('t-discv').textContent = t.discount>0 ? '-'+money(t.discount) : money(0);
   document.getElementById('t-tx').textContent=money(t.tax);
   document.getElementById('t-total').textContent=money(t.total);
   document.getElementById('t-paidv').textContent=money(t.paid);
@@ -235,6 +244,12 @@ document.getElementById('add-pb').addEventListener('click', ()=>{
   doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:it.name, code:it.category||'', unit:it.unit||'', qty:1, unitCost:pbUnitCost(it) });
   sel.value=''; renderLines();
 });
+document.getElementById('t-disc').addEventListener('input', ()=>{ doc.discount=parseFloat(document.getElementById('t-disc').value)||0; renderTotals(); });
+document.getElementById('t-disc-type').addEventListener('click', ()=>{
+  doc.discountType = doc.discountType==='amt' ? 'pct' : 'amt';
+  document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
+  renderTotals();
+});
 document.getElementById('t-tax').addEventListener('input', ()=>{ doc.taxPct=parseFloat(document.getElementById('t-tax').value)||0; renderTotals(); });
 document.getElementById('t-paid').addEventListener('input', ()=>{ doc.amountPaid=parseFloat(document.getElementById('t-paid').value)||0; renderTotals(); });
 
@@ -248,6 +263,7 @@ function syncDocFromForm(){
   doc.project=val('project'); doc.invoiceNo=val('inv-no'); doc.date=val('inv-date'); doc.dueDate=val('inv-due');
   doc.notes=val('notes'); doc.terms=val('terms');
   doc.taxPct=parseFloat(val('t-tax'))||0; doc.amountPaid=parseFloat(val('t-paid'))||0;
+  doc.discount=parseFloat(val('t-disc'))||0; doc.discountType=(doc.discountType==='amt'?'amt':'pct');
 }
 async function save(){
   syncDocFromForm();
@@ -319,6 +335,7 @@ function openInvoicePDF(){
   </table>
   <div class="totals">
     <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
+    ${t.discount>0?`<div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
     ${doc.taxPct?`<div class="tr"><span>Tax (${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
     ${t.paid>0?`<div class="tr"><span>Amount paid</span><span>-${money(t.paid)}</span></div>`:''}
@@ -342,6 +359,8 @@ function fillForm(){
   set('notes',doc.notes); set('terms',doc.terms);
   document.getElementById('t-tax').value=doc.taxPct||0;
   document.getElementById('t-paid').value=doc.amountPaid||0;
+  document.getElementById('t-disc').value=doc.discount||0;
+  document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
 }
 async function init(){
   let me;
@@ -349,7 +368,7 @@ async function init(){
   try{
     const [inv, pb, comp] = await Promise.all([ apiFetch('/api/invoices/'+invId), apiFetch('/api/pricebook'), apiFetch('/api/company') ]);
     invName = inv.name || 'Untitled Invoice';
-    doc = Object.assign({ company:{}, client:{}, lines:[], taxPct:0, amountPaid:0 }, inv.doc||{});
+    doc = Object.assign({ company:{}, client:{}, lines:[], taxPct:0, amountPaid:0, discount:0, discountType:'pct' }, inv.doc||{});
     doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];
     if(typeof doc.amountPaid!=='number') doc.amountPaid = inv.amountPaid||0;
     const prof = comp.profile || {};

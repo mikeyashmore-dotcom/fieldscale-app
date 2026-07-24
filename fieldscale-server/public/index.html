@@ -1489,15 +1489,18 @@ function logout(){
   showAuthGate();
 }
 
+function setAuthMode(mode){
+  authMode = mode;
+  document.getElementById('auth-title').textContent = mode==='login' ? 'Log In' : 'Create Account';
+  document.getElementById('auth-submit-btn').textContent = mode==='login' ? 'Log In' : 'Create Account';
+  document.getElementById('auth-toggle-text').textContent = mode==='login' ? "Don't have an account?" : 'Already have an account?';
+  document.getElementById('auth-toggle-link').textContent = mode==='login' ? 'Create one' : 'Log in';
+  document.getElementById('auth-company-row').style.display = mode==='register' ? 'block' : 'none';
+  document.getElementById('auth-error').style.display='none';
+}
 document.getElementById('auth-toggle-link').addEventListener('click', (e)=>{
   e.preventDefault();
-  authMode = authMode==='login' ? 'register' : 'login';
-  document.getElementById('auth-title').textContent = authMode==='login' ? 'Log In' : 'Create Account';
-  document.getElementById('auth-submit-btn').textContent = authMode==='login' ? 'Log In' : 'Create Account';
-  document.getElementById('auth-toggle-text').textContent = authMode==='login' ? "Don't have an account?" : 'Already have an account?';
-  document.getElementById('auth-toggle-link').textContent = authMode==='login' ? 'Create one' : 'Log in';
-  document.getElementById('auth-company-row').style.display = authMode==='register' ? 'block' : 'none';
-  document.getElementById('auth-error').style.display='none';
+  setAuthMode(authMode==='login' ? 'register' : 'login');
 });
 async function submitAuth(){
   const username = document.getElementById('auth-username').value.trim();
@@ -1742,7 +1745,18 @@ document.addEventListener('click', (e)=>{
 // Check for an existing session on load
 (async function checkSession(){
   const token = getToken();
-  if(!token){ showAuthGate(); return; }
+  if(!token){
+    // Logged-out visitors see the public marketing page; only show the login form when they
+    // explicitly came to sign in or create an account (?login / ?signup).
+    const params = new URLSearchParams(location.search);
+    if(params.has('login') || params.has('signup')){
+      if(params.has('signup')) setAuthMode('register');
+      showAuthGate();
+    } else {
+      location.replace('/welcome.html');
+    }
+    return;
+  }
   try{
     const data = await apiFetch('/api/me');
     if(data.username) onLoggedIn(data.username, data.role);

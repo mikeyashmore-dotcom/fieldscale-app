@@ -202,6 +202,7 @@ function templateBodyFrom(doc){
       unit: String(l.unit || '').slice(0, 20), qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0
     })).slice(0, 2000),
     markupPct: Number(doc.markupPct) || 0, taxPct: Number(doc.taxPct) || 0,
+    discount: Number(doc.discount) || 0, discountType: doc.discountType === 'amt' ? 'amt' : 'pct',
     notes: String(doc.notes || '').slice(0, 20000), terms: String(doc.terms || '').slice(0, 20000)
   };
 }
@@ -1250,13 +1251,19 @@ const server = http.createServer(async (req, res) => {
           id: 'l_' + crypto.randomBytes(6).toString('hex'), name: l.name, code: l.code, unit: l.unit,
           qty: Number(l.qty) || 0, unitCost: (Number(l.unitCost) || 0) * mk
         }));
+        // Carry any discount from the estimate so the invoice bills exactly what was quoted.
+        const discountType = edoc.discountType === 'amt' ? 'amt' : 'pct';
+        const discountInput = Number(edoc.discount) || 0;
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
           invoiceNo: '', date: '', dueDate: '', lines, taxPct: Number(edoc.taxPct) || 0,
+          discount: discountInput, discountType,
           notes: edoc.notes || '', terms: edoc.terms || '', amountPaid: 0, fromEstimateId: est.id
         };
         const subtotal = lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
-        const total = Math.round(subtotal * (1 + doc.taxPct / 100) * 100) / 100;
+        let discount = discountType === 'amt' ? discountInput : subtotal * discountInput / 100;
+        discount = Math.min(Math.max(discount, 0), subtotal);
+        const total = Math.round((subtotal - discount) * (1 + doc.taxPct / 100) * 100) / 100;
         const autoNo = assignInvoiceNo(companyById(me.companyId));
         if (autoNo) doc.invoiceNo = autoNo;
         const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,

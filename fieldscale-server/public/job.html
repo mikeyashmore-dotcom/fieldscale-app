@@ -118,6 +118,16 @@
       <p class="cost-hint">Contract and budget carry over from the estimate. Log real costs below and “actual cost to date” totals them automatically. Approved change orders adjust the contract and budget.</p>
     </div>
 
+    <div class="block costing" style="border-left:3px solid var(--cyan-dim)">
+      <h3>Budget vs actual &amp; cost-to-complete</h3>
+      <div class="field" style="max-width:220px;margin-bottom:12px">
+        <label style="font-size:12px;color:var(--steel)">% complete <span style="color:var(--steel-light)">(your estimate of how far along)</span></label>
+        <input id="pct-complete" class="num" inputmode="decimal" placeholder="0" style="width:100px" />
+      </div>
+      <div class="cost-out" id="bva-out"></div>
+      <p class="cost-hint">Cost-to-complete projects the final cost from what you’ve spent and how far along you are. Enter % complete to catch overruns early.</p>
+    </div>
+
     <div class="block" style="padding:0;overflow:hidden">
       <div style="padding:14px 14px 0;display:flex;align-items:baseline;gap:10px">
         <h3 style="margin:0">Actual costs</h3>
@@ -261,8 +271,32 @@ function renderCosting(){
   ];
   document.getElementById('cost-out').innerHTML=stats.map(s=>`
     <div class="stat ${s[2]}"><div class="lab">${s[0]}</div><div class="num">${s[1]}</div></div>`).join('');
+  renderBva();
+}
+// Budget vs actual + cost-to-complete (projects the final cost from spend + % complete).
+function renderBva(){
+  const co=approvedCO();
+  const contract=num('c-contract')+co.price, budget=num('c-budget')+co.cost, actual=costsTotal();
+  const pct=Math.min(Math.max(num('pct-complete'),0),100);
+  const projectedFinal = pct>0 ? actual/(pct/100) : (actual>budget?actual:budget);
+  const ctc = Math.max(0, projectedFinal-actual);
+  const variance = budget-projectedFinal;      // + under budget, - over
+  const projProfit = contract-projectedFinal;
+  const projMargin = contract>0 ? projProfit/contract*100 : null;
+  const cls=v=> v>0.005?'good':(v<-0.005?'bad':'');
+  const stats=[
+    ['Budget', money(budget), ''],
+    ['Actual to date', money(actual), ''],
+    ['Cost to complete', money(ctc), ''],
+    ['Projected final cost', money(projectedFinal), ''],
+    [variance>=0?'Under budget':'Over budget', money(Math.abs(variance)), cls(variance)],
+    ['Projected profit'+(projMargin!=null?(' ('+projMargin.toFixed(1)+'%)'):''), money(projProfit), cls(projProfit)]
+  ];
+  document.getElementById('bva-out').innerHTML=stats.map(s=>`
+    <div class="stat ${s[2]}"><div class="lab">${s[0]}</div><div class="num">${s[1]}</div></div>`).join('');
 }
 ['c-contract','c-budget'].forEach(id=>document.getElementById(id).addEventListener('input', renderCosting));
+document.getElementById('pct-complete').addEventListener('input', renderBva);
 
 // Per-job dashboard: pulls the money picture (incl. linked invoices) from the server.
 async function refreshDash(){
@@ -447,6 +481,7 @@ function syncDocFromForm(){
   doc.costing={ budget:num('c-budget'), contract:num('c-contract'), actualCost:costsTotal() };
   doc.changeOrders=doc.changeOrders||[];
   doc.dailyLogs=doc.dailyLogs||[];
+  doc.percentComplete=num('pct-complete');
 }
 async function save(){
   syncDocFromForm();
@@ -546,6 +581,7 @@ function fillForm(){
   const c=doc.costing||{};
   set('c-contract', c.contract!=null ? c.contract : '');
   set('c-budget', c.budget!=null ? c.budget : '');
+  set('pct-complete', doc.percentComplete!=null && doc.percentComplete!==0 ? doc.percentComplete : '');
   renderChangeOrders();
   renderCosts();
   renderReceipts();

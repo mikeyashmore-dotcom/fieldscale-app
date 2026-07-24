@@ -180,6 +180,32 @@ function writeEstimateDoc(id, doc){
   writeJsonAtomic(estimatePath(id), doc || {});
 }
 
+// ---------- Reusable estimate templates (the estimate body, minus client-specific info) ----------
+const TEMPLATES_DIR = path.join(DATA_DIR, 'templates');
+function templatePath(id){ return path.join(TEMPLATES_DIR, id + '.json'); }
+function readTemplateDoc(id){
+  const f = templatePath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writeTemplateDoc(id, doc){
+  if (!fs.existsSync(TEMPLATES_DIR)) fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  writeJsonAtomic(templatePath(id), doc || {});
+}
+// Keep only the reusable parts of an estimate doc (never the customer/project).
+function templateBodyFrom(doc){
+  doc = doc || {};
+  return {
+    lines: (Array.isArray(doc.lines) ? doc.lines : []).map(l => ({
+      id: 'l_' + crypto.randomBytes(6).toString('hex'),
+      name: String(l.name || '').slice(0, 200), code: String(l.code || '').slice(0, 60),
+      unit: String(l.unit || '').slice(0, 20), qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0
+    })).slice(0, 2000),
+    markupPct: Number(doc.markupPct) || 0, taxPct: Number(doc.taxPct) || 0,
+    notes: String(doc.notes || '').slice(0, 20000), terms: String(doc.terms || '').slice(0, 20000)
+  };
+}
+
 // ---------- Invoicing (mirrors estimates: db.json metadata + a per-invoice doc on disk) ----------
 const INVOICES_DIR = path.join(DATA_DIR, 'invoices');
 function invoicePath(id){ return path.join(INVOICES_DIR, id + '.json'); }
@@ -252,6 +278,7 @@ function loadDB() {
   parsed.companies = parsed.companies || [];
   parsed.projects = parsed.projects || [];
   parsed.estimates = parsed.estimates || [];
+  parsed.templates = parsed.templates || [];
   parsed.invoices = parsed.invoices || [];
   parsed.jobs = parsed.jobs || [];
   parsed.workOrders = parsed.workOrders || [];
@@ -1093,6 +1120,49 @@ const server = http.createServer(async (req, res) => {
         saveDB(db);
         return sendJSON(res, 200, { id: est.id });
       }
+
+      // ---- Reusable estimate templates ----
+      if (pathname === '/api/templates' && req.method === 'GET') {
+        const list = db.templates.filter(t => t.companyId === me.companyId)
+          .map(t => ({ id: t.id, name: t.name, createdAt: t.createdAt, updatedAt: t.updatedAt }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/templates' && req.method === 'POST') {
+        const { name, doc } = await readBody(req);
+        const tpl = { id: 't_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: String(name || 'Untitled template').slice(0, 200), createdAt: Date.now(), updatedAt: Date.now() };
+        writeTemplateDoc(tpl.id, templateBodyFrom(doc));
+        db.templates.push(tpl);
+        saveDB(db);
+        return sendJSON(res, 200, { id: tpl.id });
+      }
+      // Create a new estimate pre-filled from a template (customer/project left blank).
+      if (pathname === '/api/estimates/from-template' && req.method === 'POST') {
+        const { templateId, name } = await readBody(req);
+        const tpl = db.templates.find(t => t.id === templateId && t.companyId === me.companyId);
+        if (!tpl) return sendJSON(res, 404, { error: 'Template not found.' });
+        const body = templateBodyFrom(readTemplateDoc(tpl.id));
+        const est = { id: 'e_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: String(name || tpl.name).slice(0, 200), client: '', total: 0, status: 'draft',
+          createdAt: Date.now(), updatedAt: Date.now() };
+        writeEstimateDoc(est.id, Object.assign({ company: {}, client: {}, project: '' }, body));
+        db.estimates.push(est);
+        saveDB(db);
+        return sendJSON(res, 200, { id: est.id });
+      }
+      const tplMatch = pathname.match(/^\/api\/templates\/([a-zA-Z0-9_]+)$/);
+      if (tplMatch) {
+        const tpl = db.templates.find(t => t.id === tplMatch[1] && t.companyId === me.companyId);
+        if (!tpl) return sendJSON(res, 404, { error: 'Template not found.' });
+        if (req.method === 'GET') return sendJSON(res, 200, { id: tpl.id, name: tpl.name, doc: readTemplateDoc(tpl.id) });
+        if (req.method === 'DELETE') {
+          db.templates = db.templates.filter(t => t.id !== tpl.id);
+          try { fs.unlinkSync(templatePath(tpl.id)); } catch (e) {}
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
       // ---- Estimating: one estimate (get / update / delete; must belong to this user) ----
       const estMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)$/);
       if (estMatch) {
@@ -1473,6 +1543,9 @@ const server = http.createServer(async (req, res) => {
           fieldscaleBackup: 1, companyName: company ? company.name : '',
           profile: readCompany(me.companyId), pricebook: readPricebook(me.companyId) || [],
           assemblies: readAssemblies(me.companyId),
+          templates: db.templates.filter(t => t.companyId === me.companyId).map(t => ({
+            id: t.id, name: t.name, createdAt: t.createdAt, updatedAt: t.updatedAt, doc: readTemplateDoc(t.id)
+          })),
           projects, estimates, invoices, jobs, workOrders
         });
       }
@@ -1485,6 +1558,16 @@ const server = http.createServer(async (req, res) => {
         if (b.profile && typeof b.profile === 'object') writeCompany(me.companyId, b.profile);
         if (Array.isArray(b.pricebook)) writePricebook(me.companyId, b.pricebook);
         if (Array.isArray(b.assemblies)) writePricebook(me.companyId, undefined, b.assemblies);
+        (Array.isArray(b.templates) ? b.templates : []).forEach(tb => {
+          let tpl = db.templates.find(x => x.id === tb.id && x.companyId === me.companyId);
+          if (!tpl) {
+            tpl = { id: (typeof tb.id === 'string' && tb.id) ? tb.id : ('t_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, name: tb.name || 'Restored template',
+              createdAt: tb.createdAt || Date.now(), updatedAt: Date.now() };
+            db.templates.push(tpl);
+          }
+          if (tb.doc) writeTemplateDoc(tpl.id, tb.doc);
+        });
         let projN = 0, estN = 0;
         (Array.isArray(b.projects) ? b.projects : []).forEach(p => {
           let proj = db.projects.find(x => x.id === p.id && x.companyId === me.companyId);

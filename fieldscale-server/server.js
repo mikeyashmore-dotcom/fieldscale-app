@@ -199,7 +199,8 @@ function templateBodyFrom(doc){
     lines: (Array.isArray(doc.lines) ? doc.lines : []).map(l => ({
       id: 'l_' + crypto.randomBytes(6).toString('hex'),
       name: String(l.name || '').slice(0, 200), code: String(l.code || '').slice(0, 60),
-      unit: String(l.unit || '').slice(0, 20), qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0
+      unit: String(l.unit || '').slice(0, 20), qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0,
+      internalNote: String(l.internalNote || '').slice(0, 500)
     })).slice(0, 2000),
     markupPct: Number(doc.markupPct) || 0, taxPct: Number(doc.taxPct) || 0,
     discount: Number(doc.discount) || 0, discountType: doc.discountType === 'amt' ? 'amt' : 'pct',

@@ -1377,6 +1377,73 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Reports: business summary (AR aging, job profitability, estimate win-rate) ----
+      if (pathname === '/api/reports/summary' && req.method === 'GET') {
+        const DAY = 86400000, now = Date.now();
+        // Accounts receivable — what customers still owe, bucketed by how overdue it is.
+        const ar = { totalInvoiced: 0, totalPaid: 0, outstanding: 0,
+          buckets: { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 }, items: [] };
+        db.invoices.filter(i => i.companyId === me.companyId).forEach(i => {
+          const total = Number(i.total) || 0, paid = Number(i.amountPaid) || 0;
+          ar.totalInvoiced += total; ar.totalPaid += paid;
+          const owed = Math.round((total - paid) * 100) / 100;
+          if (owed <= 0.005) return;
+          ar.outstanding += owed;
+          const doc = readInvoiceDoc(i.id) || {};
+          const due = doc.dueDate ? Date.parse(doc.dueDate) : null;
+          const daysOver = due ? Math.floor((now - due) / DAY) : 0;
+          let bucket = 'current';
+          if (daysOver > 90) bucket = 'd90plus';
+          else if (daysOver > 60) bucket = 'd61_90';
+          else if (daysOver > 30) bucket = 'd31_60';
+          else if (daysOver > 0) bucket = 'd1_30';
+          ar.buckets[bucket] += owed;
+          ar.items.push({ id: i.id, name: i.name, client: i.client || '', owed,
+            dueDate: doc.dueDate || '', daysOver: daysOver > 0 ? daysOver : 0,
+            status: invoiceStatus(total, paid) });
+        });
+        ar.outstanding = Math.round(ar.outstanding * 100) / 100;
+        ar.items.sort((a, b) => b.daysOver - a.daysOver || b.owed - a.owed);
+        // Job profitability — contract vs. cost vs. profit (change orders folded in).
+        const jobs = { contract: 0, cost: 0, profit: 0, items: [] };
+        db.jobs.filter(j => j.companyId === me.companyId).forEach(j => {
+          const jd = readJobDoc(j.id) || {}, c = jd.costing || {};
+          const co = (jd.changeOrders || []).reduce((a, x) => {
+            if (x.status === 'approved') { a.price += Number(x.priceDelta) || 0; a.cost += Number(x.costDelta) || 0; }
+            return a;
+          }, { price: 0, cost: 0 });
+          const contract = Math.round(((Number(c.contract) || 0) + co.price) * 100) / 100;
+          const cost = Math.round(((Number(c.budget) || 0) + co.cost) * 100) / 100;
+          const profit = Math.round((contract - cost) * 100) / 100;
+          const margin = contract > 0 ? Math.round(profit / contract * 1000) / 10 : null;
+          jobs.contract += contract; jobs.cost += cost; jobs.profit += profit;
+          jobs.items.push({ id: j.id, name: j.name, client: j.client || '',
+            status: j.status || 'scheduled', contract, cost, profit, margin });
+        });
+        jobs.contract = Math.round(jobs.contract * 100) / 100;
+        jobs.cost = Math.round(jobs.cost * 100) / 100;
+        jobs.profit = Math.round(jobs.profit * 100) / 100;
+        jobs.margin = jobs.contract > 0 ? Math.round(jobs.profit / jobs.contract * 1000) / 10 : null;
+        jobs.items.sort((a, b) => b.contract - a.contract);
+        // Estimate win-rate — decided = accepted + rejected; win rate = accepted / decided.
+        const est = { counts: { draft: 0, sent: 0, accepted: 0, rejected: 0 },
+          value: { accepted: 0, rejected: 0, outstanding: 0 }, winRate: null, valueWinRate: null };
+        db.estimates.filter(e => e.companyId === me.companyId).forEach(e => {
+          const s = (e.status || 'draft'); const total = Number(e.total) || 0;
+          if (est.counts[s] === undefined) est.counts[s] = 0;
+          est.counts[s] += 1;
+          if (s === 'accepted') est.value.accepted += total;
+          else if (s === 'rejected') est.value.rejected += total;
+          else est.value.outstanding += total; // draft/sent = still open
+        });
+        const decided = (est.counts.accepted || 0) + (est.counts.rejected || 0);
+        est.winRate = decided > 0 ? Math.round((est.counts.accepted || 0) / decided * 1000) / 10 : null;
+        const decidedVal = est.value.accepted + est.value.rejected;
+        est.valueWinRate = decidedVal > 0 ? Math.round(est.value.accepted / decidedVal * 1000) / 10 : null;
+        ['accepted', 'rejected', 'outstanding'].forEach(k => est.value[k] = Math.round(est.value[k] * 100) / 100);
+        return sendJSON(res, 200, { ar, jobs, estimates: est });
+      }
+
       // ---- Projects/Jobs: list / create / convert-from-estimate ----
       if (pathname === '/api/jobs' && req.method === 'GET') {
         const list = db.jobs.filter(j => j.companyId === me.companyId)

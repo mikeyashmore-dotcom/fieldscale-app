@@ -77,6 +77,7 @@
     <a href="/workorders.html">Work Orders</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
+    <a href="/reports.html">Reports</a>
     <a href="/company.html">Company</a>
     <a href="/admin.html" id="owner-nav">Owner</a>
   </nav>
@@ -92,6 +93,12 @@
     <div class="pagebar">
       <a href="/proposals.html" class="btn ghost">← Estimates</a>
       <input class="title" id="est-name" placeholder="Estimate name" />
+      <select id="est-status" title="Mark where this estimate stands — drives your win-rate report">
+        <option value="draft">Draft</option>
+        <option value="sent">Sent</option>
+        <option value="accepted">Accepted ✓</option>
+        <option value="rejected">Rejected</option>
+      </select>
       <div class="spacer"></div>
       <button class="btn ghost" id="save-btn">Save</button>
       <div class="ver-wrap">
@@ -375,7 +382,8 @@ function val(id){ return document.getElementById(id).value; }
 async function save(){
   syncDocFromForm();
   const total=computeTotals().total;
-  await apiFetch('/api/estimates/'+estId, { method:'PUT', body: JSON.stringify({ name:estName, client:doc.client.name, total, doc }) });
+  const status=document.getElementById('est-status').value;
+  await apiFetch('/api/estimates/'+estId, { method:'PUT', body: JSON.stringify({ name:estName, client:doc.client.name, total, status, doc }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{
   try{ await save(); toast('Estimate saved.'); }catch(err){ toast(err.message,true); }
@@ -587,6 +595,7 @@ async function init(){
   try{
     const [est, pb, comp] = await Promise.all([ apiFetch('/api/estimates/'+estId), apiFetch('/api/pricebook'), apiFetch('/api/company') ]);
     estName = est.name || 'Untitled Estimate';
+    document.getElementById('est-status').value = est.status || 'draft';
     doc = Object.assign({ company:{}, client:{}, lines:[], markupPct:0, taxPct:0, discount:0, discountType:'pct' }, est.doc||{});
     doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];
     // Migrate older lines onto the flat/build-up model. Any line without a pricing mode becomes a

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Reports</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  h2{font-family:'Oswald',sans-serif;font-size:18px;font-weight:600;margin:34px 0 4px}
+  .section-sub{color:var(--steel);font-size:13px;margin:0 0 14px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px 16px}
+  .tile .lab{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel)}
+  .tile .v{font-family:'Oswald',sans-serif;font-size:26px;font-weight:600;color:var(--ink-navy);margin-top:4px}
+  .tile .v.pos{color:var(--good)} .tile .v.neg{color:var(--danger)}
+  .tile.warn{border-color:rgba(232,114,44,.5)} .tile.warn .v{color:var(--orange-dim)}
+  td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+  td.pos{color:var(--good);font-weight:600} td.neg{color:var(--danger);font-weight:600}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
+  .pill.unpaid{background:rgba(192,57,43,.12);color:var(--danger)}
+  .pill.partial{background:rgba(232,114,44,.15);color:var(--orange-dim)}
+  .pill.paid{background:rgba(74,155,110,.15);color:var(--good)}
+  .pill.over{background:rgba(192,57,43,.12);color:var(--danger)}
+  .pill.ok{background:rgba(74,155,110,.15);color:var(--good)}
+  .empty{color:var(--steel);padding:22px;text-align:center}
+  .rowlink{cursor:pointer} .rowlink:hover td{background:#FbF9F3}
+  .barrow{display:flex;align-items:center;gap:10px;margin:5px 0}
+  .barrow .lab{width:90px;font-size:12px;color:var(--steel);font-family:'IBM Plex Mono',monospace}
+  .barrow .track{flex:1;height:16px;background:var(--paper);border-radius:3px;overflow:hidden}
+  .barrow .fill{height:100%;background:var(--cyan-dim)}
+  .barrow .fill.over{background:var(--orange-dim)} .barrow .fill.late{background:var(--danger)}
+  .barrow .amt{width:110px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:13px}
+  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:520px} }
+</style>
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/leads.html">Leads</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
+    <a href="/workorders.html">Work Orders</a>
+    <a href="/invoices.html">Invoices</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/reports.html" class="active">Reports</a>
+    <a href="/company.html">Company</a>
+    <a href="/admin.html" id="owner-nav">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <h1>Reports</h1>
+  <p class="sub">A snapshot of your business, built from your estimates, jobs and invoices.</p>
+  <div id="loading" class="loading">Loading…</div>
+  <div id="content" style="display:none">
+
+    <h2>Accounts receivable</h2>
+    <p class="section-sub">Money customers still owe you — and how overdue it is (based on each invoice's due date).</p>
+    <div class="tiles" id="ar-tiles"></div>
+    <div class="card" style="padding:14px 16px;margin-bottom:8px" id="ar-aging"></div>
+    <div class="card"><table>
+      <thead><tr><th>Invoice</th><th>Client</th><th>Due</th><th class="num">Days over</th><th class="num">Owed</th></tr></thead>
+      <tbody id="ar-rows"></tbody>
+    </table></div>
+
+    <h2>Job profitability</h2>
+    <p class="section-sub">Contract vs. cost vs. profit per job (approved change orders included).</p>
+    <div class="tiles" id="job-tiles"></div>
+    <div class="card"><table>
+      <thead><tr><th>Job</th><th>Client</th><th>Status</th><th class="num">Contract</th><th class="num">Cost</th><th class="num">Profit</th><th class="num">Margin</th></tr></thead>
+      <tbody id="job-rows"></tbody>
+    </table></div>
+
+    <h2>Estimate win-rate</h2>
+    <p class="section-sub">How many of your quotes turn into work. Mark an estimate <strong>Accepted</strong> or <strong>Rejected</strong> at the top of its page to feed this.</p>
+    <div class="tiles" id="est-tiles"></div>
+  </div>
+</div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path){
+  const t=getToken();
+  const res=await fetch(path,{headers:{'Authorization':'Bearer '+t}});
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+function money(n){ n=Number(n)||0; return '$'+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function tile(lab,val,cls,warn){ return `<div class="tile${warn?' warn':''}"><div class="lab">${lab}</div><div class="v${cls?(' '+cls):''}">${val}</div></div>`; }
+
+function renderAR(ar){
+  document.getElementById('ar-tiles').innerHTML =
+    tile('Outstanding', money(ar.outstanding), '', ar.outstanding>0) +
+    tile('Total invoiced', money(ar.totalInvoiced)) +
+    tile('Collected', money(ar.totalPaid), 'pos') +
+    tile('Past due', money(ar.buckets.d1_30+ar.buckets.d31_60+ar.buckets.d61_90+ar.buckets.d90plus), 'neg');
+  // aging bars
+  const B=ar.buckets, max=Math.max(B.current,B.d1_30,B.d31_60,B.d61_90,B.d90plus,1);
+  const rows=[['Current',B.current,''],['1–30 days',B.d1_30,'over'],['31–60 days',B.d31_60,'over'],['61–90 days',B.d61_90,'late'],['90+ days',B.d90plus,'late']];
+  document.getElementById('ar-aging').innerHTML = rows.map(([lab,v,c])=>
+    `<div class="barrow"><span class="lab">${lab}</span><span class="track"><span class="fill ${c}" style="width:${Math.round(v/max*100)}%"></span></span><span class="amt">${money(v)}</span></div>`).join('');
+  const tb=document.getElementById('ar-rows');
+  if(!ar.items.length){ tb.innerHTML='<tr><td colspan="5" class="empty">Nothing outstanding — everything is paid up. 🎉</td></tr>'; return; }
+  tb.innerHTML=ar.items.map(i=>`<tr class="rowlink" onclick="location.href='/invoice.html?id=${esc(i.id)}'">
+    <td>${esc(i.name)}</td><td class="muted">${esc(i.client)||'—'}</td>
+    <td class="muted">${esc(i.dueDate)||'—'}</td>
+    <td class="num">${i.daysOver>0?`<span class="pill over">${i.daysOver}d</span>`:'<span class="pill ok">—</span>'}</td>
+    <td class="num">${money(i.owed)}</td></tr>`).join('');
+}
+function renderJobs(j){
+  document.getElementById('job-tiles').innerHTML =
+    tile('Contract value', money(j.contract)) +
+    tile('Est. cost', money(j.cost)) +
+    tile('Profit', money(j.profit), j.profit>=0?'pos':'neg') +
+    tile('Margin', j.margin==null?'—':j.margin+'%', j.profit>=0?'pos':'neg');
+  const tb=document.getElementById('job-rows');
+  if(!j.items.length){ tb.innerHTML='<tr><td colspan="7" class="empty">No jobs yet. Turn an accepted estimate into a job to track profit.</td></tr>'; return; }
+  tb.innerHTML=j.items.map(x=>`<tr class="rowlink" onclick="location.href='/job.html?id=${esc(x.id)}'">
+    <td>${esc(x.name)}</td><td class="muted">${esc(x.client)||'—'}</td><td>${esc(x.status)}</td>
+    <td class="num">${money(x.contract)}</td><td class="num">${money(x.cost)}</td>
+    <td class="num ${x.profit>=0?'pos':'neg'}">${money(x.profit)}</td>
+    <td class="num ${x.profit>=0?'pos':'neg'}">${x.margin==null?'—':x.margin+'%'}</td></tr>`).join('');
+}
+function renderEst(e){
+  const c=e.counts;
+  document.getElementById('est-tiles').innerHTML =
+    tile('Win rate', e.winRate==null?'—':e.winRate+'%', 'pos') +
+    tile('Won ($)', money(e.value.accepted), 'pos') +
+    tile('Accepted', c.accepted||0, 'pos') +
+    tile('Rejected', c.rejected||0, 'neg') +
+    tile('Open (draft/sent)', (c.draft||0)+(c.sent||0)) +
+    tile('Open value ($)', money(e.value.outstanding));
+}
+
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{
+    const r=await apiFetch('/api/reports/summary');
+    renderAR(r.ar); renderJobs(r.jobs); renderEst(r.estimates);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+  }catch(err){ document.getElementById('loading').textContent='Could not load reports: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

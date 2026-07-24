@@ -1165,7 +1165,7 @@ const server = http.createServer(async (req, res) => {
         if (autoNo) doc.invoiceNo = autoNo;
         const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
           name: est.name || 'Invoice', client: (edoc.client && edoc.client.name) || est.client || '',
-          total, amountPaid: 0, createdAt: Date.now(), updatedAt: Date.now() };
+          total, amountPaid: 0, fromEstimateId: est.id, createdAt: Date.now(), updatedAt: Date.now() };
         writeInvoiceDoc(inv.id, doc);
         db.invoices.push(inv);
         saveDB(db);
@@ -1251,7 +1251,7 @@ const server = http.createServer(async (req, res) => {
         };
         const job = { id: 'j_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
           name: est.name || 'Job', client: (edoc.client && edoc.client.name) || est.client || '',
-          status: 'scheduled', createdAt: Date.now(), updatedAt: Date.now() };
+          status: 'scheduled', fromEstimateId: est.id, createdAt: Date.now(), updatedAt: Date.now() };
         writeJobDoc(job.id, doc);
         db.jobs.push(job);
         saveDB(db);
@@ -1311,6 +1311,41 @@ const server = http.createServer(async (req, res) => {
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }
+      }
+      // Per-job dashboard: costing rolled up with the totals of any invoices billed from the
+      // same estimate (contract / invoiced / paid / outstanding / profit on one screen).
+      const jobSummaryMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)\/summary$/);
+      if (jobSummaryMatch && req.method === 'GET') {
+        const job = db.jobs.find(j => j.id === jobSummaryMatch[1] && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+        const jdoc = readJobDoc(job.id);
+        const cost = jdoc.costing || {};
+        const co = (jdoc.changeOrders || []).reduce((a, x) => {
+          if (x.status === 'approved') { a.price += Number(x.priceDelta) || 0; a.cost += Number(x.costDelta) || 0; }
+          return a;
+        }, { price: 0, cost: 0 });
+        const contract = (Number(cost.contract) || 0) + co.price;
+        const budget = (Number(cost.budget) || 0) + co.cost;
+        const actualCost = (jdoc.costs || []).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+        const round = n => Math.round(n * 100) / 100;
+        // Invoices billed from the same estimate are considered this job's invoices.
+        let invoiced = 0, paid = 0, invoiceCount = 0;
+        const estId = job.fromEstimateId || jdoc.fromEstimateId; // record first, doc as fallback
+        if (estId) {
+          db.invoices.filter(i => i.companyId === me.companyId).forEach(inv => {
+            const invEst = inv.fromEstimateId || readInvoiceDoc(inv.id).fromEstimateId;
+            if (invEst === estId) {
+              invoiced += Number(inv.total) || 0; paid += Number(inv.amountPaid) || 0; invoiceCount++;
+            }
+          });
+        }
+        return sendJSON(res, 200, {
+          contract: round(contract), changeOrderPrice: round(co.price), budget: round(budget),
+          actualCost: round(actualCost),
+          estProfit: round(contract - budget), estMargin: contract > 0 ? round((contract - budget) / contract * 100) : null,
+          actualProfit: round(contract - actualCost), actualMargin: contract > 0 ? round((contract - actualCost) / contract * 100) : null,
+          invoiced: round(invoiced), paid: round(paid), outstanding: round(invoiced - paid), invoiceCount
+        });
       }
       const jobMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)$/);
       if (jobMatch) {

@@ -30,6 +30,7 @@
   .rcpt-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rcpt-row .meta{color:var(--steel);font-size:11px;font-family:'IBM Plex Mono',monospace;flex:none}
   .rcpt-row a.view{font-size:12px;cursor:pointer}
+  .dash{border-left:3px solid var(--orange);padding:12px 14px}
   textarea{min-height:90px;resize:vertical}
   .lines-scroll{overflow-x:auto}
   .costing{margin-bottom:18px}
@@ -81,6 +82,8 @@
       <button class="btn ghost" id="pdf-btn" title="Print or save a job sheet">Generate PDF</button>
       <button class="btn primary" id="save-btn">Save</button>
     </div>
+
+    <div class="block dash" id="dash"><div class="cost-out" id="dash-out"></div></div>
 
     <div class="grid2">
       <div class="block">
@@ -247,6 +250,23 @@ function renderCosting(){
 }
 ['c-contract','c-budget'].forEach(id=>document.getElementById(id).addEventListener('input', renderCosting));
 
+// Per-job dashboard: pulls the money picture (incl. linked invoices) from the server.
+async function refreshDash(){
+  try{
+    const s=await apiFetch('/api/jobs/'+jobId+'/summary');
+    const cls=v=> v>0.005?'good':(v<-0.005?'bad':'');
+    const stats=[
+      ['Contract', money(s.contract), ''],
+      ['Invoiced'+(s.invoiceCount?(' ('+s.invoiceCount+')'):''), money(s.invoiced), ''],
+      ['Paid', money(s.paid), s.paid>0.005?'good':''],
+      ['Outstanding', money(s.outstanding), s.outstanding>0.005?'bad':(s.outstanding<-0.005?'good':'')],
+      ['Actual cost', money(s.actualCost), ''],
+      ['Est. profit'+(s.estMargin!=null?(' ('+s.estMargin.toFixed(1)+'%)'):''), money(s.estProfit), cls(s.estProfit)]
+    ];
+    document.getElementById('dash-out').innerHTML=stats.map(x=>`<div class="stat ${x[2]}"><div class="lab">${x[0]}</div><div class="num">${x[1]}</div></div>`).join('');
+  }catch(e){ document.getElementById('dash').style.display='none'; }
+}
+
 // ---- Actual costs (labor / material / sub / equipment), rolled into "actual cost to date" ----
 function renderCostBreakdown(){
   const by={}; (doc.costs||[]).forEach(c=>{ const k=c.category||'Other'; by[k]=(by[k]||0)+(Number(c.amount)||0); });
@@ -386,7 +406,7 @@ async function save(){
   syncDocFromForm();
   await apiFetch('/api/jobs/'+jobId, { method:'PUT', body: JSON.stringify({ name:jobName, client:doc.client.name, status:val('status'), doc }) });
 }
-document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Job saved.'); }catch(err){ toast(err.message,true); } });
+document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Job saved.'); refreshDash(); }catch(err){ toast(err.message,true); } });
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ await save(); await openJobPDF(); }catch(err){ toast(err.message,true); } });
 
 let _company=null;
@@ -501,7 +521,7 @@ async function init(){
     }
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
-    fillForm(); renderLines();
+    fillForm(); renderLines(); refreshDash();
   }catch(err){ document.getElementById('loading').textContent='Could not load job: '+err.message; }
 }
 init();

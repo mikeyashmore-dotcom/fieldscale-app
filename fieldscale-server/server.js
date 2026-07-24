@@ -235,6 +235,21 @@ function writeInvoiceDoc(id, doc){
   if (!fs.existsSync(INVOICES_DIR)) fs.mkdirSync(INVOICES_DIR, { recursive: true });
   writeJsonAtomic(invoicePath(id), doc || {});
 }
+// ---------- Purchase orders (materials ordered from suppliers; mirrors invoices) ----------
+const PO_DIR = path.join(DATA_DIR, 'purchase-orders');
+function poPath(id){ return path.join(PO_DIR, id + '.json'); }
+function readPODoc(id){
+  const f = poPath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writePODoc(id, doc){
+  if (!fs.existsSync(PO_DIR)) fs.mkdirSync(PO_DIR, { recursive: true });
+  writeJsonAtomic(poPath(id), doc || {});
+}
+const PO_STATUSES = ['draft', 'ordered', 'received'];
+function poStatus(s){ return PO_STATUSES.indexOf(s) >= 0 ? s : 'draft'; }
+
 // ---------- Projects/Jobs (the won work to schedule and do) ----------
 const JOBS_DIR = path.join(DATA_DIR, 'jobs');
 function jobPath(id){ return path.join(JOBS_DIR, id + '.json'); }
@@ -314,6 +329,7 @@ function loadDB() {
   parsed.jobs = parsed.jobs || [];
   parsed.workOrders = parsed.workOrders || [];
   parsed.leads = parsed.leads || [];
+  parsed.purchaseOrders = parsed.purchaseOrders || [];
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -513,6 +529,14 @@ function assignInvoiceNo(company) {
   const no = nextInvoiceNo(company);
   if (no == null) return null;
   company.invoiceSeq = company.invoiceSeq + 1;
+  return no;
+}
+// Purchase-order numbers auto-count from PO-0001 per company (simpler than invoices — no config UI).
+function assignPONo(company) {
+  if (!company) return 'PO-0001';
+  if (company.poSeq == null) company.poSeq = 1;
+  const no = 'PO-' + String(company.poSeq).padStart(4, '0');
+  company.poSeq = company.poSeq + 1;
   return no;
 }
 // Seed the counter from the first invoice number a user enters by hand (no-op once seeded).
@@ -1377,6 +1401,57 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Purchase orders: list / create / get / update / delete ----
+      if (pathname === '/api/purchase-orders' && req.method === 'GET') {
+        const jobName = {}; db.jobs.forEach(j => { if (j.companyId === me.companyId) jobName[j.id] = j.name; });
+        const list = db.purchaseOrders.filter(p => p.companyId === me.companyId)
+          .map(p => ({ id: p.id, name: p.name, supplier: p.supplier || '', jobId: p.jobId || '',
+            jobName: p.jobId ? (jobName[p.jobId] || '') : '', total: p.total || 0, status: poStatus(p.status),
+            createdAt: p.createdAt, updatedAt: p.updatedAt }))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/purchase-orders' && req.method === 'POST') {
+        const { name, supplier, jobId, doc } = await readBody(req);
+        const po = { id: 'po_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: name || 'Untitled PO', supplier: supplier || '', jobId: jobId || '',
+          total: 0, status: 'draft', createdAt: Date.now(), updatedAt: Date.now() };
+        const d = doc || {};
+        if (!d.poNo) d.poNo = assignPONo(companyById(me.companyId));
+        writePODoc(po.id, d);
+        db.purchaseOrders.push(po);
+        saveDB(db);
+        return sendJSON(res, 200, { id: po.id });
+      }
+      const poMatch = pathname.match(/^\/api\/purchase-orders\/([a-zA-Z0-9_]+)$/);
+      if (poMatch) {
+        const po = db.purchaseOrders.find(p => p.id === poMatch[1] && p.companyId === me.companyId);
+        if (!po) return sendJSON(res, 404, { error: 'Purchase order not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, { id: po.id, name: po.name, supplier: po.supplier, jobId: po.jobId || '',
+            total: po.total, status: poStatus(po.status), createdAt: po.createdAt, updatedAt: po.updatedAt,
+            doc: readPODoc(po.id) });
+        }
+        if (req.method === 'PUT') {
+          const { name, supplier, jobId, total, status, doc } = await readBody(req);
+          if (name !== undefined) po.name = String(name).slice(0, 200);
+          if (supplier !== undefined) po.supplier = String(supplier).slice(0, 200);
+          if (jobId !== undefined) po.jobId = String(jobId).slice(0, 60);
+          if (typeof total === 'number') po.total = total;
+          if (status !== undefined) po.status = poStatus(status);
+          if (doc !== undefined) writePODoc(po.id, doc);
+          po.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { id: po.id, updatedAt: po.updatedAt, status: poStatus(po.status) });
+        }
+        if (req.method === 'DELETE') {
+          db.purchaseOrders = db.purchaseOrders.filter(p => p.id !== po.id);
+          try { fs.unlinkSync(poPath(po.id)); } catch (e) {}
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
+
       // ---- Reports: business summary (AR aging, job profitability, estimate win-rate) ----
       if (pathname === '/api/reports/summary' && req.method === 'GET') {
         const DAY = 86400000, now = Date.now();
@@ -1586,6 +1661,13 @@ const server = http.createServer(async (req, res) => {
         const budget = (Number(cost.budget) || 0) + co.cost;
         const actualCost = (jdoc.costs || []).reduce((s, c) => s + (Number(c.amount) || 0), 0);
         const round = n => Math.round(n * 100) / 100;
+        // Purchase orders raised against this job — committed (ordered + received) vs. received so far.
+        let poCommitted = 0, poReceived = 0, poCount = 0;
+        db.purchaseOrders.filter(p => p.companyId === me.companyId && p.jobId === job.id).forEach(p => {
+          const st = poStatus(p.status), amt = Number(p.total) || 0;
+          if (st === 'ordered' || st === 'received') { poCommitted += amt; poCount++; }
+          if (st === 'received') poReceived += amt;
+        });
         // Invoices billed from the same estimate are considered this job's invoices.
         let invoiced = 0, paid = 0, invoiceCount = 0;
         const estId = job.fromEstimateId || jdoc.fromEstimateId; // record first, doc as fallback
@@ -1602,7 +1684,8 @@ const server = http.createServer(async (req, res) => {
           actualCost: round(actualCost),
           estProfit: round(contract - budget), estMargin: contract > 0 ? round((contract - budget) / contract * 100) : null,
           actualProfit: round(contract - actualCost), actualMargin: contract > 0 ? round((contract - actualCost) / contract * 100) : null,
-          invoiced: round(invoiced), paid: round(paid), outstanding: round(invoiced - paid), invoiceCount
+          invoiced: round(invoiced), paid: round(paid), outstanding: round(invoiced - paid), invoiceCount,
+          poCommitted: round(poCommitted), poReceived: round(poReceived), poCount
         });
       }
       const jobMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)$/);
@@ -1794,6 +1877,10 @@ const server = http.createServer(async (req, res) => {
           status: w.status, scheduledDate: w.scheduledDate,
           createdAt: w.createdAt, updatedAt: w.updatedAt, doc: readWorkOrderDoc(w.id)
         }));
+        const purchaseOrders = db.purchaseOrders.filter(p => p.companyId === me.companyId).map(p => ({
+          id: p.id, name: p.name, supplier: p.supplier, jobId: p.jobId, total: p.total, status: p.status,
+          createdAt: p.createdAt, updatedAt: p.updatedAt, doc: readPODoc(p.id)
+        }));
         return sendJSON(res, 200, {
           fieldscaleBackup: 1, companyName: company ? company.name : '',
           profile: readCompany(me.companyId), pricebook: readPricebook(me.companyId) || [],
@@ -1805,7 +1892,7 @@ const server = http.createServer(async (req, res) => {
             id: l.id, name: l.name, workType: l.workType, value: l.value, stage: l.stage, source: l.source,
             followUp: l.followUp, createdAt: l.createdAt, updatedAt: l.updatedAt, doc: readLeadDoc(l.id)
           })),
-          projects, estimates, invoices, jobs, workOrders
+          projects, estimates, invoices, jobs, workOrders, purchaseOrders
         });
       }
       // Restore a backup file into THIS company. Additive/idempotent by id — re-importing the same
@@ -1904,8 +1991,21 @@ const server = http.createServer(async (req, res) => {
           if (lb.doc) writeLeadDoc(lead.id, lb.doc);
           lead.updatedAt = Date.now(); leadN++;
         });
+        let poN = 0;
+        (Array.isArray(b.purchaseOrders) ? b.purchaseOrders : []).forEach(pb => {
+          let po = db.purchaseOrders.find(x => x.id === pb.id && x.companyId === me.companyId);
+          if (!po) {
+            po = { id: (typeof pb.id === 'string' && pb.id) ? pb.id : ('po_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, name: pb.name || 'Restored PO', supplier: pb.supplier || '',
+              jobId: pb.jobId || '', total: Number(pb.total) || 0, status: poStatus(pb.status),
+              createdAt: pb.createdAt || Date.now(), updatedAt: Date.now() };
+            db.purchaseOrders.push(po);
+          }
+          if (pb.doc) writePODoc(po.id, pb.doc);
+          po.updatedAt = Date.now(); poN++;
+        });
         saveDB(db);
-        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN, workOrders: woN, leads: leadN });
+        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN, workOrders: woN, leads: leadN, purchaseOrders: poN });
       }
 
       return sendJSON(res, 404, { error: 'Unknown API route.' });

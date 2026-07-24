@@ -62,6 +62,7 @@
     <a href="/proposals.html">Estimates</a>
     <a href="/jobs.html" class="active">Jobs</a>
     <a href="/schedule.html">Schedule</a>
+    <a href="/purchase-orders.html">Purchase Orders</a>
     <a href="/workorders.html">Work Orders</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
@@ -314,6 +315,8 @@ async function refreshDash(){
       ['Actual cost', money(s.actualCost), ''],
       ['Est. profit'+(s.estMargin!=null?(' ('+s.estMargin.toFixed(1)+'%)'):''), money(s.estProfit), cls(s.estProfit)]
     ];
+    // Show materials on purchase orders when there are any linked to this job.
+    if(s.poCount){ stats.push(['On PO'+(s.poCount?(' ('+s.poCount+')'):''), money(s.poCommitted), s.poReceived<s.poCommitted-0.005?'':'']); }
     document.getElementById('dash-out').innerHTML=stats.map(x=>`<div class="stat ${x[2]}"><div class="lab">${x[0]}</div><div class="num">${x[1]}</div></div>`).join('');
   }catch(e){ document.getElementById('dash').style.display='none'; }
 }

@@ -3,22 +3,22 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Fieldscale — Work Orders</title>
+<title>Fieldscale — Purchase Orders</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/fs-theme.css">
 <style>
   .toolbar{display:flex;gap:8px;align-items:center;margin:0 0 18px}
+  td.num,th.num{font-family:'IBM Plex Mono',monospace}
   .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
-  .pill.open{background:rgba(111,195,228,.2);color:var(--cyan-dim)}
-  .pill.progress{background:rgba(232,114,44,.15);color:var(--orange-dim)}
-  .pill.complete{background:rgba(74,155,110,.15);color:var(--good)}
-  .pill.hold{background:var(--paper);color:var(--steel)}
+  .pill.draft{background:var(--paper);color:var(--steel)}
+  .pill.ordered{background:rgba(111,195,228,.2);color:var(--cyan-dim)}
+  .pill.received{background:rgba(74,155,110,.15);color:var(--good)}
   .rowlink{cursor:pointer}
   .rowlink:hover td{background:#FbF9F3}
   .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
   .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
-  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:560px} }
+  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:620px} }
 </style>
 <meta name="fs-module" content="jobs">
 <script src="/app-nav.js"></script>
@@ -32,8 +32,8 @@
     <a href="/proposals.html">Estimates</a>
     <a href="/jobs.html">Jobs</a>
     <a href="/schedule.html">Schedule</a>
-    <a href="/purchase-orders.html">Purchase Orders</a>
-    <a href="/workorders.html" class="active">Work Orders</a>
+    <a href="/purchase-orders.html" class="active">Purchase Orders</a>
+    <a href="/workorders.html">Work Orders</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
     <a href="/reports.html">Reports</a>
@@ -46,18 +46,18 @@
 </header>
 
 <div class="wrap">
-  <h1>Work Orders</h1>
-  <p class="sub">The instructions your crew and subs work from. Create one here, or turn a job into a work order from the job screen.</p>
+  <h1>Purchase Orders</h1>
+  <p class="sub">Order materials from your suppliers and track what's on order vs. received. Link a PO to a job to keep its costs together.</p>
 
   <div class="toolbar">
-    <button class="btn primary" id="new-btn">＋ New Work Order</button>
+    <button class="btn primary" id="new-btn">＋ New Purchase Order</button>
   </div>
 
   <div id="loading" class="loading">Loading…</div>
   <div class="card" id="list-card" style="display:none">
     <table>
       <thead>
-        <tr><th>Work order</th><th>Job</th><th>Assigned to</th><th>Status</th><th>Scheduled</th><th></th></tr>
+        <tr><th>PO</th><th>Supplier</th><th>Job</th><th class="num">Total</th><th>Status</th><th>Updated</th><th></th></tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
@@ -80,55 +80,57 @@ async function apiFetch(path, options={}){
   if(!res.ok) throw new Error(data.error||'Request failed');
   return data;
 }
-function fmtDate(v){ if(!v) return '—'; const d=new Date(v.length<=10?v+'T00:00:00':v); return isNaN(d)?'—':d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtDate(ms){ if(!ms) return '—'; return new Date(ms).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function pillClass(st){ st=(st||'').toLowerCase(); if(st==='in progress')return 'progress'; if(st==='on hold')return 'hold'; return st; }
 let toastTimer; function toast(msg,isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
 document.getElementById('new-btn').addEventListener('click', async () => {
-  try{ const r = await apiFetch('/api/workorders', { method:'POST', body: JSON.stringify({ title:'Untitled Work Order' }) });
-    location.href = '/workorder.html?id=' + encodeURIComponent(r.id);
+  try{
+    const r = await apiFetch('/api/purchase-orders', { method:'POST', body: JSON.stringify({ name:'Untitled PO' }) });
+    location.href = '/po.html?id=' + encodeURIComponent(r.id);
   }catch(err){ toast(err.message, true); }
 });
 
 function render(list){
   const tb=document.getElementById('rows');
   if(!list.length){
-    tb.innerHTML=`<tr><td colspan="6" style="padding:32px;text-align:center;color:var(--steel)">
-      No work orders yet. Click <strong>＋ New Work Order</strong>, or make one from a job.</td></tr>`;
+    tb.innerHTML=`<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--steel)">
+      No purchase orders yet. Click <strong>＋ New Purchase Order</strong> to raise one.</td></tr>`;
     return;
   }
-  tb.innerHTML=list.map(w=>`
-    <tr class="rowlink" data-open="${w.id}">
-      <td>${escapeHtml(w.title)}</td>
-      <td class="muted">${escapeHtml(w.jobName)||'—'}</td>
-      <td class="muted">${escapeHtml(w.assignee)||'—'}</td>
-      <td><span class="pill ${pillClass(w.status)}">${escapeHtml(w.status||'open')}</span></td>
-      <td class="muted">${fmtDate(w.scheduledDate)}</td>
-      <td class="num"><button class="act" data-del="${w.id}" title="Delete">✕</button></td>
+  tb.innerHTML=list.map(p=>`<tr class="rowlink" data-open="${p.id}">
+      <td>${escapeHtml(p.name)}</td>
+      <td class="muted">${escapeHtml(p.supplier)||'—'}</td>
+      <td class="muted">${escapeHtml(p.jobName)||'—'}</td>
+      <td class="num">${money(p.total)}</td>
+      <td><span class="pill ${escapeHtml(p.status||'draft')}">${escapeHtml(p.status||'draft')}</span></td>
+      <td class="muted">${fmtDate(p.updatedAt)}</td>
+      <td class="num"><button class="act" data-del="${p.id}" title="Delete">✕</button></td>
     </tr>`).join('');
 }
 document.getElementById('rows').addEventListener('click', async (e) => {
   const del = e.target.getAttribute && e.target.getAttribute('data-del');
   if(del){ e.stopPropagation();
-    if(!confirm('Delete this work order permanently?')) return;
-    try{ await apiFetch('/api/workorders/'+del, { method:'DELETE' }); load(); toast('Work order deleted.'); }
+    if(!confirm('Delete this purchase order permanently?')) return;
+    try{ await apiFetch('/api/purchase-orders/'+del, { method:'DELETE' }); load(); toast('Purchase order deleted.'); }
     catch(err){ toast(err.message, true); }
     return;
   }
   const row = e.target.closest && e.target.closest('[data-open]');
-  if(row){ location.href='/workorder.html?id='+encodeURIComponent(row.getAttribute('data-open')); }
+  if(row){ location.href='/po.html?id='+encodeURIComponent(row.getAttribute('data-open')); }
 });
 
 async function load(){
-  const list = await apiFetch('/api/workorders');
+  const list = await apiFetch('/api/purchase-orders');
   document.getElementById('loading').style.display='none';
   document.getElementById('list-card').style.display='block';
   render(list);
 }
 async function init(){
   try{ const me = await apiFetch('/api/me'); document.getElementById('who').textContent = me.username; }catch(err){ return; }
-  try{ await load(); }catch(err){ document.getElementById('loading').textContent='Could not load work orders: '+err.message; }
+  try{ await load(); }
+  catch(err){ document.getElementById('loading').textContent='Could not load purchase orders: '+err.message; }
 }
 init();
 </script>

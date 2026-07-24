@@ -206,6 +206,20 @@ function writeJobDoc(id, doc){
 }
 const JOB_STATUSES = ['scheduled', 'in progress', 'complete', 'on hold'];
 
+// ---------- Work orders (an assignment to do the work — belongs to a job, or standalone) ----------
+const WORKORDERS_DIR = path.join(DATA_DIR, 'workorders');
+function workOrderPath(id){ return path.join(WORKORDERS_DIR, id + '.json'); }
+function readWorkOrderDoc(id){
+  const f = workOrderPath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writeWorkOrderDoc(id, doc){
+  if (!fs.existsSync(WORKORDERS_DIR)) fs.mkdirSync(WORKORDERS_DIR, { recursive: true });
+  writeJsonAtomic(workOrderPath(id), doc || {});
+}
+const WO_STATUSES = ['open', 'in progress', 'complete', 'on hold'];
+
 // Payment status from what's been paid against the total.
 function invoiceStatus(total, paid){
   total = Number(total) || 0; paid = Number(paid) || 0;
@@ -232,6 +246,7 @@ function loadDB() {
   parsed.estimates = parsed.estimates || [];
   parsed.invoices = parsed.invoices || [];
   parsed.jobs = parsed.jobs || [];
+  parsed.workOrders = parsed.workOrders || [];
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -1260,6 +1275,74 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Work orders: list / create / from-job / get / put / delete ----
+      if (pathname === '/api/workorders' && req.method === 'GET') {
+        const list = db.workOrders.filter(w => w.companyId === me.companyId)
+          .map(w => ({ id: w.id, title: w.title, jobName: w.jobName || '', assignee: w.assignee || '',
+                       status: w.status || 'open', scheduledDate: w.scheduledDate || '',
+                       createdAt: w.createdAt, updatedAt: w.updatedAt }))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/workorders' && req.method === 'POST') {
+        const { title, assignee, jobId, jobName, doc } = await readBody(req);
+        const wo = { id: 'w_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          title: title || 'Untitled Work Order', assignee: assignee || '', jobId: jobId || '', jobName: jobName || '',
+          status: 'open', scheduledDate: '', createdAt: Date.now(), updatedAt: Date.now() };
+        writeWorkOrderDoc(wo.id, doc || {});
+        db.workOrders.push(wo);
+        saveDB(db);
+        return sendJSON(res, 200, { id: wo.id });
+      }
+      // Create a work order from a job — carry the job's scope items into the WO checklist.
+      if (pathname === '/api/workorders/from-job' && req.method === 'POST') {
+        const { jobId } = await readBody(req);
+        const job = db.jobs.find(j => j.id === jobId && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+        const jdoc = readJobDoc(job.id);
+        const tasks = (jdoc.lines || []).map(l => ({ id: 'wt_' + crypto.randomBytes(5).toString('hex'),
+          text: [l.name, l.qty ? ('(' + l.qty + (l.unit ? ' ' + l.unit : '') + ')') : ''].filter(Boolean).join(' '),
+          done: false }));
+        const doc = { instructions: jdoc.notes || '', tasks, materials: '', equipment: '', notes: '',
+          estHours: '', client: (jdoc.client && jdoc.client.name) || job.client || '' };
+        const wo = { id: 'w_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          title: job.name || 'Work Order', assignee: '', jobId: job.id, jobName: job.name || '',
+          status: 'open', scheduledDate: '', createdAt: Date.now(), updatedAt: Date.now() };
+        writeWorkOrderDoc(wo.id, doc);
+        db.workOrders.push(wo);
+        saveDB(db);
+        return sendJSON(res, 200, { id: wo.id });
+      }
+      const woMatch = pathname.match(/^\/api\/workorders\/([a-zA-Z0-9_]+)$/);
+      if (woMatch) {
+        const wo = db.workOrders.find(w => w.id === woMatch[1] && w.companyId === me.companyId);
+        if (!wo) return sendJSON(res, 404, { error: 'Work order not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, { id: wo.id, title: wo.title, assignee: wo.assignee, jobId: wo.jobId,
+            jobName: wo.jobName, status: wo.status, scheduledDate: wo.scheduledDate,
+            createdAt: wo.createdAt, updatedAt: wo.updatedAt, doc: readWorkOrderDoc(wo.id) });
+        }
+        if (req.method === 'PUT') {
+          const { title, assignee, jobId, jobName, status, scheduledDate, doc } = await readBody(req);
+          if (title !== undefined) wo.title = String(title).slice(0, 200);
+          if (assignee !== undefined) wo.assignee = String(assignee).slice(0, 200);
+          if (jobId !== undefined) wo.jobId = String(jobId).slice(0, 40);
+          if (jobName !== undefined) wo.jobName = String(jobName).slice(0, 200);
+          if (status !== undefined && WO_STATUSES.includes(status)) wo.status = status;
+          if (scheduledDate !== undefined) wo.scheduledDate = String(scheduledDate).slice(0, 20);
+          if (doc !== undefined) writeWorkOrderDoc(wo.id, doc);
+          wo.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { id: wo.id, updatedAt: wo.updatedAt, status: wo.status });
+        }
+        if (req.method === 'DELETE') {
+          db.workOrders = db.workOrders.filter(w => w.id !== wo.id);
+          try { fs.unlinkSync(workOrderPath(wo.id)); } catch (e) {}
+          saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
+
       // ---- Full backup / export (company owner or admin) ----
       // Bundles everything that's hard to replace — company profile, price book, every estimate,
       // and every project's takeoff measurements — into one JSON file. Plan PDFs are NOT included
@@ -1282,11 +1365,16 @@ const server = http.createServer(async (req, res) => {
           id: j.id, name: j.name, client: j.client, status: j.status,
           createdAt: j.createdAt, updatedAt: j.updatedAt, doc: readJobDoc(j.id)
         }));
+        const workOrders = db.workOrders.filter(w => w.companyId === me.companyId).map(w => ({
+          id: w.id, title: w.title, assignee: w.assignee, jobId: w.jobId, jobName: w.jobName,
+          status: w.status, scheduledDate: w.scheduledDate,
+          createdAt: w.createdAt, updatedAt: w.updatedAt, doc: readWorkOrderDoc(w.id)
+        }));
         return sendJSON(res, 200, {
           fieldscaleBackup: 1, companyName: company ? company.name : '',
           profile: readCompany(me.companyId), pricebook: readPricebook(me.companyId) || [],
           assemblies: readAssemblies(me.companyId),
-          projects, estimates, invoices, jobs
+          projects, estimates, invoices, jobs, workOrders
         });
       }
       // Restore a backup file into THIS company. Additive/idempotent by id — re-importing the same
@@ -1347,8 +1435,22 @@ const server = http.createServer(async (req, res) => {
           if (jb.doc) writeJobDoc(job.id, jb.doc);
           job.updatedAt = Date.now(); jobN++;
         });
+        let woN = 0;
+        (Array.isArray(b.workOrders) ? b.workOrders : []).forEach(wb => {
+          let wo = db.workOrders.find(x => x.id === wb.id && x.companyId === me.companyId);
+          if (!wo) {
+            wo = { id: (typeof wb.id === 'string' && wb.id) ? wb.id : ('w_' + crypto.randomBytes(8).toString('hex')),
+              userId: me.id, companyId: me.companyId, title: wb.title || 'Restored work order', assignee: wb.assignee || '',
+              jobId: wb.jobId || '', jobName: wb.jobName || '',
+              status: WO_STATUSES.includes(wb.status) ? wb.status : 'open', scheduledDate: wb.scheduledDate || '',
+              createdAt: wb.createdAt || Date.now(), updatedAt: Date.now() };
+            db.workOrders.push(wo);
+          }
+          if (wb.doc) writeWorkOrderDoc(wo.id, wb.doc);
+          wo.updatedAt = Date.now(); woN++;
+        });
         saveDB(db);
-        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN });
+        return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN, workOrders: woN });
       }
 
       return sendJSON(res, 404, { error: 'Unknown API route.' });

@@ -272,6 +272,7 @@ async function apiFetch(path, options={}){
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pdfDate(v){ if(v==null||v==='') return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; const d=new Date(typeof v==='number'?v:s); if(isNaN(d.getTime())) return s; const p=n=>String(n).padStart(2,'0'); return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+d.getFullYear(); }
 function num(id){ return parseFloat(document.getElementById(id).value)||0; }
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
@@ -730,7 +731,7 @@ function printWindow(title, bodyHtml){
   w.document.open(); w.document.write(html); w.document.close();
 }
 function pdfHeader(co, docLabel, metaLines){
-  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join('<br>');
   const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
   return `<div class="head">
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
@@ -749,7 +750,7 @@ async function openJobPDF(){
       <td class="r">${money(c.priceDelta)}</td><td class="r">${money(c.costDelta)}</td></tr>`).join('');
   const cl=doc.client||{};
   const body=pdfHeader(co,'JOB',[ 'Status: '+(val('status')||'—'),
-      doc.startDate?('Start: '+escapeHtml(doc.startDate)):'', doc.dueDate?('Due: '+escapeHtml(doc.dueDate)):'' ])
+      doc.startDate?('Start: '+escapeHtml(pdfDate(doc.startDate))):'', doc.dueDate?('Due: '+escapeHtml(pdfDate(doc.dueDate))):'' ])
     + `<div style="font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47;margin-bottom:12px">${escapeHtml(jobName)}</div>`
     + `<div class="parties"><div><h4>Client</h4><div class="val"><strong>${escapeHtml(cl.name||'—')}</strong></div></div>
         ${doc.project?`<div><h4>Project</h4><div class="val">${escapeHtml(doc.project)}</div></div>`:''}</div>`
@@ -761,7 +762,7 @@ async function openJobPDF(){
         <div class="tr"><span>Actual cost to date</span><span>${money(actual)}</span></div>
         <div class="tr total"><span>Est. profit (${margin.toFixed(1)}%)</span><span>${money(estProfit)}</span></div></div>`
     + (cos?`<div class="sec"><h4>Change orders</h4></div><table><thead><tr><th>Description</th><th class="c">Status</th><th class="r">Price</th><th class="r">Cost</th></tr></thead><tbody>${cos}</tbody></table>`:'')
-    + ((doc.dailyLogs||[]).length?`<div class="sec"><h4>Daily logs</h4></div><table><thead><tr><th>Date</th><th>Weather</th><th>Crew</th><th>Work done</th></tr></thead><tbody>${doc.dailyLogs.map(l=>`<tr><td>${escapeHtml(l.date)||'—'}</td><td>${escapeHtml(l.weather)}</td><td>${escapeHtml(l.crew)}</td><td>${escapeHtml(l.workDone)}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.dailyLogs||[]).length?`<div class="sec"><h4>Daily logs</h4></div><table><thead><tr><th>Date</th><th>Weather</th><th>Crew</th><th>Work done</th></tr></thead><tbody>${doc.dailyLogs.map(l=>`<tr><td>${escapeHtml(pdfDate(l.date))||'—'}</td><td>${escapeHtml(l.weather)}</td><td>${escapeHtml(l.crew)}</td><td>${escapeHtml(l.workDone)}</td></tr>`).join('')}</tbody></table>`:'')
     + (doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:'')
     + `<div class="foot">${escapeHtml(co.name||'')} — job sheet</div>`;
   printWindow(jobName||'Job', body);

@@ -166,6 +166,7 @@ document.getElementById('add-task').addEventListener('click', ()=>{
 });
 
 function val(id){ return document.getElementById(id).value; }
+function pdfDate(v){ if(v==null||v==='') return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; const d=new Date(typeof v==='number'?v:s); if(isNaN(d.getTime())) return s; const p=n=>String(n).padStart(2,'0'); return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+d.getFullYear(); }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 function syncDocFromForm(){
   woTitle=val('wo-title')||'Untitled Work Order';
@@ -214,13 +215,13 @@ function printWindow(title, bodyHtml){
 }
 async function openWorkOrderPDF(){
   const co=await getCompany();
-  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join('<br>');
   const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
   const tasks=(doc.tasks||[]).map(t=>`<li>${t.done?'☑':'☐'} ${escapeHtml(t.text)||'—'}</li>`).join('');
   const head=`<div class="head">
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
     <div class="doc"><div class="big">WORK ORDER</div><div class="meta">
-      Status: ${escapeHtml(val('status')||'—')}<br>${val('sched-date')?('Scheduled: '+escapeHtml(val('sched-date'))):''}
+      Status: ${escapeHtml(val('status')||'—')}<br>${val('sched-date')?('Scheduled: '+escapeHtml(pdfDate(val('sched-date')))):''}
       ${val('est-hours')?('<br>Est. hours: '+escapeHtml(val('est-hours'))):''}</div></div></div>`;
   const body=head
     + `<div style="font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47;margin-bottom:12px">${escapeHtml(woTitle)}</div>`

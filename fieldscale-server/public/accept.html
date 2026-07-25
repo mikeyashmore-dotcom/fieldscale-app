@@ -46,6 +46,7 @@
 <script>
 const token=new URLSearchParams(location.search).get('token');
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pdfDate(v){ if(v==null||v==='') return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; const d=new Date(typeof v==='number'?v:s); if(isNaN(d.getTime())) return s; const p=n=>String(n).padStart(2,'0'); return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+d.getFullYear(); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 // Match the estimate editor's line math so the client sees the same numbers.
 function lineAmount(l){ if(l.mode==='flat') return (Number(l.qty)||0)*(Number(l.unitPrice)||0);
@@ -75,7 +76,7 @@ function computeTotals(d){
 function render(d){
   const t=computeTotals(d);
   const co=d.company||{}, cl=d.client||{};
-  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(esc).join(' · ');
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(esc).join('<br>');
   // Overhead, profit and tax stay internal — fold them into the prices the client sees.
   const sf=t.subtotal>0?(t.price+t.tax)/t.subtotal:1;
   const showQty=d.showQty!==false, showUom=d.showUnit!==false,
@@ -94,7 +95,7 @@ function render(d){
   const termsBody=[...termsExtra.map(esc), ...(d.terms?[esc(d.terms)]:[])].join('\n');
   const sig=d.signature;
   const approveBlock = sig&&sig.name
-    ? `<div class="accepted"><strong>✓ Approved</strong><br>Accepted by <strong>${esc(sig.name)}</strong> on ${new Date(sig.at).toLocaleString()}.</div>`
+    ? `<div class="accepted"><strong>✓ Approved</strong><br>Accepted by <strong>${esc(sig.name)}</strong> on ${pdfDate(sig.at)}.</div>`
     : `<div class="approve"><h3>Approve this estimate</h3>
         <p>By typing your name below and clicking Approve, you accept this proposal and its total of <strong>${money(t.total)}</strong>.</p>
         <div class="row">
@@ -105,7 +106,7 @@ function render(d){
     <div class="head">
       <div class="co">${co.logo?`<img src="${esc(co.logo)}" style="max-height:56px;max-width:200px;display:block;margin-bottom:8px">`:''}<h1>${esc(co.name||'Estimate')}</h1><div class="sub">${coLines}</div></div>
       <div class="doc"><div class="big">ESTIMATE</div><div class="meta">
-        ${d.estimateNo?('No. '+esc(d.estimateNo)+'<br>'):''}${d.date?('Date: '+esc(d.date)+'<br>'):''}${d.validUntil?('Valid until: '+esc(d.validUntil)):''}</div></div>
+        ${d.estimateNo?('No. '+esc(d.estimateNo)+'<br>'):''}${d.date?('Date: '+esc(pdfDate(d.date))+'<br>'):''}${d.validUntil?('Valid until: '+esc(pdfDate(d.validUntil))):''}</div></div>
     </div>
     <div class="parties">
       <div><h4>Prepared for</h4><div><strong>${esc(cl.name||'—')}</strong>${cl.address?('<br>'+esc(cl.address)):''}</div></div>

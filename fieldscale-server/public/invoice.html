@@ -182,6 +182,7 @@ async function apiFetch(path, options={}){
   return data;
 }
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pdfDate(v){ if(v==null||v==='') return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; const d=new Date(typeof v==='number'?v:s); if(isNaN(d.getTime())) return s; const p=n=>String(n).padStart(2,'0'); return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+d.getFullYear(); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 // Units: a small dropdown (legacy free-text values are mapped/kept so nothing is lost).
 const UNIT_OPTS=['SF','LF','EA','CY','HR','LS'];
@@ -333,7 +334,7 @@ function openInvoicePDF(){
       <td class="r">${money((Number(l.qty)||0)*(Number(l.unitCost)||0))}</td>
     </tr>`).join('');
   const co=doc.company||{}, cl=doc.client||{};
-  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join('<br>');
   const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(invName)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -371,8 +372,8 @@ function openInvoicePDF(){
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
     <div class="doc"><div class="big">INVOICE</div><div class="meta">
       ${doc.invoiceNo?('No. '+escapeHtml(doc.invoiceNo)+'<br>'):''}
-      ${doc.date?('Date: '+escapeHtml(doc.date)+'<br>'):''}
-      ${doc.dueDate?('Due: '+escapeHtml(doc.dueDate)):''}
+      ${doc.date?('Date: '+escapeHtml(pdfDate(doc.date))+'<br>'):''}
+      ${doc.dueDate?('Due: '+escapeHtml(pdfDate(doc.dueDate))):''}
     </div></div>
   </div>
   <div class="parties">

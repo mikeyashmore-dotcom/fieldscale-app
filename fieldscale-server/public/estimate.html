@@ -258,6 +258,9 @@ async function apiFetch(path, options={}){
   return data;
 }
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+// Dates on printed documents show as MM-DD-YYYY. ISO date strings (from date inputs) are reordered
+// directly to avoid any timezone day-shift; timestamps/other strings go through Date.
+function pdfDate(v){ if(v==null||v==='') return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; const d=new Date(typeof v==='number'?v:s); if(isNaN(d.getTime())) return s; const p=n=>String(n).padStart(2,'0'); return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+d.getFullYear(); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
@@ -571,7 +574,7 @@ document.getElementById('contract-btn').addEventListener('click', ()=>{
     .replace(/\{\{total\}\}/g, money(t.total))
     .replace(/\{\{scope\}\}/g, scope)
     .replace(/\{\{company\}\}/g, co.name||doc.company&&doc.company.name||'')
-    .replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
+    .replace(/\{\{date\}\}/g, pdfDate(Date.now()))
     .replace(/\{\{license\}\}/g, co.license||'');
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contract — ${escapeHtml(cl.name||'')}</title>
 <style>body{font-family:Georgia,'Times New Roman',serif;color:#1c1e22;max-width:760px;margin:0 auto;padding:48px 40px;font-size:14px;line-height:1.7;white-space:pre-wrap}
@@ -625,7 +628,7 @@ function proposalDocHTML(forDownload){
   if(doc.validDays>0) termsExtra.push(`This proposal is valid for ${doc.validDays} days from the date of issue.`);
   const termsBody=[...termsExtra.map(escapeHtml), ...(doc.terms?[escapeHtml(doc.terms)]:[])].join('\n');
   const co=doc.company||{}, cl=doc.client||{};
-  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join('<br>');
   const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(estName)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -661,8 +664,8 @@ function proposalDocHTML(forDownload){
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
     <div class="doc"><div class="big">ESTIMATE</div><div class="meta">
       ${doc.estimateNo?('No. '+escapeHtml(doc.estimateNo)+'<br>'):''}
-      ${doc.date?('Date: '+escapeHtml(doc.date)+'<br>'):''}
-      ${doc.validUntil?('Valid until: '+escapeHtml(doc.validUntil)):''}
+      ${doc.date?('Date: '+escapeHtml(pdfDate(doc.date))+'<br>'):''}
+      ${doc.validUntil?('Valid until: '+escapeHtml(pdfDate(doc.validUntil))):''}
     </div></div>
   </div>
   <div class="parties">

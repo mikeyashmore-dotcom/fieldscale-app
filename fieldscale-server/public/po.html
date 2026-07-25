@@ -160,6 +160,7 @@ async function apiFetch(path, options={}){
   return data;
 }
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pdfDate(v){ if(v==null||v==='') return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; const d=new Date(typeof v==='number'?v:s); if(isNaN(d.getTime())) return s; const p=n=>String(n).padStart(2,'0'); return p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+d.getFullYear(); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const UNIT_OPTS=['SF','LF','EA','CY','HR','LS'];
 const UNIT_MAP={sqft:'SF',sf:'SF',lnft:'LF',lf:'LF',lin:'LF',each:'EA',ea:'EA',cuyd:'CY',cy:'CY',cy3:'CY',hour:'HR',hr:'HR',hrs:'HR',ls:'LS'};
@@ -259,7 +260,7 @@ function openPOPDF(){
       <td class="r">${money((Number(l.qty)||0)*(Number(l.unitCost)||0))}</td>
     </tr>`).join('');
   const co=company||{}, sp=doc.supplier||{};
-  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join('<br>');
   const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
   const jobName=(document.getElementById('job-id').selectedOptions[0]||{}).textContent||'';
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(poName)}</title>
@@ -297,8 +298,8 @@ function openPOPDF(){
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
     <div class="doc"><div class="big">PURCHASE ORDER</div><div class="meta">
       ${doc.poNo?('No. '+escapeHtml(doc.poNo)+'<br>'):''}
-      ${doc.date?('Date: '+escapeHtml(doc.date)+'<br>'):''}
-      ${doc.neededBy?('Needed by: '+escapeHtml(doc.neededBy)):''}
+      ${doc.date?('Date: '+escapeHtml(pdfDate(doc.date))+'<br>'):''}
+      ${doc.neededBy?('Needed by: '+escapeHtml(pdfDate(doc.neededBy))):''}
     </div></div>
   </div>
   <div class="parties">

@@ -191,10 +191,12 @@
           <textarea id="terms" placeholder="Payment terms, deposit, warranty, validity…"></textarea>
         </div>
         <div class="block">
-          <h3>Proposal pricing — what the customer sees</h3>
+          <h3>Proposal columns — what the customer sees</h3>
+          <label class="pdopt"><input type="checkbox" id="opt-qty" checked /> Show quantity</label>
+          <label class="pdopt"><input type="checkbox" id="opt-uom" checked /> Show unit</label>
           <label class="pdopt"><input type="checkbox" id="opt-unit" checked /> Show per-unit price</label>
           <label class="pdopt"><input type="checkbox" id="opt-line" checked /> Show line total</label>
-          <div class="pdhint">Overhead, profit &amp; tax are always folded into whichever prices you show. Uncheck both to show only the final Total (lump sum).</div>
+          <div class="pdhint">Overhead, profit &amp; tax are always folded into whichever prices you show. Turn any column off to simplify the proposal — the Total stays the same.</div>
         </div>
       </div>
       <div class="totals">
@@ -423,6 +425,8 @@ function syncDocFromForm(){
   doc.discount=parseFloat(document.getElementById('t-disc').value)||0;
   doc.discountType=(doc.discountType==='amt'?'amt':'pct');
   doc.estimateClass=document.getElementById('est-class').value;
+  doc.showQty=document.getElementById('opt-qty').checked;
+  doc.showUnit=document.getElementById('opt-uom').checked;
   doc.showUnitPrice=document.getElementById('opt-unit').checked;
   doc.showLineTotal=document.getElementById('opt-line').checked;
   // Keep each line's unitCost = material + labor(hrs×rate) at full precision so the invoice, PDF and
@@ -566,15 +570,16 @@ function proposalDocHTML(forDownload){
   // Overhead, profit and tax are internal — the customer only ever sees final prices. Fold all of
   // them into the shown line prices (scale so the amounts add up to the pre-discount total).
   const sf = t.subtotal>0 ? (t.price + t.tax)/t.subtotal : 1;
-  // Which price columns the customer sees (overhead/profit/tax already folded in via sf).
-  const showUnit = doc.showUnitPrice!==false, showLine = doc.showLineTotal!==false;
+  // Which columns the customer sees (overhead/profit/tax already folded into the prices via sf).
+  const showQty = doc.showQty!==false, showUnit = doc.showUnit!==false,
+        showUnitPrice = doc.showUnitPrice!==false, showLineTotal = doc.showLineTotal!==false;
   const rows=doc.lines.map((l,i)=>`<tr>
       <td class="c">${i+1}</td>
       <td>${l.code?`<span class="code" style="margin-right:6px">${escapeHtml(l.code)}</span>`:''}<strong>${escapeHtml(l.name)}</strong>${l.description?`<div class="code">${escapeHtml(l.description)}</div>`:''}</td>
-      <td class="r">${Number(l.qty)||0}</td>
-      <td>${escapeHtml(normUnit(l.unit))}</td>
-      ${showUnit?`<td class="r">${money(lineUnitPrice(l)*sf)}</td>`:''}
-      ${showLine?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}
+      ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}
+      ${showUnit?`<td>${escapeHtml(normUnit(l.unit))}</td>`:''}
+      ${showUnitPrice?`<td class="r">${money(lineUnitPrice(l)*sf)}</td>`:''}
+      ${showLineTotal?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}
     </tr>`).join('');
   const co=doc.company||{}, cl=doc.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
@@ -622,8 +627,8 @@ function proposalDocHTML(forDownload){
     ${doc.project?`<div><h4>Project</h4><div class="val">${escapeHtml(doc.project)}</div></div>`:''}
   </div>
   <table>
-    <thead><tr><th class="c">#</th><th>Description</th><th class="r">Qty</th><th>Unit</th>${showUnit?'<th class="r">Unit price</th>':''}${showLine?'<th class="r">Amount</th>':''}</tr></thead>
-    <tbody>${rows||`<tr><td colspan="${4+(showUnit?1:0)+(showLine?1:0)}" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>`}</tbody>
+    <thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUnit?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
+    <tbody>${rows||`<tr><td colspan="${2+(showQty?1:0)+(showUnit?1:0)+(showUnitPrice?1:0)+(showLineTotal?1:0)}" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>`}</tbody>
   </table>
   <div class="totals">
     ${t.discount>0?`<div class="tr"><span>Subtotal</span><span>${money(t.price+t.tax)}</span></div>
@@ -694,7 +699,9 @@ function fillForm(){
   document.getElementById('t-disc').value=doc.discount||0;
   document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
   document.getElementById('est-class').value = doc.estimateClass || 'residential';
-  // Default both on for older estimates that predate this option.
+  // Default all on for older estimates that predate these options.
+  document.getElementById('opt-qty').checked = doc.showQty!==false;
+  document.getElementById('opt-uom').checked = doc.showUnit!==false;
   document.getElementById('opt-unit').checked = doc.showUnitPrice!==false;
   document.getElementById('opt-line').checked = doc.showLineTotal!==false;
 }

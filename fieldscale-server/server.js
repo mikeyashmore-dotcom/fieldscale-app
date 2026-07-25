@@ -742,6 +742,7 @@ const server = http.createServer(async (req, res) => {
         company: doc.company || {}, client: doc.client || {}, project: doc.project || '',
         estimateNo: doc.estimateNo || '', date: doc.date || '', validUntil: doc.validUntil || '',
         lines, markupPct: doc.markupPct || 0, profitPct: doc.profitPct || 0, taxPct: doc.taxPct || 0,
+        showQty: doc.showQty !== false, showUnit: doc.showUnit !== false,
         showUnitPrice: doc.showUnitPrice !== false, showLineTotal: doc.showLineTotal !== false,
         discount: doc.discount || 0, discountType: doc.discountType || 'pct',
         notes: doc.notes || '', terms: doc.terms || '', signature: doc.signature || null });

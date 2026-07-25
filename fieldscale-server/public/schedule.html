@@ -58,6 +58,7 @@
     <a href="/workorders.html">Work Orders</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
+    <a href="/followups.html">Follow-ups</a>
     <a href="/reports.html">Reports</a>
     <a href="/company.html">Company</a>
     <a href="/admin.html" id="owner-nav">Owner</a>
@@ -152,7 +153,7 @@ function renderAgenda(){
   else el.innerHTML=upcoming.slice(0,20).map(j=>`<div class="arow" onclick="location.href='/job.html?id=${esc(j.id)}'">
     <span class="dot ${scls(j.status)}"></span>
     <span class="when">${esc(fmtWhen(j))}</span>
-    <span class="nm">${esc(j.name)}</span>
+    <span class="nm">${esc(j.name)}${(j.crew&&j.crew.length)?` <span style="color:var(--steel);font-weight:400;font-size:12px">· 👷 ${esc(j.crew.join(', '))}</span>`:''}</span>
     <span class="cl">${esc(j.client)||''}</span>
     <span class="amt">${j.contract?money(j.contract):''}</span></div>`).join('');
   const un=jobs.filter(j=>!pd(j.start)&&!pd(j.due));

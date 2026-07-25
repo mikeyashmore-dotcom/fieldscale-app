@@ -80,6 +80,7 @@
     <a href="/workorders.html">Work Orders</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
+    <a href="/followups.html">Follow-ups</a>
     <a href="/reports.html">Reports</a>
     <a href="/company.html">Company</a>
     <a href="/admin.html" id="owner-nav">Owner</a>
@@ -112,6 +113,7 @@
         </div>
       </div>
       <button class="btn ghost" id="save-tpl-btn" title="Save these line items, markup, tax, notes & terms as a reusable template">Save as Template</button>
+      <button class="btn ghost" id="share-btn" title="Get a link the client can open to review and approve this estimate online">🔗 Share for approval</button>
       <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">→ Job</button>
       <button class="btn ghost" id="to-invoice-btn">→ Invoice</button>
       <button class="btn ghost" id="download-pdf-btn" title="Download a PDF file">⬇ Download PDF</button>
@@ -440,6 +442,16 @@ document.getElementById('download-pdf-btn').addEventListener('click', async (e)=
   try{ await save(); await downloadProposalPDF(); toast('PDF downloaded.'); }
   catch(err){ toast(err.message||'PDF download failed.', true); }
   finally{ btn.disabled=false; btn.textContent=label; }
+});
+document.getElementById('share-btn').addEventListener('click', async ()=>{
+  try{
+    await save();
+    const r = await apiFetch('/api/estimates/'+estId+'/share', { method:'POST' });
+    const url = location.origin + '/accept.html?token=' + r.token;
+    try{ await navigator.clipboard.writeText(url); toast('Approval link copied to clipboard.'); }
+    catch(e){ toast('Approval link ready.'); }
+    prompt('Send this link to your client — they can review and approve it online:', url);
+  }catch(err){ toast(err.message, true); }
 });
 document.getElementById('to-job-btn').addEventListener('click', async ()=>{
   if(!confirm('Turn this estimate into a scheduled job? Its line items become your scope of work checklist.')) return;

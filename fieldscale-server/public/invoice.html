@@ -61,6 +61,7 @@
     <a href="/proposals.html">Estimates</a>
     <a href="/invoices.html" class="active">Invoices</a>
     <a href="/estimates.html">Price Book</a>
+    <a href="/followups.html">Follow-ups</a>
     <a href="/reports.html">Reports</a>
     <a href="/company.html">Company</a>
     <a href="/admin.html" id="owner-nav">Owner</a>
@@ -140,6 +141,7 @@
         <div class="tr"><span>Subtotal</span><span class="v" id="t-sub">$0.00</span></div>
         <div class="tr"><span>Discount <input class="pct" id="t-disc" inputmode="decimal" value="0" /><button type="button" class="disc-type" id="t-disc-type" title="Switch between percent off and a dollar amount">%</button></span><span class="v" id="t-discv">$0.00</span></div>
         <div class="tr"><span>Tax <input class="pct" id="t-tax" inputmode="decimal" value="0" />%</span><span class="v" id="t-tx">$0.00</span></div>
+        <div class="tr"><span>Late fee $<input class="pay" id="t-late" inputmode="decimal" value="0" title="A flat late fee added to the balance for overdue payment" /></span><span class="v" id="t-latev">$0.00</span></div>
         <div class="tr total"><span>Total</span><span class="v" id="t-total">$0.00</span></div>
         <div class="tr" id="deposit-row"><span>Deposit due <input class="pct" id="t-dep" inputmode="decimal" value="0" /><button type="button" class="disc-type" id="t-dep-type" title="Switch between percent of the total and a dollar amount">%</button></span><span class="v" id="t-depv">$0.00</span></div>
         <div class="tr"><span>Amount paid $<input class="pay" id="t-paid" inputmode="decimal" value="0" /></span><span class="v" id="t-paidv">$0.00</span></div>
@@ -196,13 +198,14 @@ function computeTotals(){
   discount = Math.min(Math.max(discount,0), subtotal); // never negative, never more than the subtotal
   const taxable = subtotal - discount;
   const tax = taxable*(Number(doc.taxPct)||0)/100;
-  const total = taxable + tax;
+  const lateFee = Math.max(0, Number(doc.lateFee)||0); // flat late fee added to the bill
+  const total = taxable + tax + lateFee;
   const paid = Number(doc.amountPaid)||0;
   // Deposit due upfront: a % of the total or a flat $ (informational — the balance still tracks payments).
   const depInput = Number(doc.deposit)||0;
   let deposit = doc.depositType==='amt' ? depInput : total*depInput/100;
   deposit = Math.min(Math.max(deposit,0), total);
-  return { subtotal, discount, tax, total, deposit, paid, balance: total - paid };
+  return { subtotal, discount, tax, lateFee, total, deposit, paid, balance: total - paid };
 }
 function statusOf(t){ if(t.paid<=0) return 'unpaid'; if(t.paid+0.005>=t.total) return 'paid'; return 'partial'; }
 function renderTotals(){
@@ -210,6 +213,7 @@ function renderTotals(){
   document.getElementById('t-sub').textContent=money(t.subtotal);
   document.getElementById('t-discv').textContent = t.discount>0 ? '-'+money(t.discount) : money(0);
   document.getElementById('t-tx').textContent=money(t.tax);
+  document.getElementById('t-latev').textContent=money(t.lateFee);
   document.getElementById('t-total').textContent=money(t.total);
   document.getElementById('t-depv').textContent=money(t.deposit);
   document.getElementById('t-paidv').textContent=money(t.paid);
@@ -278,6 +282,7 @@ document.getElementById('t-dep-type').addEventListener('click', ()=>{
 });
 document.getElementById('t-tax').addEventListener('input', ()=>{ doc.taxPct=parseFloat(document.getElementById('t-tax').value)||0; renderTotals(); });
 document.getElementById('t-paid').addEventListener('input', ()=>{ doc.amountPaid=parseFloat(document.getElementById('t-paid').value)||0; renderTotals(); });
+document.getElementById('t-late').addEventListener('input', ()=>{ doc.lateFee=parseFloat(document.getElementById('t-late').value)||0; renderTotals(); });
 
 function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
@@ -288,7 +293,7 @@ function syncDocFromForm(){
   doc.client={ name:val('cl-name'), address:val('cl-address') };
   doc.project=val('project'); doc.invoiceNo=val('inv-no'); doc.date=val('inv-date'); doc.dueDate=val('inv-due');
   doc.notes=val('notes'); doc.terms=val('terms');
-  doc.taxPct=parseFloat(val('t-tax'))||0; doc.amountPaid=parseFloat(val('t-paid'))||0;
+  doc.taxPct=parseFloat(val('t-tax'))||0; doc.amountPaid=parseFloat(val('t-paid'))||0; doc.lateFee=parseFloat(val('t-late'))||0;
   doc.discount=parseFloat(val('t-disc'))||0; doc.discountType=(doc.discountType==='amt'?'amt':'pct');
   doc.deposit=parseFloat(val('t-dep'))||0; doc.depositType=(doc.depositType==='amt'?'amt':'pct');
 }
@@ -364,6 +369,7 @@ function openInvoicePDF(){
     <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
     ${t.discount>0?`<div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
     ${doc.taxPct?`<div class="tr"><span>Tax (${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
+    ${t.lateFee>0.005?`<div class="tr"><span>Late fee</span><span>${money(t.lateFee)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
     ${t.deposit>0.005?`<div class="tr"><span>Deposit due${doc.depositType!=='amt'&&doc.deposit?` (${doc.deposit}%)`:''}</span><span>${money(t.deposit)}</span></div>`:''}
     ${t.paid>0?`<div class="tr"><span>Amount paid</span><span>-${money(t.paid)}</span></div>`:''}
@@ -387,6 +393,7 @@ function fillForm(){
   set('notes',doc.notes); set('terms',doc.terms);
   document.getElementById('t-tax').value=doc.taxPct||0;
   document.getElementById('t-paid').value=doc.amountPaid||0;
+  document.getElementById('t-late').value=doc.lateFee||0;
   document.getElementById('t-disc').value=doc.discount||0;
   document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
   document.getElementById('t-dep').value=doc.deposit||0;

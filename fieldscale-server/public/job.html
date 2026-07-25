@@ -67,6 +67,7 @@
     <a href="/workorders.html">Work Orders</a>
     <a href="/invoices.html">Invoices</a>
     <a href="/estimates.html">Price Book</a>
+    <a href="/followups.html">Follow-ups</a>
     <a href="/reports.html">Reports</a>
     <a href="/company.html">Company</a>
     <a href="/admin.html" id="owner-nav">Owner</a>
@@ -104,10 +105,14 @@
         <div class="field"><label>Project / job</label><input id="project" /></div>
       </div>
       <div class="block">
-        <h3>Schedule</h3>
+        <h3>Schedule &amp; crew</h3>
         <div class="row2">
           <div class="field"><label>Start date</label><input id="start-date" type="date" /></div>
           <div class="field"><label>Due date</label><input id="due-date" type="date" /></div>
+        </div>
+        <div class="field"><label>Assigned crew</label>
+          <input id="crew" list="team-list" placeholder="Names, comma-separated" />
+          <datalist id="team-list"></datalist>
         </div>
       </div>
     </div>
@@ -140,12 +145,22 @@
       </div>
       <div class="lines-scroll">
         <table class="lines cost-table">
-          <thead><tr><th>Category</th><th>Description</th><th class="num">Amount</th><th>Date</th><th></th></tr></thead>
+          <thead><tr><th>Category</th><th>Code</th><th>Description</th><th class="num">Amount</th><th>Date</th><th></th></tr></thead>
           <tbody id="cost-lines"></tbody>
         </table>
       </div>
     </div>
     <div style="margin:10px 0 18px"><button class="btn ghost" id="add-cost">＋ Add cost</button></div>
+    <datalist id="csi-list">
+      <option value="01">01 · General Requirements</option><option value="02">02 · Existing Conditions</option>
+      <option value="03">03 · Concrete</option><option value="04">04 · Masonry</option>
+      <option value="05">05 · Metals</option><option value="06">06 · Wood &amp; Plastics</option>
+      <option value="07">07 · Thermal &amp; Moisture</option><option value="08">08 · Openings</option>
+      <option value="09">09 · Finishes</option><option value="10">10 · Specialties</option>
+      <option value="21">21 · Fire Suppression</option><option value="22">22 · Plumbing</option>
+      <option value="23">23 · HVAC</option><option value="26">26 · Electrical</option>
+      <option value="31">31 · Earthwork</option><option value="32">32 · Exterior Improvements</option>
+    </datalist>
 
     <div class="block" style="padding:0;overflow:hidden">
       <div style="padding:14px 14px 0">
@@ -366,10 +381,11 @@ function renderCostBreakdown(){
 function renderCosts(){
   const tb=document.getElementById('cost-lines');
   const costs=doc.costs||[];
-  if(!costs.length){ tb.innerHTML=`<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--steel)">No costs logged yet. Add labor, material, subcontractor and equipment costs as the job runs.</td></tr>`; renderCostBreakdown(); return; }
+  if(!costs.length){ tb.innerHTML=`<tr><td colspan="6" style="padding:18px;text-align:center;color:var(--steel)">No costs logged yet. Add labor, material, subcontractor and equipment costs as the job runs.</td></tr>`; renderCostBreakdown(); return; }
   tb.innerHTML=costs.map((c,i)=>`
     <tr>
       <td><select data-xi="${i}" data-xf="category">${COST_CATEGORIES.map(k=>`<option${(c.category||'Other')===k?' selected':''}>${k}</option>`).join('')}</select></td>
+      <td><input type="text" data-xi="${i}" data-xf="code" value="${escapeHtml(c.code||'')}" list="csi-list" placeholder="CSI" style="width:70px" /></td>
       <td><input type="text" data-xi="${i}" data-xf="description" value="${escapeHtml(c.description)}" placeholder="e.g. crew day, supplier PO" /></td>
       <td class="num"><input class="num" data-xi="${i}" data-xf="amount" value="${c.amount}" inputmode="decimal" style="width:100px" /></td>
       <td><input type="date" data-xi="${i}" data-xf="date" value="${escapeHtml(c.date)}" /></td>
@@ -608,6 +624,7 @@ function syncDocFromForm(){
   jobName=val('job-name')||'Untitled Job';
   doc.client={ name:val('cl-name') }; doc.project=val('project');
   doc.startDate=val('start-date'); doc.dueDate=val('due-date'); doc.notes=val('notes');
+  doc.crew=(val('crew')||'').split(',').map(s=>s.trim()).filter(Boolean);
   doc.company=doc.company||{}; doc.fromEstimateId=doc.fromEstimateId||'';
   doc.costs=doc.costs||[];
   // actualCost stays in sync with the logged costs, so older readers still see a single number.
@@ -711,6 +728,7 @@ function fillForm(){
   document.getElementById('status').value = statusVal;
   set('cl-name',(doc.client||{}).name); set('project',doc.project);
   set('start-date',doc.startDate); set('due-date',doc.dueDate); set('notes',doc.notes);
+  set('crew', Array.isArray(doc.crew)?doc.crew.join(', '):'');
   const c=doc.costing||{};
   set('c-contract', c.contract!=null ? c.contract : '');
   set('c-budget', c.budget!=null ? c.budget : '');
@@ -743,6 +761,11 @@ async function init(){
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     fillForm(); renderLines(); refreshDash();
+    // Team roster → crew datalist (and default time-entry rates).
+    getCompany().then(co=>{
+      const team=(co&&co.team)||[];
+      document.getElementById('team-list').innerHTML = team.map(t=>`<option value="${escapeHtml(t.name)}">${escapeHtml(t.role||'')}</option>`).join('');
+    });
   }catch(err){ document.getElementById('loading').textContent='Could not load job: '+err.message; }
 }
 init();

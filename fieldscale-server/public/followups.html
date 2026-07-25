@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Follow-ups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  h2{font-family:'Oswald',sans-serif;font-size:18px;font-weight:600;margin:28px 0 4px}
+  .section-sub{color:var(--steel);font-size:13px;margin:0 0 12px}
+  td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+  .rowlink{cursor:pointer} .rowlink:hover td{background:#FbF9F3}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.over{background:rgba(192,57,43,.12);color:var(--danger)}
+  .pill.soon{background:rgba(232,114,44,.15);color:var(--orange-dim)}
+  .pill.ok{background:rgba(74,155,110,.15);color:var(--good)}
+  .empty{color:var(--steel);padding:22px;text-align:center}
+  .count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel);font-weight:400}
+  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:520px} }
+</style>
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/leads.html">Leads</a>
+    <a href="/customers.html">Customers</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
+    <a href="/schedule.html">Schedule</a>
+    <a href="/purchase-orders.html">Purchase Orders</a>
+    <a href="/workorders.html">Work Orders</a>
+    <a href="/invoices.html">Invoices</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/followups.html" class="active">Follow-ups</a>
+    <a href="/reports.html">Reports</a>
+    <a href="/company.html">Company</a>
+    <a href="/admin.html" id="owner-nav">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <h1>Follow-ups &amp; reminders</h1>
+  <p class="sub">Your to-do list for staying on top of work — leads to chase and invoices to collect.</p>
+  <div id="loading" class="loading">Loading…</div>
+  <div id="content" style="display:none">
+
+    <h2>Leads to follow up <span class="count" id="lead-count"></span></h2>
+    <p class="section-sub">Open leads with a follow-up date. Overdue ones are flagged.</p>
+    <div class="card"><table>
+      <thead><tr><th>Lead</th><th>Stage</th><th>Follow-up date</th><th class="num">Value</th><th></th></tr></thead>
+      <tbody id="lead-rows"></tbody>
+    </table></div>
+
+    <h2>Invoices to collect <span class="count" id="inv-count"></span></h2>
+    <p class="section-sub">Unpaid invoices, most overdue first — a nudge to send a reminder.</p>
+    <div class="card"><table>
+      <thead><tr><th>Invoice</th><th>Client</th><th>Due</th><th class="num">Days over</th><th class="num">Owed</th></tr></thead>
+      <tbody id="inv-rows"></tbody>
+    </table></div>
+  </div>
+</div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path){
+  const res=await fetch(path,{headers:{'Authorization':'Bearer '+getToken()}});
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json(); if(!res.ok) throw new Error(data.error||'Request failed'); return data;
+}
+function money(n){ n=Number(n)||0; return '$'+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function render(d){
+  const lr=document.getElementById('lead-rows');
+  const overdueLeads=d.leads.filter(l=>l.overdue).length;
+  document.getElementById('lead-count').textContent = d.leads.length ? `(${d.leads.length}${overdueLeads?`, ${overdueLeads} overdue`:''})` : '';
+  lr.innerHTML = d.leads.length ? d.leads.map(l=>`<tr class="rowlink" onclick="location.href='/lead.html?id=${esc(l.id)}'">
+    <td><strong>${esc(l.name)||'(no name)'}</strong></td>
+    <td class="muted" style="text-transform:capitalize">${esc(l.stage||'new')}</td>
+    <td>${esc(l.followUp)}</td>
+    <td class="num">${l.value?money(l.value):'—'}</td>
+    <td>${l.overdue?'<span class="pill over">overdue</span>':'<span class="pill soon">upcoming</span>'}</td>
+  </tr>`).join('') : '<tr><td colspan="5" class="empty">No leads waiting on a follow-up. Set a follow-up date on a lead to see it here.</td></tr>';
+
+  const ir=document.getElementById('inv-rows');
+  const overdueInv=d.invoices.filter(i=>i.overdue).length;
+  document.getElementById('inv-count').textContent = d.invoices.length ? `(${d.invoices.length}${overdueInv?`, ${overdueInv} overdue`:''})` : '';
+  ir.innerHTML = d.invoices.length ? d.invoices.map(i=>`<tr class="rowlink" onclick="location.href='/invoice.html?id=${esc(i.id)}'">
+    <td>${esc(i.name)}</td>
+    <td class="muted">${esc(i.client)||'—'}</td>
+    <td class="muted">${esc(i.dueDate)||'—'}</td>
+    <td class="num">${i.daysOver>0?`<span class="pill over">${i.daysOver}d</span>`:'<span class="pill ok">—</span>'}</td>
+    <td class="num">${money(i.owed)}</td>
+  </tr>`).join('') : '<tr><td colspan="5" class="empty">Nothing outstanding — all invoices are paid. 🎉</td></tr>';
+}
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{
+    const d=await apiFetch('/api/followups');
+    render(d);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+  }catch(err){ document.getElementById('loading').textContent='Could not load follow-ups: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

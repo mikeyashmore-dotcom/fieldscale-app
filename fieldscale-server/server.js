@@ -728,6 +728,39 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
     }
 
+    // ---- Public (no login): a client viewing / approving a shared estimate by token ----
+    if (pathname === '/api/public/estimate' && req.method === 'GET') {
+      const token = (parsed.query && parsed.query.token) || '';
+      const est = token ? db.estimates.find(e => e.shareToken === token) : null;
+      if (!est) return sendJSON(res, 404, { error: 'This link is no longer valid.' });
+      const doc = readEstimateDoc(est.id);
+      // Only expose what a client should see — the proposal, not internal notes.
+      const lines = (doc.lines || []).map(l => ({ name: l.name, code: l.code, unit: l.unit,
+        qty: l.qty, unitCost: l.unitCost, mode: l.mode, unitPrice: l.unitPrice, material: l.material,
+        laborHours: l.laborHours, laborRate: l.laborRate }));
+      return sendJSON(res, 200, { name: est.name, status: est.status,
+        company: doc.company || {}, client: doc.client || {}, project: doc.project || '',
+        estimateNo: doc.estimateNo || '', date: doc.date || '', validUntil: doc.validUntil || '',
+        lines, markupPct: doc.markupPct || 0, taxPct: doc.taxPct || 0,
+        discount: doc.discount || 0, discountType: doc.discountType || 'pct',
+        notes: doc.notes || '', terms: doc.terms || '', signature: doc.signature || null });
+    }
+    if (pathname === '/api/public/estimate-accept' && req.method === 'POST') {
+      const b = await readBody(req);
+      const est = b.token ? db.estimates.find(e => e.shareToken === b.token) : null;
+      if (!est) return sendJSON(res, 404, { error: 'This link is no longer valid.' });
+      const name = String(b.name || '').trim();
+      if (!name) return sendJSON(res, 400, { error: 'Please type your name to approve.' });
+      const doc = readEstimateDoc(est.id);
+      if (doc.signature && doc.signature.name) return sendJSON(res, 200, { alreadyAccepted: true, at: doc.signature.at });
+      const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+      doc.signature = { name: name.slice(0, 120), at: Date.now(), ip: String(ip).slice(0, 60) };
+      writeEstimateDoc(est.id, doc);
+      est.status = 'accepted'; est.updatedAt = Date.now();
+      saveDB(db);
+      return sendJSON(res, 200, { accepted: true, at: doc.signature.at });
+    }
+
     // ---- Everything past this point requires a valid session ----
     if (pathname.startsWith('/api/')) {
       const me = getAuthedUser(req);
@@ -1181,7 +1214,14 @@ const server = http.createServer(async (req, res) => {
           license: String(p.license || '').slice(0, 80),
           website: String(p.website || '').slice(0, 160),
           address: String(p.address || '').slice(0, 300),
-          logo: logoOk ? p.logo : ''
+          logo: logoOk ? p.logo : '',
+          // Team / labor rates — a small roster the app reuses for time entries and crew dispatch.
+          team: Array.isArray(p.team) ? p.team.slice(0, 100).map(t => ({
+            id: String(t.id || ('tm_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
+            name: String(t.name || '').slice(0, 80),
+            role: String(t.role || '').slice(0, 80),
+            rate: Number(t.rate) || 0
+          })).filter(t => t.name || t.role) : []
         };
         writeCompany(me.companyId, clean);
         saveDB(db); // persist any invoice-counter change on the company record
@@ -1314,6 +1354,14 @@ const server = http.createServer(async (req, res) => {
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }
+      }
+      // Create (or fetch) a public share link so a client can view & approve an estimate online.
+      const estShareMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)\/share$/);
+      if (estShareMatch && req.method === 'POST') {
+        const est = db.estimates.find(e => e.id === estShareMatch[1] && e.companyId === me.companyId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        if (!est.shareToken) { est.shareToken = crypto.randomBytes(16).toString('hex'); est.updatedAt = Date.now(); saveDB(db); }
+        return sendJSON(res, 200, { token: est.shareToken });
       }
 
       // ---- Invoicing: list / create / convert-from-estimate ----
@@ -1606,9 +1654,32 @@ const server = http.createServer(async (req, res) => {
             }, { price: 0 });
             return { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
                      start: jd.startDate || '', due: jd.dueDate || '',
+                     crew: Array.isArray(jd.crew) ? jd.crew : [],
                      contract: Math.round(((Number(c.contract) || 0) + co.price) * 100) / 100 };
           });
         return sendJSON(res, 200, list);
+      }
+      // ---- Follow-ups & reminders: leads due for follow-up + overdue invoices to chase ----
+      if (pathname === '/api/followups' && req.method === 'GET') {
+        const DAY = 86400000, now = Date.now();
+        const todayStr = new Date(now).toISOString().slice(0, 10);
+        const leads = db.leads.filter(l => l.companyId === me.companyId && l.followUp &&
+            l.stage !== 'won' && l.stage !== 'lost')
+          .map(l => ({ id: l.id, name: l.name, stage: l.stage, followUp: l.followUp, value: l.value,
+            overdue: l.followUp <= todayStr }))
+          .sort((a, b) => (a.followUp < b.followUp ? -1 : 1));
+        const invoices = [];
+        db.invoices.filter(i => i.companyId === me.companyId).forEach(i => {
+          const owed = Math.round(((Number(i.total) || 0) - (Number(i.amountPaid) || 0)) * 100) / 100;
+          if (owed <= 0.005) return;
+          const doc = readInvoiceDoc(i.id) || {};
+          const due = doc.dueDate ? Date.parse(doc.dueDate) : null;
+          const daysOver = due ? Math.floor((now - due) / DAY) : 0;
+          invoices.push({ id: i.id, name: i.name, client: i.client || '', owed, dueDate: doc.dueDate || '',
+            daysOver: daysOver > 0 ? daysOver : 0, overdue: daysOver > 0 });
+        });
+        invoices.sort((a, b) => b.daysOver - a.daysOver || b.owed - a.owed);
+        return sendJSON(res, 200, { leads, invoices, today: todayStr });
       }
 
       // ---- Projects/Jobs: list / create / convert-from-estimate ----

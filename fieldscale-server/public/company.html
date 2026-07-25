@@ -89,6 +89,21 @@
       </div>
     </div>
 
+    <div class="card" style="margin-top:18px">
+      <h3 style="font-family:'Oswald',sans-serif;font-size:16px;margin:0 0 4px">Team &amp; labor rates</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 12px">Your crew and their hourly rates. These fill in automatically when you log time on a job and let you assign crew to jobs.</p>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;font-size:11px;color:var(--steel);text-transform:uppercase;padding:4px 6px">Name</th>
+          <th style="text-align:left;font-size:11px;color:var(--steel);text-transform:uppercase;padding:4px 6px">Role / trade</th>
+          <th style="text-align:right;font-size:11px;color:var(--steel);text-transform:uppercase;padding:4px 6px">Rate $/hr</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="team-rows"></tbody>
+      </table>
+      <button class="btn ghost" id="add-team" style="margin-top:10px">＋ Add person</button>
+    </div>
+
     <div class="toolbar">
       <div class="spacer"></div>
       <button class="btn primary" id="save-btn">Save profile</button>
@@ -145,13 +160,39 @@ document.getElementById('logo-input').addEventListener('change', e=>{
 
 function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---- Team & labor rates ----
+let team=[];
+function renderTeam(){
+  const tb=document.getElementById('team-rows');
+  if(!team.length){ tb.innerHTML=`<tr><td colspan="4" style="color:var(--steel);font-size:13px;padding:8px 6px">No team members yet.</td></tr>`; return; }
+  tb.innerHTML=team.map((t,i)=>`<tr>
+    <td style="padding:3px 6px"><input data-ti="${i}" data-tf="name" value="${esc(t.name)}" placeholder="e.g. Mike" /></td>
+    <td style="padding:3px 6px"><input data-ti="${i}" data-tf="role" value="${esc(t.role)}" placeholder="e.g. Lead carpenter" /></td>
+    <td style="padding:3px 6px"><input class="num" data-ti="${i}" data-tf="rate" value="${t.rate||0}" inputmode="decimal" style="text-align:right;font-family:'IBM Plex Mono',monospace" /></td>
+    <td style="padding:3px 6px;text-align:right"><button class="btn ghost" data-tdel="${i}" style="padding:4px 8px">✕</button></td>
+  </tr>`).join('');
+}
+document.getElementById('team-rows').addEventListener('input', e=>{
+  const i=e.target.getAttribute('data-ti'), f=e.target.getAttribute('data-tf'); if(i===null) return;
+  team[i][f] = f==='rate' ? (parseFloat(e.target.value)||0) : e.target.value;
+});
+document.getElementById('team-rows').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-tdel');
+  if(d!==null && d!==undefined){ team.splice(Number(d),1); renderTeam(); }
+});
+document.getElementById('add-team').addEventListener('click', ()=>{
+  team.push({ id:'tm_'+Math.random().toString(16).slice(2,8), name:'', role:'', rate:0 }); renderTeam();
+});
 
 document.getElementById('save-btn').addEventListener('click', async ()=>{
   const profile={ name:val('name'), phone:val('phone'), email:val('email'),
-    license:val('license'), website:val('website'), address:val('address'), logo };
+    license:val('license'), website:val('website'), address:val('address'), logo, team };
   try{
     const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile, invoiceNext: val('invoice-next') }) });
     logo=r.profile.logo||''; showLogo();
+    team=r.profile.team||[]; renderTeam();
     set('invoice-next', r.invoiceNext);
     toast('Company profile saved.');
   }catch(err){ toast(err.message, true); }
@@ -170,6 +211,7 @@ async function init(){
     set('license',p.license); set('website',p.website); set('address',p.address);
     set('invoice-next', r.invoiceNext);
     logo=p.logo||''; showLogo();
+    team=p.team||[]; renderTeam();
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
   }catch(err){ document.getElementById('loading').textContent='Could not load profile: '+err.message; }

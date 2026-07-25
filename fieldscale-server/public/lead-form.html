@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Request a Quote</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;background:#F6F3EA;font-size:15px}
+  .card{max-width:560px;margin:32px auto;background:#fff;border:1px solid #E4DFCF;border-radius:6px;padding:32px 34px;box-shadow:0 6px 24px rgba(0,0,0,.07)}
+  h1{font-family:'Oswald',sans-serif;font-size:24px;color:#0E2A47;margin:0 0 4px}
+  .sub{color:#7C8896;margin:0 0 20px}
+  label{display:block;font-size:13px;color:#333;margin:14px 0 4px;font-weight:500}
+  input,textarea{width:100%;border:1px solid #B9C2CB;border-radius:4px;padding:10px 12px;font-size:15px;font-family:inherit}
+  textarea{min-height:90px;resize:vertical}
+  .row{display:flex;gap:12px}.row>div{flex:1}
+  button{margin-top:20px;background:#E8722C;color:#fff;border:none;border-radius:4px;padding:12px 24px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit;width:100%}
+  button:hover{background:#C25A1B} button:disabled{opacity:.5;cursor:default}
+  .done{text-align:center;padding:40px 10px}.done h2{font-family:'Oswald',sans-serif;color:#4A9B6E}
+  .msg{padding:50px 20px;text-align:center;color:#7C8896}
+  .err{color:#C0392B;font-size:13px;margin-top:8px}
+  @media (max-width:560px){ .card{margin:0;border-radius:0} .row{flex-direction:column;gap:0} }
+</style>
+</head>
+<body>
+<div id="root"><div class="msg">Loading…</div></div>
+<script>
+const token=new URLSearchParams(location.search).get('c');
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+async function api(path, opts={}){
+  const res=await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
+  const d=await res.json().catch(()=>({})); if(!res.ok) throw new Error(d.error||'Something went wrong.'); return d;
+}
+function form(companyName){
+  document.getElementById('root').innerHTML=`<div class="card">
+    <h1>Request a Quote</h1>
+    <p class="sub">${companyName?('Send your details to '+esc(companyName)+' and they’ll get back to you.'):'Tell us about your project and we’ll get back to you.'}</p>
+    <label>Your name *</label><input id="f-name" />
+    <div class="row"><div><label>Phone</label><input id="f-phone" /></div><div><label>Email</label><input id="f-email" /></div></div>
+    <label>Project address</label><input id="f-address" />
+    <label>Type of work</label><input id="f-work" placeholder="e.g. Kitchen remodel, new deck…" />
+    <label>Details</label><textarea id="f-notes" placeholder="Anything that helps us understand the job…"></textarea>
+    <div class="err" id="err"></div>
+    <button id="submit">Send request</button>
+  </div>`;
+  document.getElementById('submit').addEventListener('click', async ()=>{
+    const name=document.getElementById('f-name').value.trim();
+    const errEl=document.getElementById('err'); errEl.textContent='';
+    if(!name){ errEl.textContent='Please enter your name.'; document.getElementById('f-name').focus(); return; }
+    const btn=document.getElementById('submit'); btn.disabled=true; btn.textContent='Sending…';
+    try{
+      await api('/api/public/lead', { method:'POST', body: JSON.stringify({
+        token, name,
+        phone:document.getElementById('f-phone').value.trim(),
+        email:document.getElementById('f-email').value.trim(),
+        address:document.getElementById('f-address').value.trim(),
+        workType:document.getElementById('f-work').value.trim(),
+        notes:document.getElementById('f-notes').value.trim()
+      }) });
+      document.getElementById('root').innerHTML=`<div class="card done"><h2>✓ Thank you!</h2><p>Your request has been sent${companyName?(' to '+esc(companyName)):''}. We’ll be in touch soon.</p></div>`;
+    }catch(err){ btn.disabled=false; btn.textContent='Send request'; errEl.textContent=err.message; }
+  });
+}
+async function load(){
+  if(!token){ document.getElementById('root').innerHTML='<div class="msg">This form link is missing its code.</div>'; return; }
+  try{ const d=await api('/api/public/lead-form?token='+encodeURIComponent(token)); form(d.companyName); }
+  catch(err){ document.getElementById('root').innerHTML='<div class="msg">'+esc(err.message)+'</div>'; }
+}
+load();
+</script>
+</body>
+</html>

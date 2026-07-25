@@ -104,6 +104,24 @@
       <button class="btn ghost" id="add-team" style="margin-top:10px">＋ Add person</button>
     </div>
 
+    <div class="card" style="margin-top:18px">
+      <h3 style="font-family:'Oswald',sans-serif;font-size:16px;margin:0 0 4px">Contract template</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 10px">The text used when you generate a contract from an accepted estimate. Use these placeholders — they fill in automatically:
+        <br><code>{{client}}</code> <code>{{project}}</code> <code>{{total}}</code> <code>{{scope}}</code> <code>{{company}}</code> <code>{{date}}</code> <code>{{license}}</code></p>
+      <textarea id="contract-template" style="width:100%;min-height:180px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:1.5"></textarea>
+      <button class="btn ghost" id="reset-contract" style="margin-top:8px">Reset to default</button>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h3 style="font-family:'Oswald',sans-serif;font-size:16px;margin:0 0 4px">Website lead form</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 10px">Share this link (or add it to your website) so customers can request a quote. Every submission shows up as a new lead, tagged “Website form.”</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="leadform-url" readonly style="flex:1;min-width:240px;font-family:'IBM Plex Mono',monospace;font-size:12px" />
+        <button class="btn ghost" id="copy-leadform">Copy link</button>
+        <a class="btn ghost" id="open-leadform" target="_blank">Open</a>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="spacer"></div>
       <button class="btn primary" id="save-btn">Save profile</button>
@@ -186,9 +204,41 @@ document.getElementById('add-team').addEventListener('click', ()=>{
   team.push({ id:'tm_'+Math.random().toString(16).slice(2,8), name:'', role:'', rate:0 }); renderTeam();
 });
 
+// ---- Contract template ----
+const DEFAULT_CONTRACT = `CONSTRUCTION CONTRACT
+
+This agreement is between {{company}} ("Contractor") and {{client}} ("Customer"), dated {{date}}.
+
+PROJECT: {{project}}
+
+SCOPE OF WORK:
+{{scope}}
+
+CONTRACT PRICE: {{total}}
+
+PAYMENT: A deposit is due on signing; the balance is due on completion unless otherwise agreed in writing.
+
+TERMS:
+- Any change to the scope above will be handled as a written change order and may adjust the price and schedule.
+- Contractor carries the licenses and insurance required for this work. License #: {{license}}
+- Either party may terminate for material breach with written notice and a chance to cure.
+
+By signing below, both parties agree to the terms above.
+
+Customer: _______________________   Date: __________
+
+Contractor ({{company}}): _______________________   Date: __________`;
+document.getElementById('reset-contract').addEventListener('click', ()=>{ document.getElementById('contract-template').value=DEFAULT_CONTRACT; });
+
+document.getElementById('copy-leadform').addEventListener('click', async ()=>{
+  const u=val('leadform-url'); if(!u) return;
+  try{ await navigator.clipboard.writeText(u); toast('Link copied.'); }catch(e){ toast('Copy this link: '+u); }
+});
+
 document.getElementById('save-btn').addEventListener('click', async ()=>{
   const profile={ name:val('name'), phone:val('phone'), email:val('email'),
-    license:val('license'), website:val('website'), address:val('address'), logo, team };
+    license:val('license'), website:val('website'), address:val('address'), logo, team,
+    contractTemplate: val('contract-template') };
   try{
     const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile, invoiceNext: val('invoice-next') }) });
     logo=r.profile.logo||''; showLogo();
@@ -212,6 +262,14 @@ async function init(){
     set('invoice-next', r.invoiceNext);
     logo=p.logo||''; showLogo();
     team=p.team||[]; renderTeam();
+    document.getElementById('contract-template').value = p.contractTemplate || DEFAULT_CONTRACT;
+    // Website lead-capture link
+    try{
+      const lt=await apiFetch('/api/lead-form-token');
+      const url=location.origin+'/lead-form.html?c='+lt.token;
+      set('leadform-url', url);
+      document.getElementById('open-leadform').href=url;
+    }catch(e){}
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
   }catch(err){ document.getElementById('loading').textContent='Could not load profile: '+err.message; }

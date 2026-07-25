@@ -760,6 +760,30 @@ const server = http.createServer(async (req, res) => {
       saveDB(db);
       return sendJSON(res, 200, { accepted: true, at: doc.signature.at });
     }
+    // Public lead-capture form: a website visitor submits their info and it becomes a new lead.
+    if (pathname === '/api/public/lead' && req.method === 'POST') {
+      const b = await readBody(req);
+      const company = b.token ? db.companies.find(c => c.leadFormToken === b.token) : null;
+      if (!company) return sendJSON(res, 404, { error: 'This form is no longer active.' });
+      const name = String(b.name || '').trim();
+      if (!name) return sendJSON(res, 400, { error: 'Please enter your name.' });
+      const owner = db.users.find(u => u.companyId === company.id && u.role === 'owner') || db.users.find(u => u.companyId === company.id);
+      const lead = { id: 'ld_' + crypto.randomBytes(8).toString('hex'), userId: owner ? owner.id : '',
+        companyId: company.id, name: name.slice(0, 200), workType: String(b.workType || '').slice(0, 200),
+        value: 0, stage: 'new', source: 'Website form', followUp: '', createdAt: Date.now(), updatedAt: Date.now() };
+      writeLeadDoc(lead.id, { phone: String(b.phone || '').slice(0, 60), email: String(b.email || '').slice(0, 120),
+        address: String(b.address || '').slice(0, 300), notes: String(b.notes || '').slice(0, 4000) });
+      db.leads.push(lead);
+      saveDB(db);
+      return sendJSON(res, 200, { ok: true });
+    }
+    // The public form fetches the company name to show a friendly heading.
+    if (pathname === '/api/public/lead-form' && req.method === 'GET') {
+      const token = (parsed.query && parsed.query.token) || '';
+      const company = token ? db.companies.find(c => c.leadFormToken === token) : null;
+      if (!company) return sendJSON(res, 404, { error: 'This form is no longer active.' });
+      return sendJSON(res, 200, { companyName: company.name || '' });
+    }
 
     // ---- Everything past this point requires a valid session ----
     if (pathname.startsWith('/api/')) {
@@ -776,6 +800,14 @@ const server = http.createServer(async (req, res) => {
           platformAdmin: isPlatformAdmin(me),
           modules: companyModules(company)
         });
+      }
+
+      // GET /api/lead-form-token — the token that powers the public website lead-capture form.
+      if (pathname === '/api/lead-form-token' && req.method === 'GET') {
+        const company = companyById(me.companyId);
+        if (!company) return sendJSON(res, 404, { error: 'Company not found.' });
+        if (!company.leadFormToken) { company.leadFormToken = crypto.randomBytes(12).toString('hex'); saveDB(db); }
+        return sendJSON(res, 200, { token: company.leadFormToken });
       }
 
       // POST /api/password — change your own password
@@ -1208,6 +1240,7 @@ const server = http.createServer(async (req, res) => {
           }
         }
         const p = profile || {};
+        const existingProfile = readCompany(me.companyId) || {};
         // Re-shape server-side so the file only ever holds expected fields. The logo is a data
         // URL kept small (a proposal letterhead, not a hi-res photo); anything else is rejected.
         const logoOk = typeof p.logo === 'string' && p.logo.startsWith('data:image/') && p.logo.length < 800000;
@@ -1225,7 +1258,9 @@ const server = http.createServer(async (req, res) => {
             name: String(t.name || '').slice(0, 80),
             role: String(t.role || '').slice(0, 80),
             rate: Number(t.rate) || 0
-          })).filter(t => t.name || t.role) : []
+          })).filter(t => t.name || t.role) : [],
+          // Editable contract template (with {{placeholders}}). Preserve it if this save didn't include it.
+          contractTemplate: typeof p.contractTemplate === 'string' ? p.contractTemplate.slice(0, 20000) : (existingProfile.contractTemplate || '')
         };
         writeCompany(me.companyId, clean);
         saveDB(db); // persist any invoice-counter change on the company record
@@ -1634,6 +1669,9 @@ const server = http.createServer(async (req, res) => {
         ar.items.sort((a, b) => b.daysOver - a.daysOver || b.owed - a.owed);
         // Job profitability — contract vs. cost vs. profit (change orders folded in).
         const jobs = { contract: 0, cost: 0, profit: 0, items: [] };
+        // Production — jobs running behind schedule, plus total labor hours logged.
+        const todayISO = new Date().toISOString().slice(0, 10);
+        const production = { activeJobs: 0, completeJobs: 0, totalHours: 0, behind: [] };
         db.jobs.filter(j => j.companyId === me.companyId).forEach(j => {
           const jd = readJobDoc(j.id) || {}, c = jd.costing || {};
           const co = (jd.changeOrders || []).reduce((a, x) => {
@@ -1647,7 +1685,17 @@ const server = http.createServer(async (req, res) => {
           jobs.contract += contract; jobs.cost += cost; jobs.profit += profit;
           jobs.items.push({ id: j.id, name: j.name, client: j.client || '',
             status: j.status || 'scheduled', contract, cost, profit, margin });
+          // production rollup
+          const status = j.status || 'scheduled';
+          if (status === 'complete') production.completeJobs++; else production.activeJobs++;
+          production.totalHours += (jd.timeEntries || []).reduce((s, t) => s + (Number(t.hours) || 0), 0);
+          if (status !== 'complete' && jd.dueDate && jd.dueDate < todayISO) {
+            production.behind.push({ id: j.id, name: j.name, client: j.client || '', status,
+              dueDate: jd.dueDate, daysLate: Math.floor((Date.now() - Date.parse(jd.dueDate)) / 86400000) });
+          }
         });
+        production.totalHours = Math.round(production.totalHours * 10) / 10;
+        production.behind.sort((a, b) => b.daysLate - a.daysLate);
         jobs.contract = Math.round(jobs.contract * 100) / 100;
         jobs.cost = Math.round(jobs.cost * 100) / 100;
         jobs.profit = Math.round(jobs.profit * 100) / 100;
@@ -1698,7 +1746,28 @@ const server = http.createServer(async (req, res) => {
         });
         Object.keys(cf).forEach(k => cf[k] = Math.round(cf[k] * 100) / 100);
 
-        return sendJSON(res, 200, { ar, jobs, estimates: est, leadSources, cashflow: cf });
+        return sendJSON(res, 200, { ar, jobs, estimates: est, leadSources, cashflow: cf, production });
+      }
+
+      // ---- Payroll / timesheet export: every time entry across all jobs ----
+      if (pathname === '/api/reports/timesheet' && req.method === 'GET') {
+        const rows = [];
+        const byWorker = {};
+        db.jobs.filter(j => j.companyId === me.companyId).forEach(j => {
+          const jd = readJobDoc(j.id) || {};
+          (jd.timeEntries || []).forEach(t => {
+            const hours = Number(t.hours) || 0, rate = Number(t.rate) || 0;
+            const amount = Math.round(hours * rate * 100) / 100;
+            const worker = (t.worker || '').trim() || '(unnamed)';
+            rows.push({ worker, date: t.date || '', hours, rate, amount, job: j.name || '', note: t.note || '' });
+            if (!byWorker[worker]) byWorker[worker] = { worker, hours: 0, amount: 0 };
+            byWorker[worker].hours += hours; byWorker[worker].amount += amount;
+          });
+        });
+        rows.sort((a, b) => (a.worker < b.worker ? -1 : a.worker > b.worker ? 1 : (a.date < b.date ? -1 : 1)));
+        const totals = Object.values(byWorker).map(w => ({ ...w, hours: Math.round(w.hours * 100) / 100, amount: Math.round(w.amount * 100) / 100 }))
+          .sort((a, b) => (a.worker < b.worker ? -1 : 1));
+        return sendJSON(res, 200, { rows, totals });
       }
 
       // ---- Schedule: jobs with their start/due dates for the calendar ----

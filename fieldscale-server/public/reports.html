@@ -66,6 +66,14 @@
   <div id="loading" class="loading">Loading…</div>
   <div id="content" style="display:none">
 
+    <h2>Production <button class="btn ghost" id="payroll-btn" style="font-size:12px;padding:4px 12px;margin-left:8px">⬇ Export time (CSV)</button></h2>
+    <p class="section-sub">Where your jobs stand, hours logged, and anything running behind schedule.</p>
+    <div class="tiles" id="prod-tiles"></div>
+    <div class="card"><table>
+      <thead><tr><th>Behind schedule</th><th>Client</th><th>Status</th><th>Due</th><th class="num">Days late</th></tr></thead>
+      <tbody id="prod-rows"></tbody>
+    </table></div>
+
     <h2>Accounts receivable</h2>
     <p class="section-sub">Money customers still owe you — and how overdue it is (based on each invoice's due date).</p>
     <div class="tiles" id="ar-tiles"></div>
@@ -170,6 +178,35 @@ function renderCashflow(cf){
     tile('90+ days', money(cf.later)) +
     tile('No due date', money(cf.undated));
 }
+function renderProduction(p){
+  p=p||{activeJobs:0,completeJobs:0,totalHours:0,behind:[]};
+  document.getElementById('prod-tiles').innerHTML =
+    tile('Active jobs', p.activeJobs||0) +
+    tile('Completed', p.completeJobs||0, 'pos') +
+    tile('Hours logged', (p.totalHours||0)) +
+    tile('Behind schedule', (p.behind||[]).length, (p.behind||[]).length?'neg':'');
+  const tb=document.getElementById('prod-rows');
+  const rows=p.behind||[];
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="5" class="empty">Nothing behind schedule — every job is on track. 👍</td></tr>'; return; }
+  tb.innerHTML=rows.map(j=>`<tr class="rowlink" onclick="location.href='/job.html?id=${esc(j.id)}'">
+    <td><strong>${esc(j.name)}</strong></td><td class="muted">${esc(j.client)||'—'}</td>
+    <td style="text-transform:capitalize">${esc(j.status)}</td><td class="muted">${esc(j.dueDate)}</td>
+    <td class="num"><span class="pill over">${j.daysLate}d</span></td></tr>`).join('');
+}
+async function exportPayroll(){
+  try{
+    const d=await apiFetch('/api/reports/timesheet');
+    const esc2=v=>{ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+    let csv='Worker,Date,Hours,Rate,Amount,Job,Note\n';
+    d.rows.forEach(r=>{ csv+=[r.worker,r.date,r.hours,r.rate,r.amount,r.job,r.note].map(esc2).join(',')+'\n'; });
+    csv+='\nWorker,Total hours,Total pay\n';
+    d.totals.forEach(w=>{ csv+=[w.worker,w.hours,w.amount].map(esc2).join(',')+'\n'; });
+    const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='fieldscale-timesheet.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }catch(err){ alert('Could not export: '+err.message); }
+}
+document.getElementById('payroll-btn').addEventListener('click', exportPayroll);
 function renderSources(list){
   const tb=document.getElementById('src-rows');
   if(!list||!list.length){ tb.innerHTML='<tr><td colspan="6" class="empty">No leads yet. Add a lead with a source to see this.</td></tr>'; return; }
@@ -187,7 +224,7 @@ async function init(){
   try{
     const r=await apiFetch('/api/reports/summary');
     renderAR(r.ar); renderJobs(r.jobs); renderEst(r.estimates);
-    renderCashflow(r.cashflow); renderSources(r.leadSources);
+    renderCashflow(r.cashflow); renderSources(r.leadSources); renderProduction(r.production);
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
   }catch(err){ document.getElementById('loading').textContent='Could not load reports: '+err.message; }

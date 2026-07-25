@@ -231,6 +231,20 @@
       <button class="btn ghost" id="add-log" style="margin-top:6px">＋ Add day</button>
     </div>
 
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0">
+        <h3 style="margin:0">Warranty</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Track what's under warranty and when it ends, so you know your obligations after the job closes.</p>
+      </div>
+      <div class="lines-scroll">
+        <table class="lines">
+          <thead><tr><th>Item / work covered</th><th>Start date</th><th class="num">Months</th><th>Ends</th><th>Notes</th><th></th></tr></thead>
+          <tbody id="warranty-lines"></tbody>
+        </table>
+      </div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-warranty">＋ Add warranty item</button></div>
+    </div>
+
     <div class="block">
       <h3>Notes</h3>
       <textarea id="notes" placeholder="Job notes, instructions, materials to order…"></textarea>
@@ -449,6 +463,39 @@ document.getElementById('tasks-wrap').addEventListener('input', e=>{
 document.getElementById('tasks-wrap').addEventListener('click', e=>{
   const d=e.target.getAttribute && e.target.getAttribute('data-tdel');
   if(d!==null && d!==undefined){ doc.tasks.splice(Number(d),1); renderTasks(); }
+});
+
+// ---- Warranty (items covered + when they end; lives in the job doc) ----
+function warrantyEnd(w){
+  const s=w.start; const m=Number(w.months)||0; if(!s||!m) return '';
+  const d=new Date(s); if(isNaN(d)) return ''; d.setMonth(d.getMonth()+m);
+  return d.toISOString().slice(0,10);
+}
+function renderWarranty(){
+  const tb=document.getElementById('warranty-lines'); const list=doc.warranty||[];
+  if(!list.length){ tb.innerHTML=`<tr><td colspan="6" style="padding:18px;text-align:center;color:var(--steel)">No warranty items yet.</td></tr>`; return; }
+  tb.innerHTML=list.map((w,i)=>`<tr>
+    <td><input data-wi="${i}" data-wf="item" value="${escapeHtml(w.item||'')}" placeholder="e.g. Roof / labor" /></td>
+    <td><input data-wi="${i}" data-wf="start" type="date" value="${escapeHtml(w.start||'')}" style="width:150px" /></td>
+    <td class="num"><input class="num" data-wi="${i}" data-wf="months" value="${w.months||0}" inputmode="numeric" style="width:64px" /></td>
+    <td class="muted" data-wend="${i}">${warrantyEnd(w)||'—'}</td>
+    <td><input data-wi="${i}" data-wf="notes" value="${escapeHtml(w.notes||'')}" placeholder="—" style="width:160px" /></td>
+    <td class="num"><button class="rowdel" data-wdel="${i}" title="Remove">✕</button></td>
+  </tr>`).join('');
+}
+document.getElementById('warranty-lines').addEventListener('input', e=>{
+  const i=e.target.getAttribute('data-wi'), f=e.target.getAttribute('data-wf'); if(i===null) return;
+  doc.warranty[i][f] = f==='months' ? (parseInt(e.target.value)||0) : e.target.value;
+  if(f==='start'||f==='months'){ const cell=document.querySelector(`[data-wend="${i}"]`); if(cell) cell.textContent=warrantyEnd(doc.warranty[i])||'—'; }
+});
+document.getElementById('warranty-lines').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-wdel');
+  if(d!==null && d!==undefined){ doc.warranty.splice(Number(d),1); renderWarranty(); }
+});
+document.getElementById('add-warranty').addEventListener('click', ()=>{
+  doc.warranty=doc.warranty||[];
+  doc.warranty.push({ id:'wr_'+Math.random().toString(16).slice(2,8), item:'', start:'', months:12, notes:'' });
+  renderWarranty();
 });
 
 // ---- Time & labor (time entries roll into labor cost; clock in/out times a shift) ----
@@ -746,6 +793,7 @@ function fillForm(){
   renderReceipts();
   renderDailyLogs();
   renderTasks();
+  renderWarranty();
   renderTime();
   renderClock();
   renderCosting();
@@ -760,7 +808,7 @@ async function init(){
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
-    doc.tasks = doc.tasks||[]; doc.timeEntries = doc.timeEntries||[];
+    doc.tasks = doc.tasks||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
     receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){

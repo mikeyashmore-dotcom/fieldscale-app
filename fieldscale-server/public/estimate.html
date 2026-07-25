@@ -114,6 +114,7 @@
       </div>
       <button class="btn ghost" id="save-tpl-btn" title="Save these line items, markup, tax, notes & terms as a reusable template">Save as Template</button>
       <button class="btn ghost" id="share-btn" title="Get a link the client can open to review and approve this estimate online">🔗 Share for approval</button>
+      <button class="btn ghost" id="contract-btn" title="Generate a contract from this estimate using your company contract template">📄 Contract</button>
       <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">→ Job</button>
       <button class="btn ghost" id="to-invoice-btn">→ Invoice</button>
       <button class="btn ghost" id="download-pdf-btn" title="Download a PDF file">⬇ Download PDF</button>
@@ -453,6 +454,49 @@ document.getElementById('share-btn').addEventListener('click', async ()=>{
     prompt('Send this link to your client — they can review and approve it online:', url);
   }catch(err){ toast(err.message, true); }
 });
+// ---- Generate a contract from the company template, filled with this estimate's details ----
+let companyProfile = {};
+const DEFAULT_CONTRACT = `CONSTRUCTION CONTRACT
+
+This agreement is between {{company}} ("Contractor") and {{client}} ("Customer"), dated {{date}}.
+
+PROJECT: {{project}}
+
+SCOPE OF WORK:
+{{scope}}
+
+CONTRACT PRICE: {{total}}
+
+By signing below, both parties agree to the scope and price above.
+
+Customer: _______________________   Date: __________
+
+Contractor ({{company}}): _______________________   Date: __________`;
+document.getElementById('contract-btn').addEventListener('click', ()=>{
+  syncDocFromForm();
+  const t = computeTotals();
+  const co = companyProfile || {};
+  const cl = doc.client || {};
+  const scope = (doc.lines||[]).filter(l=>l.name && l.name.trim())
+    .map(l=>{ const q=Number(l.qty)||0; return '• '+l.name+(q?(' — '+q+' '+(normUnit(l.unit)||'')):''); }).join('\n') || '(see attached estimate)';
+  const tmpl = (co.contractTemplate && co.contractTemplate.trim()) ? co.contractTemplate : DEFAULT_CONTRACT;
+  const filled = tmpl
+    .replace(/\{\{client\}\}/g, cl.name||'Customer')
+    .replace(/\{\{project\}\}/g, doc.project||estName||'')
+    .replace(/\{\{total\}\}/g, money(t.total))
+    .replace(/\{\{scope\}\}/g, scope)
+    .replace(/\{\{company\}\}/g, co.name||doc.company&&doc.company.name||'')
+    .replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
+    .replace(/\{\{license\}\}/g, co.license||'');
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contract — ${escapeHtml(cl.name||'')}</title>
+<style>body{font-family:Georgia,'Times New Roman',serif;color:#1c1e22;max-width:760px;margin:0 auto;padding:48px 40px;font-size:14px;line-height:1.7;white-space:pre-wrap}
+.bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
+.bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:sans-serif}
+@media print{body{padding:0}.noprint{display:none}@page{margin:20mm}} .sp{height:50px}</style></head>
+<body><div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="sp noprint"></div>${escapeHtml(filled)}</body></html>`;
+  const w=window.open('','_blank'); if(!w){ toast('Please allow pop-ups to generate the contract.', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+});
 document.getElementById('to-job-btn').addEventListener('click', async ()=>{
   if(!confirm('Turn this estimate into a scheduled job? Its line items become your scope of work checklist.')) return;
   try{
@@ -623,6 +667,7 @@ async function init(){
     });
     // New estimate with no company entered yet → prefill from the saved Company Profile.
     const prof = comp.profile || {};
+    companyProfile = prof;
     if(!doc.company.name && !doc.company.phone && !doc.company.email && !doc.company.address){
       doc.company = { name:prof.name||'', phone:prof.phone||'', email:prof.email||'', license:prof.license||'',
         website:prof.website||'', address:prof.address||'', logo:prof.logo||'' };

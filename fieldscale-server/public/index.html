@@ -789,6 +789,11 @@
   }
   .page-list-row:hover .plr-eye{opacity:1;}
   .page-list-row .plr-eye:hover{color:var(--orange);}
+  .page-list-row .plr-newtab{
+    font-size:12px; color:var(--steel); cursor:pointer; padding:0 3px; flex:0 0 auto; opacity:0; text-decoration:none;
+  }
+  .page-list-row:hover .plr-newtab{opacity:1;}
+  .page-list-row .plr-newtab:hover{color:var(--orange);}
   .plr-hidden-toggle{
     font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--steel);
     padding:7px 9px; cursor:pointer; border-top:1px solid var(--paper-line); margin-top:4px;
@@ -1602,6 +1607,20 @@ function onLoggedIn(username, role){
     isCompanyAdmin ? 'block' : 'none';
   hideAuthGate();
   refreshProjectList();
+  maybeOpenFromLink();
+}
+// Deep-link support: /?project=<id>&page=<n> opens that project straight to that sheet
+// (used by "open in new tab" in the sheet list so you can reference another page side-by-side).
+async function maybeOpenFromLink(){
+  const params = new URLSearchParams(location.search);
+  const pid = params.get('project');
+  if(!pid) return;
+  const pg = parseInt(params.get('page')) || null;
+  try{
+    await openProjectById(pid, pg);
+    if(IS_REF_TAB){ const s=document.getElementById('project-save-status'); if(s) s.textContent='Reference tab — autosave is off here so it won’t affect your main tab.'; }
+  }
+  catch(err){ const s=document.getElementById('project-save-status'); if(s) s.textContent='Could not open that link: '+err.message; }
 }
 
 document.getElementById('logout-btn').addEventListener('click', logout);
@@ -1845,6 +1864,9 @@ let autosaveTimer = null;
 let saveInFlight = false;
 let autosaveEnabled = true;
 try{ autosaveEnabled = localStorage.getItem('fieldscale.autosave') !== 'off'; }catch(e){}
+// A sheet opened "for reference" (?ref=1) never autosaves, so it can't overwrite your working tab.
+const IS_REF_TAB = new URLSearchParams(location.search).has('ref');
+if(IS_REF_TAB) autosaveEnabled = false;
 
 // Called from every place that changes something worth keeping.
 function markDirty(){
@@ -2053,6 +2075,33 @@ async function restoreProjectState(data){
   markClean();
 }
 
+// Load a saved project by id (shared by the project list and by deep-links like
+// /?project=<id>&page=<n>). Optionally jump straight to a given sheet after it loads.
+async function openProjectById(id, gotoPage){
+  const statusEl = document.getElementById('project-save-status');
+  if(statusEl) statusEl.textContent = 'Loading…';
+  const project = await apiFetch('/api/projects/'+id);
+  currentProjectId = project.id;
+  let pdfBytes = null;
+  if(project.hasPdf){
+    if(statusEl) statusEl.textContent = 'Loading the plan set…';
+    const token = getToken();
+    const resp = await fetch('/api/projects/'+id+'/pdf', { headers: token?{'Authorization':'Bearer '+token}:{} });
+    if(resp.status===401){ logout(); throw new Error('Session expired — please log in again.'); }
+    if(resp.ok && resp.status!==204){ pdfBytes = new Uint8Array(await resp.arrayBuffer()); }
+  }
+  await restoreProjectState(Object.assign({}, project.data, {pdfBytes}));
+  pdfUploadedFor = project.id;   // it came FROM the server; don't re-upload it
+  if(gotoPage && state.pdfDoc && gotoPage>=1 && gotoPage<=state.numPages && gotoPage!==state.pageNum){
+    state.pageNum = gotoPage;
+    state.searchHighlightPage = null; state.searchHighlights = [];
+    await renderPage();
+  }
+  if(statusEl) statusEl.textContent = `Loaded "${project.name}".`;
+  const pop = document.getElementById('projects-popover'); if(pop) pop.classList.remove('open');
+  renderSnapshotList();
+}
+
 async function refreshProjectList(){
   const container = document.getElementById('project-list');
   try{
@@ -2070,30 +2119,8 @@ async function refreshProjectList(){
         if(e.target.classList.contains('pr-delete')) return;
         // Opening another project replaces everything on screen — check first.
         if(!await confirmDiscardIfDirty('open that project')) return;
-        const id = row.dataset.id;
-        const statusEl = document.getElementById('project-save-status');
-        statusEl.textContent = 'Loading…';
-        try{
-          const project = await apiFetch('/api/projects/'+id);
-          currentProjectId = project.id;
-          // The takeoff and the plan now come from two places. Fetch the plan only if
-          // the project actually has one.
-          let pdfBytes = null;
-          if(project.hasPdf){
-            statusEl.textContent = 'Loading the plan set…';
-            // The plan is streamed as raw bytes (not base64-in-JSON), so fetch it as an
-            // ArrayBuffer — big plan sets used to blow up as one giant JSON payload.
-            const token = getToken();
-            const resp = await fetch('/api/projects/'+id+'/pdf', { headers: token?{'Authorization':'Bearer '+token}:{} });
-            if(resp.status===401){ logout(); throw new Error('Session expired — please log in again.'); }
-            if(resp.ok && resp.status!==204){ pdfBytes = new Uint8Array(await resp.arrayBuffer()); }
-          }
-          await restoreProjectState(Object.assign({}, project.data, {pdfBytes}));
-          pdfUploadedFor = project.id;   // it came FROM the server; don't re-upload it
-          statusEl.textContent = `Loaded "${project.name}".`;
-          document.getElementById('projects-popover').classList.remove('open');
-          renderSnapshotList();
-        }catch(err){ statusEl.textContent = 'Failed to load: '+err.message; }
+        try{ await openProjectById(row.dataset.id); }
+        catch(err){ const s=document.getElementById('project-save-status'); if(s) s.textContent='Failed to load: '+err.message; }
       });
     });
     container.querySelectorAll('.pr-delete').forEach(btn=>{
@@ -2664,10 +2691,16 @@ function renderPagesList(){
     const scaleBadge = cal
       ? `<span class="plr-scale ok" title="Scale: ${escapeHtml(cal.source)}">◆</span>`
       : `<span class="plr-scale" title="No scale set for this sheet">◇</span>`;
+    // "Open in new tab" lets you keep another sheet up for reference while you work. It deep-links
+    // to the SAVED project at that page, in a no-autosave reference mode so it can't overwrite this tab.
+    const newTab = currentProjectId
+      ? `<a class="plr-newtab" href="/?project=${encodeURIComponent(currentProjectId)}&page=${p}&ref=1" target="_blank" rel="noopener" title="Open this sheet in a new tab (for reference)">⧉</a>`
+      : '';
     html += `<div class="page-list-row ${active} ${hidden?'hidden-sheet':''}" data-page="${p}">
       <span class="plr-num">${p}</span>
       <span class="plr-label${pending?' pending':''}${hasError?' error':''}" title="${escapeHtml(tooltip)}">${escapeHtml(label)}</span>
       ${scaleBadge}
+      ${newTab}
       <span class="plr-eye" data-hide="${p}" title="${hidden?'Bring this sheet back':'Hide this sheet'}">${hidden?'◡':'◠'}</span>
     </div>`;
   }
@@ -2702,6 +2735,11 @@ function renderPagesList(){
       }
       renderPagesList();
     });
+  });
+
+  // Clicking "open in new tab" shouldn't also switch the current tab to that sheet.
+  container.querySelectorAll('.plr-newtab').forEach(a=>{
+    a.addEventListener('click', (e)=>{ e.stopPropagation(); });
   });
 
   container.querySelectorAll('.page-list-row').forEach(row=>{

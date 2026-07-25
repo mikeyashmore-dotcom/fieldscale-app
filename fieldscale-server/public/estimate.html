@@ -63,6 +63,10 @@
   .pdopt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-navy);margin:6px 0;cursor:pointer}
   .pdopt input{width:auto;margin:0}
   .pdhint{font-size:11px;color:var(--steel);margin-top:8px;line-height:1.5}
+  .terms-opts{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px}
+  .terms-opts label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-navy)}
+  .terms-opts input[type=number]{width:70px;padding:4px 6px}
+  .terms-opts select{width:auto;padding:5px 6px}
   @media (max-width:760px){
     .grid2{grid-template-columns:1fr}
     .bottom{grid-template-columns:1fr}
@@ -156,17 +160,18 @@
 
     <div style="display:flex;align-items:center;gap:8px;margin:0 0 6px">
       <label style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel)">Estimate type</label>
-      <select id="est-class" class="est-class-sel" title="Residential or commercial — this sets which code list you pick from">
+      <select id="est-class" class="est-class-sel" title="Residential or commercial sets which code list you pick from; No codes hides the Code column">
         <option value="residential">Residential</option>
         <option value="commercial">Commercial</option>
+        <option value="none">No codes</option>
       </select>
-      <span style="font-size:11.5px;color:var(--steel-light)">← sets the Code list below</span>
+      <span style="font-size:11.5px;color:var(--steel-light)">← sets the Code list below (or hides it)</span>
     </div>
     <div class="card lines-scroll">
       <table class="lines">
         <thead>
           <tr>
-            <th>Code</th><th>Item</th><th>Description</th><th class="num">Qty</th><th>Unit</th>
+            <th id="th-code">Code</th><th>Item</th><th>Description</th><th class="num">Qty</th><th>Unit</th>
             <th class="num">Material&nbsp;$</th><th class="num">Labor&nbsp;hrs</th><th class="num">Rate&nbsp;$/hr</th>
             <th class="num">Unit&nbsp;price&nbsp;$</th><th class="num">Amount</th><th>Pricing</th><th></th>
           </tr>
@@ -188,7 +193,20 @@
         </div>
         <div class="block">
           <h3>Terms</h3>
-          <textarea id="terms" placeholder="Payment terms, deposit, warranty, validity…"></textarea>
+          <div class="terms-opts">
+            <label>Proposal good for
+              <input type="number" id="valid-days" min="0" step="1" placeholder="e.g. 30" /> days</label>
+            <label>Deposit required
+              <select id="deposit-pct">
+                <option value="0">None</option>
+                <option value="5">5%</option><option value="10">10%</option><option value="15">15%</option>
+                <option value="20">20%</option><option value="25">25%</option><option value="30">30%</option>
+                <option value="35">35%</option><option value="40">40%</option><option value="45">45%</option>
+                <option value="50">50%</option>
+              </select></label>
+          </div>
+          <div class="pdhint">These appear as terms on the proposal. Add anything else below.</div>
+          <textarea id="terms" placeholder="Payment terms, warranty, exclusions…"></textarea>
         </div>
         <div class="block">
           <h3>Proposal columns — what the customer sees</h3>
@@ -310,8 +328,11 @@ function renderTotals(){
 }
 function renderLines(){
   const tb=document.getElementById('lines');
+  // "No codes" estimate type hides the Code column entirely.
+  const showCode = doc.estimateClass!=='none';
+  const thCode=document.getElementById('th-code'); if(thCode) thCode.style.display = showCode?'':'none';
   if(!doc.lines.length){
-    tb.innerHTML=`<tr><td colspan="12" style="padding:26px;text-align:center;color:var(--steel)">
+    tb.innerHTML=`<tr><td colspan="${showCode?12:11}" style="padding:26px;text-align:center;color:var(--steel)">
       No line items yet. Add from your price book below, or add a blank line.</td></tr>`;
     renderTotals(); return;
   }
@@ -325,7 +346,7 @@ function renderLines(){
     const upDis = flat ? '' : 'disabled';
     const off = 'style="opacity:.4"';
     return `<tr>
-      <td class="col-code">${codeSelect(i, l.code)}</td>
+      ${showCode?`<td class="col-code">${codeSelect(i, l.code)}</td>`:''}
       <td class="col-item"><input data-i="${i}" data-f="name" value="${escapeHtml(l.name)}" placeholder="Item" /></td>
       <td class="col-desc"><input data-i="${i}" data-f="description" value="${escapeHtml(l.description||'')}" placeholder="What's being done…" />
         <input class="internal-note" data-i="${i}" data-f="internalNote" value="${escapeHtml(l.internalNote||'')}" placeholder="🔒 Internal note — not shown to the customer" /></td>
@@ -427,6 +448,8 @@ function syncDocFromForm(){
   doc.estimateClass=document.getElementById('est-class').value;
   doc.showQty=document.getElementById('opt-qty').checked;
   doc.showUnit=document.getElementById('opt-uom').checked;
+  doc.validDays=parseInt(document.getElementById('valid-days').value,10)||0;
+  doc.depositPct=parseInt(document.getElementById('deposit-pct').value,10)||0;
   doc.showUnitPrice=document.getElementById('opt-unit').checked;
   doc.showLineTotal=document.getElementById('opt-line').checked;
   // Keep each line's unitCost = material + labor(hrs×rate) at full precision so the invoice, PDF and
@@ -572,15 +595,21 @@ function proposalDocHTML(forDownload){
   const sf = t.subtotal>0 ? (t.price + t.tax)/t.subtotal : 1;
   // Which columns the customer sees (overhead/profit/tax already folded into the prices via sf).
   const showQty = doc.showQty!==false, showUnit = doc.showUnit!==false,
-        showUnitPrice = doc.showUnitPrice!==false, showLineTotal = doc.showLineTotal!==false;
+        showUnitPrice = doc.showUnitPrice!==false, showLineTotal = doc.showLineTotal!==false,
+        showCode = doc.estimateClass!=='none';
   const rows=doc.lines.map((l,i)=>`<tr>
       <td class="c">${i+1}</td>
-      <td>${l.code?`<span class="code" style="margin-right:6px">${escapeHtml(l.code)}</span>`:''}<strong>${escapeHtml(l.name)}</strong>${l.description?`<div class="code">${escapeHtml(l.description)}</div>`:''}</td>
+      <td>${(showCode&&l.code)?`<span class="code" style="margin-right:6px">${escapeHtml(l.code)}</span>`:''}<strong>${escapeHtml(l.name)}</strong>${l.description?`<div class="code">${escapeHtml(l.description)}</div>`:''}</td>
       ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}
       ${showUnit?`<td>${escapeHtml(normUnit(l.unit))}</td>`:''}
       ${showUnitPrice?`<td class="r">${money(lineUnitPrice(l)*sf)}</td>`:''}
       ${showLineTotal?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}
     </tr>`).join('');
+  // Deposit + validity are structured terms; combine them with the free-text terms for the proposal.
+  const termsExtra=[];
+  if(doc.depositPct>0) termsExtra.push(`A deposit of ${doc.depositPct}% (${money(t.total*doc.depositPct/100)}) is required to begin work; the balance is due upon completion.`);
+  if(doc.validDays>0) termsExtra.push(`This proposal is valid for ${doc.validDays} days from the date of issue.`);
+  const termsBody=[...termsExtra.map(escapeHtml), ...(doc.terms?[escapeHtml(doc.terms)]:[])].join('\n');
   const co=doc.company||{}, cl=doc.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
   const logoImg = co.logo ? `<img src="${co.logo}" style="max-height:60px;max-width:220px;display:block;margin-bottom:8px" alt="">` : '';
@@ -636,7 +665,7 @@ function proposalDocHTML(forDownload){
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
   </div>
   ${doc.notes?`<div class="sec"><h4>Scope of work</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:''}
-  ${doc.terms?`<div class="sec"><h4>Terms</h4><div class="body">${escapeHtml(doc.terms)}</div></div>`:''}
+  ${termsBody?`<div class="sec"><h4>Terms</h4><div class="body">${termsBody}</div></div>`:''}
   <div class="foot">Thank you for the opportunity. ${escapeHtml(co.name||'')}</div>
 </body></html>`;
   return html;
@@ -702,6 +731,8 @@ function fillForm(){
   // Default all on for older estimates that predate these options.
   document.getElementById('opt-qty').checked = doc.showQty!==false;
   document.getElementById('opt-uom').checked = doc.showUnit!==false;
+  document.getElementById('valid-days').value = doc.validDays || '';
+  document.getElementById('deposit-pct').value = String(doc.depositPct || 0);
   document.getElementById('opt-unit').checked = doc.showUnitPrice!==false;
   document.getElementById('opt-line').checked = doc.showLineTotal!==false;
 }

@@ -79,11 +79,17 @@ function render(d){
   // Overhead, profit and tax stay internal — fold them into the prices the client sees.
   const sf=t.subtotal>0?(t.price+t.tax)/t.subtotal:1;
   const showQty=d.showQty!==false, showUom=d.showUnit!==false,
-        showUnitPrice=d.showUnitPrice!==false, showLineTotal=d.showLineTotal!==false;
+        showUnitPrice=d.showUnitPrice!==false, showLineTotal=d.showLineTotal!==false,
+        showCode=d.estimateClass!=='none';
   const rows=(d.lines||[]).map((l,i)=>`<tr><td class="c">${i+1}</td>
-    <td>${esc(l.name)}${l.code?`<div class="code">${esc(l.code)}</div>`:''}</td>
+    <td>${esc(l.name)}${(showCode&&l.code)?`<div class="code">${esc(l.code)}</div>`:''}</td>
     ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}${showUom?`<td>${esc(l.unit)}</td>`:''}
     ${showUnitPrice?`<td class="r">${money(lineUnit(l)*sf)}</td>`:''}${showLineTotal?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}</tr>`).join('');
+  // Deposit + validity terms, combined with any free-text terms (same as the PDF).
+  const termsExtra=[];
+  if((Number(d.depositPct)||0)>0) termsExtra.push(`A deposit of ${d.depositPct}% (${money(t.total*d.depositPct/100)}) is required to begin work; the balance is due upon completion.`);
+  if((Number(d.validDays)||0)>0) termsExtra.push(`This proposal is valid for ${d.validDays} days from the date of issue.`);
+  const termsBody=[...termsExtra.map(esc), ...(d.terms?[esc(d.terms)]:[])].join('\n');
   const sig=d.signature;
   const approveBlock = sig&&sig.name
     ? `<div class="accepted"><strong>✓ Approved</strong><br>Accepted by <strong>${esc(sig.name)}</strong> on ${new Date(sig.at).toLocaleString()}.</div>`
@@ -111,7 +117,7 @@ function render(d){
       <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
     </div>
     ${d.notes?`<div class="sec"><h4>Notes</h4><div class="body">${esc(d.notes)}</div></div>`:''}
-    ${d.terms?`<div class="sec"><h4>Terms</h4><div class="body">${esc(d.terms)}</div></div>`:''}
+    ${termsBody?`<div class="sec"><h4>Terms</h4><div class="body">${termsBody}</div></div>`:''}
     ${approveBlock}
   </div>`;
   const btn=document.getElementById('approve-btn');

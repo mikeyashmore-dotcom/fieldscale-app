@@ -244,6 +244,7 @@ document.getElementById('save-btn').addEventListener('click', async ()=>{
     logo=r.profile.logo||''; showLogo();
     team=r.profile.team||[]; renderTeam();
     set('invoice-next', r.invoiceNext);
+    if(window.fsRefreshBranding) window.fsRefreshBranding(); // update the header logo everywhere
     toast('Company profile saved.');
   }catch(err){ toast(err.message, true); }
 });

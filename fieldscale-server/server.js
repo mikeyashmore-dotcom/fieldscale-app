@@ -802,6 +802,13 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      // GET /api/branding — the company name + logo, used to brand the app header on every page.
+      if (pathname === '/api/branding' && req.method === 'GET') {
+        const prof = readCompany(me.companyId) || {};
+        const company = companyById(me.companyId);
+        return sendJSON(res, 200, { companyName: (company && company.name) || prof.name || '', logo: prof.logo || '' });
+      }
+
       // GET /api/lead-form-token — the token that powers the public website lead-capture form.
       if (pathname === '/api/lead-form-token' && req.method === 'GET') {
         const company = companyById(me.companyId);

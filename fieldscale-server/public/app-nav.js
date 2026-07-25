@@ -68,9 +68,49 @@
       + '.nav-account{display:inline-flex;align-items:center;gap:16px;margin-left:14px}'
       + '.nav-account a{color:#B9C2CB;font-size:13px;text-decoration:none;white-space:nowrap}'
       + '.nav-account a:hover{color:#F6F3EA}'
-      + '.nav-account a.active{color:#F6F3EA;border-bottom:2px solid #E8722C;padding-bottom:2px}';
+      + '.nav-account a.active{color:#F6F3EA;border-bottom:2px solid #E8722C;padding-bottom:2px}'
+      // Per-company co-branding: the customer's own logo/name next to the product mark.
+      + '.fs-cobrand{display:none;align-items:center;gap:9px;margin-left:12px;padding-left:12px;border-left:1px solid rgba(255,255,255,.22)}'
+      + '.fs-cobrand.on{display:inline-flex}'
+      + '.fs-cobrand img{max-height:26px;max-width:130px;display:block;border-radius:2px}'
+      + '.fs-cobrand .fs-coname{color:#F6F3EA;font-family:"Oswald",sans-serif;font-weight:600;font-size:15px;white-space:nowrap}'
+      + '@media (max-width:760px){.fs-cobrand .fs-coname{display:none}.fs-cobrand{margin-left:8px;padding-left:8px}}';
     var st = document.createElement('style'); st.id = 'fs-nav-css'; st.textContent = css;
     document.head.appendChild(st);
+  }
+
+  // Show the customer's own logo/name in the header, next to the product mark. Renders from a
+  // localStorage cache instantly, then refreshes from the server at most every few minutes.
+  function ensureCobrandEl() {
+    var el = document.getElementById('fs-cobrand');
+    if (el) return el;
+    var brand = document.querySelector('header .brand') || document.querySelector('.topbar .brand');
+    if (!brand || !brand.parentNode) return null;
+    el = document.createElement('div'); el.className = 'fs-cobrand'; el.id = 'fs-cobrand';
+    brand.parentNode.insertBefore(el, brand.nextSibling);
+    return el;
+  }
+  function paintCobrand(name, logo) {
+    var el = ensureCobrandEl(); if (!el) return;
+    if (!logo && !name) { el.className = 'fs-cobrand'; el.innerHTML = ''; return; }
+    el.innerHTML = (logo ? '<img src="' + logo + '" alt="' + esc(name || '') + '">' : '')
+      + (name ? '<span class="fs-coname">' + esc(name) + '</span>' : '');
+    el.className = 'fs-cobrand on';
+  }
+  function renderBranding() {
+    var cached = null;
+    try { cached = JSON.parse(localStorage.getItem('fs_brand') || 'null'); } catch (e) {}
+    if (cached) paintCobrand(cached.name, cached.logo);   // instant, no flash
+    var fresh = cached && cached.ts && (Date.now() - cached.ts < 5 * 60 * 1000);
+    if (fresh) return;                                     // refreshed recently — skip the fetch
+    var t = getToken(); if (!t) return;
+    fetch('/api/branding', { headers: { 'Authorization': 'Bearer ' + t } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        paintCobrand(d.companyName, d.logo);
+        try { localStorage.setItem('fs_brand', JSON.stringify({ name: d.companyName, logo: d.logo, ts: Date.now() })); } catch (e) {}
+      }).catch(function () {});
   }
 
   function build() {
@@ -166,9 +206,13 @@
     }
   }
 
+  // Let the Company page trigger an immediate re-fetch after the logo/name changes.
+  window.fsRefreshBranding = function () { try { localStorage.removeItem('fs_brand'); } catch (e) {} renderBranding(); };
+
   async function run() {
     injectCSS();
     build();
+    renderBranding();
     var t = getToken();
     if (!t) return; // logged out — the page handles its own login redirect
     try {

@@ -741,7 +741,7 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { name: est.name, status: est.status,
         company: doc.company || {}, client: doc.client || {}, project: doc.project || '',
         estimateNo: doc.estimateNo || '', date: doc.date || '', validUntil: doc.validUntil || '',
-        lines, markupPct: doc.markupPct || 0, taxPct: doc.taxPct || 0,
+        lines, markupPct: doc.markupPct || 0, profitPct: doc.profitPct || 0, taxPct: doc.taxPct || 0,
         discount: doc.discount || 0, discountType: doc.discountType || 'pct',
         notes: doc.notes || '', terms: doc.terms || '', signature: doc.signature || null });
     }

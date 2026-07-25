@@ -552,13 +552,16 @@ document.getElementById('to-invoice-btn').addEventListener('click', async ()=>{
 // ---- Build a clean, printable proposal and open it for "Save as PDF" / print ----
 function proposalDocHTML(forDownload){
   const t=computeTotals();
+  // Overhead, profit and tax are internal — the customer only ever sees final prices. Fold all of
+  // them into the shown line prices (scale so the amounts add up to the pre-discount total).
+  const sf = t.subtotal>0 ? (t.price + t.tax)/t.subtotal : 1;
   const rows=doc.lines.map((l,i)=>`<tr>
       <td class="c">${i+1}</td>
       <td>${l.code?`<span class="code" style="margin-right:6px">${escapeHtml(l.code)}</span>`:''}<strong>${escapeHtml(l.name)}</strong>${l.description?`<div class="code">${escapeHtml(l.description)}</div>`:''}</td>
       <td class="r">${Number(l.qty)||0}</td>
       <td>${escapeHtml(normUnit(l.unit))}</td>
-      <td class="r">${money(lineUnitPrice(l))}</td>
-      <td class="r">${money(lineAmount(l))}</td>
+      <td class="r">${money(lineUnitPrice(l)*sf)}</td>
+      <td class="r">${money(lineAmount(l)*sf)}</td>
     </tr>`).join('');
   const co=doc.company||{}, cl=doc.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join(' &middot; ');
@@ -610,11 +613,8 @@ function proposalDocHTML(forDownload){
     <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>'}</tbody>
   </table>
   <div class="totals">
-    <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
-    ${doc.markupPct?`<div class="tr"><span>Overhead (${doc.markupPct}%)</span><span>${money(t.overhead)}</span></div>`:''}
-    ${doc.profitPct?`<div class="tr"><span>Profit (${doc.profitPct}%)</span><span>${money(t.profit)}</span></div>`:''}
-    ${t.discount>0?`<div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
-    ${(doc.taxPct && t.tax>0.005)?`<div class="tr"><span>Tax (materials, ${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
+    ${t.discount>0?`<div class="tr"><span>Subtotal</span><span>${money(t.price+t.tax)}</span></div>
+    <div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
   </div>
   ${doc.notes?`<div class="sec"><h4>Scope of work</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:''}

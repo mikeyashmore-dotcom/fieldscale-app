@@ -62,23 +62,26 @@ async function api(path, opts={}){
 function money0(n){ return money(n); }
 function computeTotals(d){
   const subtotal=(d.lines||[]).reduce((s,l)=>s+lineAmount(l),0);
-  const markup=subtotal*(Number(d.markupPct)||0)/100;
-  const price=subtotal+markup;
+  // Overhead + profit fold into the price; tax is materials-only (flat lines assumed tax-included).
+  const mk=1+((Number(d.markupPct)||0)+(Number(d.profitPct)||0))/100;
+  const price=subtotal*mk;
   const discInput=Number(d.discount)||0;
   let discount=d.discountType==='amt'?discInput:price*discInput/100;
   discount=Math.min(Math.max(discount,0),price);
-  const taxable=price-discount;
-  const tax=taxable*(Number(d.taxPct)||0)/100;
-  return { subtotal:price, discount, tax, total:taxable+tax };
+  const materialBase=(d.lines||[]).reduce((s,l)=>s+(l.mode==='buildup'?(Number(l.material)||0):0),0);
+  const tax=materialBase*(Number(d.taxPct)||0)/100;
+  return { subtotal, price, discount, tax, total:(price-discount)+tax };
 }
 function render(d){
   const t=computeTotals(d);
   const co=d.company||{}, cl=d.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(esc).join(' · ');
+  // Overhead, profit and tax stay internal — fold them into the prices the client sees.
+  const sf=t.subtotal>0?(t.price+t.tax)/t.subtotal:1;
   const rows=(d.lines||[]).map((l,i)=>`<tr><td class="c">${i+1}</td>
     <td>${esc(l.name)}${l.code?`<div class="code">${esc(l.code)}</div>`:''}</td>
     <td class="r">${Number(l.qty)||0}</td><td>${esc(l.unit)}</td>
-    <td class="r">${money(lineUnit(l))}</td><td class="r">${money(lineAmount(l))}</td></tr>`).join('');
+    <td class="r">${money(lineUnit(l)*sf)}</td><td class="r">${money(lineAmount(l)*sf)}</td></tr>`).join('');
   const sig=d.signature;
   const approveBlock = sig&&sig.name
     ? `<div class="accepted"><strong>✓ Approved</strong><br>Accepted by <strong>${esc(sig.name)}</strong> on ${new Date(sig.at).toLocaleString()}.</div>`
@@ -101,9 +104,8 @@ function render(d){
     <table><thead><tr><th class="c">#</th><th>Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
       <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>'}</tbody></table>
     <div class="totals">
-      <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
-      ${t.discount>0?`<div class="tr"><span>Discount</span><span>-${money(t.discount)}</span></div>`:''}
-      ${d.taxPct?`<div class="tr"><span>Tax (${d.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
+      ${t.discount>0?`<div class="tr"><span>Subtotal</span><span>${money(t.price+t.tax)}</span></div>
+      <div class="tr"><span>Discount</span><span>-${money(t.discount)}</span></div>`:''}
       <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
     </div>
     ${d.notes?`<div class="sec"><h4>Notes</h4><div class="body">${esc(d.notes)}</div></div>`:''}

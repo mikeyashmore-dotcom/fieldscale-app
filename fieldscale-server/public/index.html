@@ -3791,12 +3791,16 @@ function resolveSheet(label){
   return null;
 }
 function sheetLabelFor(pn){ const info=state.pageNames[pn]; return (info && info.number) ? info.number : ('Page '+pn); }
-async function gotoRefLink(r){
+// Follow a reference tag: open the linked sheet in a NEW window (reference mode, autosave off)
+// so you can keep it up beside the sheet you're working on. Needs the project saved so the
+// new window can load it from the server.
+function gotoRefLink(r){
   if(!r || !r.targetPage || r.targetPage<1 || r.targetPage>state.numPages){ alert('That linked sheet is no longer available.'); return; }
-  if(r.targetPage===state.pageNum){ redrawOverlay(); return; }
-  state.pageNum = r.targetPage;
-  state.searchHighlightPage = null; state.searchHighlights = [];
-  await renderPage();
+  if(!currentProjectId){ alert('Save this project first — then the linked sheet can open in its own window.'); return; }
+  const url = '/?project='+encodeURIComponent(currentProjectId)+'&page='+r.targetPage+'&ref=1';
+  // Passing window features nudges the browser to open a separate window rather than a tab.
+  const w = Math.min(screen.availWidth||1400, 1400), h = Math.min(screen.availHeight||900, 900);
+  window.open(url, '_blank', 'noopener,width='+w+',height='+h);
 }
 function addRefLinkAt(p){
   const label = prompt('This tag points to which sheet?\nEnter the sheet number exactly as on the plans (e.g. A.07), or a page number:');

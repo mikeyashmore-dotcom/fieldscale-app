@@ -74,7 +74,7 @@
       <tbody id="prod-rows"></tbody>
     </table></div>
 
-    <h2>Accounts receivable</h2>
+    <h2>Accounts receivable <button class="btn ghost" id="invcsv-btn" style="font-size:12px;padding:4px 12px;margin-left:8px" title="Download every invoice as a CSV you can import into QuickBooks, Xero or a spreadsheet">⬇ Export invoices (QuickBooks CSV)</button></h2>
     <p class="section-sub">Money customers still owe you — and how overdue it is (based on each invoice's due date).</p>
     <div class="tiles" id="ar-tiles"></div>
     <div class="card" style="padding:14px 16px;margin-bottom:8px" id="ar-aging"></div>
@@ -207,6 +207,20 @@ async function exportPayroll(){
   }catch(err){ alert('Could not export: '+err.message); }
 }
 document.getElementById('payroll-btn').addEventListener('click', exportPayroll);
+async function exportInvoices(){
+  try{
+    const d=await apiFetch('/api/reports/invoices');
+    if(!d.rows.length){ alert('No invoices to export yet.'); return; }
+    const esc2=v=>{ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+    // Header names line up with QuickBooks / Xero invoice imports; also opens fine in any spreadsheet.
+    let csv='Invoice No,Customer,Email,Invoice Date,Due Date,Project,Amount,Paid,Balance,Status\n';
+    d.rows.forEach(r=>{ csv+=[r.invoiceNo,r.customer,r.email,r.date,r.dueDate,r.project,r.total,r.paid,r.balance,r.status].map(esc2).join(',')+'\n'; });
+    const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='fieldscale-invoices.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }catch(err){ alert('Could not export: '+err.message); }
+}
+document.getElementById('invcsv-btn').addEventListener('click', exportInvoices);
 function renderSources(list){
   const tb=document.getElementById('src-rows');
   if(!list||!list.length){ tb.innerHTML='<tr><td colspan="6" class="empty">No leads yet. Add a lead with a source to see this.</td></tr>'; return; }

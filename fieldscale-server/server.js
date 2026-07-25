@@ -1803,6 +1803,19 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { rows, totals });
       }
 
+      // ---- Accounting export: every invoice, for import into QuickBooks / Xero / a spreadsheet ----
+      if (pathname === '/api/reports/invoices' && req.method === 'GET') {
+        const rows = db.invoices.filter(i => i.companyId === me.companyId).map(i => {
+          const d = readInvoiceDoc(i.id) || {};
+          const total = Number(i.total) || 0, paid = Number(i.amountPaid) || 0;
+          return { invoiceNo: d.invoiceNo || '', customer: (d.client && d.client.name) || i.client || '',
+            email: (d.client && d.client.email) || '', date: d.date || '', dueDate: d.dueDate || '',
+            project: d.project || '', total: Math.round(total * 100) / 100, paid: Math.round(paid * 100) / 100,
+            balance: Math.round((total - paid) * 100) / 100, status: invoiceStatus(total, paid) };
+        }).sort((a, b) => (a.date < b.date ? 1 : -1));
+        return sendJSON(res, 200, { rows });
+      }
+
       // ---- Schedule: jobs with their start/due dates for the calendar ----
       if (pathname === '/api/schedule' && req.method === 'GET') {
         const list = db.jobs.filter(j => j.companyId === me.companyId)

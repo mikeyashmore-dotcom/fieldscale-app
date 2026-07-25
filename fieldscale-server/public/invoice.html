@@ -82,6 +82,7 @@
       <div class="spacer"></div>
       <button class="btn ghost" id="dup-btn" title="Create a fresh copy of this invoice (unpaid, new number)">⎘ Duplicate</button>
       <button class="btn ghost" id="save-btn">Save</button>
+      <button class="btn ghost" id="email-btn" title="Open your email app with the invoice details ready to send">✉ Email invoice</button>
       <button class="btn primary" id="pdf-btn">Generate PDF</button>
     </div>
 
@@ -100,6 +101,7 @@
       <div class="block">
         <h3>Bill To</h3>
         <div class="field"><label>Client name</label><input id="cl-name" placeholder="Customer name" /></div>
+        <div class="field"><label>Client email</label><input id="cl-email" type="email" placeholder="name@email.com — used when you email the invoice" /></div>
         <div class="field"><label>Client address</label><input id="cl-address" /></div>
         <div class="field"><label>Project / job</label><input id="project" /></div>
         <div class="row3">
@@ -136,6 +138,11 @@
         <div class="block">
           <h3>Payment terms</h3>
           <textarea id="terms" placeholder="How to pay, due date, late fees…"></textarea>
+        </div>
+        <div class="block">
+          <h3>Online payment (Pay Now)</h3>
+          <div style="font-size:12px;color:var(--steel);margin:-4px 0 8px">Paste your own payment link — a Stripe Payment Link, PayPal.Me, Venmo, Square, etc. It shows as a <strong>Pay Now</strong> button on the invoice and PDF so customers can pay online. No account to connect here.</div>
+          <input id="pay-link" type="url" placeholder="https://buy.stripe.com/…  or  https://paypal.me/yourname" style="width:100%" />
         </div>
         <div class="block">
           <h3>Recurring</h3>
@@ -303,9 +310,9 @@ function syncDocFromForm(){
   invName=val('inv-name')||'Untitled Invoice';
   doc.company={ name:val('co-name'), phone:val('co-phone'), email:val('co-email'), license:val('co-license'), address:val('co-address'),
     website:(doc.company&&doc.company.website)||'', logo:(doc.company&&doc.company.logo)||'' };
-  doc.client={ name:val('cl-name'), address:val('cl-address') };
+  doc.client={ name:val('cl-name'), email:val('cl-email'), address:val('cl-address') };
   doc.project=val('project'); doc.invoiceNo=val('inv-no'); doc.date=val('inv-date'); doc.dueDate=val('inv-due');
-  doc.notes=val('notes'); doc.terms=val('terms');
+  doc.notes=val('notes'); doc.terms=val('terms'); doc.payLink=val('pay-link').trim();
   doc.taxPct=parseFloat(val('t-tax'))||0; doc.amountPaid=parseFloat(val('t-paid'))||0; doc.lateFee=parseFloat(val('t-late'))||0;
   doc.recurEvery=parseInt(val('rec-every'))||0; doc.recurNextDate=val('rec-next');
   doc.discount=parseFloat(val('t-disc'))||0; doc.discountType=(doc.discountType==='amt'?'amt':'pct');
@@ -317,6 +324,23 @@ async function save(){
   await apiFetch('/api/invoices/'+invId, { method:'PUT', body: JSON.stringify({ name:invName, client:doc.client.name, total:t.total, amountPaid:t.paid, doc }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Invoice saved.'); }catch(err){ toast(err.message,true); } });
+// Email the invoice from the contractor's own mail app (no email service needed).
+document.getElementById('email-btn').addEventListener('click', async ()=>{
+  try{
+    await save();
+    const t=computeTotals();
+    const co=(doc.company&&doc.company.name)||'our company';
+    const cl=(doc.client&&doc.client.name)||'there';
+    const no=doc.invoiceNo?(' '+doc.invoiceNo):'';
+    const subj=`Invoice${no} from ${co}`;
+    let body=`Hi ${cl},\n\nPlease find invoice${no} for ${money(t.total)}`+
+      (t.balance>0.005?` (balance due ${money(t.balance)})`:'')+`.`;
+    if(doc.payLink) body+=`\n\nPay online here:\n${doc.payLink}`;
+    body+=`\n\nThank you,\n${co}`;
+    const to=(doc.client&&doc.client.email)||'';
+    location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
+  }catch(err){ toast(err.message,true); }
+});
 document.getElementById('dup-btn').addEventListener('click', async ()=>{
   if(!confirm('Make a fresh copy of this invoice? The copy is unpaid, undated and gets the next invoice number.')) return;
   try{ await save(); const r=await apiFetch('/api/invoices/'+invId+'/duplicate',{method:'POST'}); toast('Copy created.'); location.href='/invoice.html?id='+encodeURIComponent(r.id); }
@@ -394,6 +418,7 @@ function openInvoicePDF(){
     ${t.paid>0?`<div class="tr"><span>Amount paid</span><span>-${money(t.paid)}</span></div>`:''}
     <div class="tr balance"><span>${t.balance<=0.005?'Paid in full':'Balance due'}</span><span>${money(Math.max(0,t.balance))}</span></div>
   </div>
+  ${(doc.payLink && /^https?:\/\//i.test(doc.payLink) && t.balance>0.005)?`<div style="text-align:right;margin-top:12px"><a href="${escapeHtml(doc.payLink)}" style="display:inline-block;background:#4A9B6E;color:#fff;text-decoration:none;padding:10px 24px;border-radius:4px;font-weight:600;font-family:'Oswald',sans-serif">Pay Now — ${money(Math.max(0,t.balance))}</a></div>`:''}
   ${doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:''}
   ${doc.terms?`<div class="sec"><h4>Payment terms</h4><div class="body">${escapeHtml(doc.terms)}</div></div>`:''}
   <div class="foot">Thank you for your business. ${escapeHtml(co.name||'')}</div>
@@ -407,9 +432,9 @@ function fillForm(){
   set('inv-name',invName);
   const co=doc.company||{}, cl=doc.client||{};
   set('co-name',co.name); set('co-phone',co.phone); set('co-email',co.email); set('co-license',co.license); set('co-address',co.address);
-  set('cl-name',cl.name); set('cl-address',cl.address);
+  set('cl-name',cl.name); set('cl-email',cl.email); set('cl-address',cl.address);
   set('project',doc.project); set('inv-no',doc.invoiceNo); set('inv-date',doc.date); set('inv-due',doc.dueDate);
-  set('notes',doc.notes); set('terms',doc.terms);
+  set('notes',doc.notes); set('terms',doc.terms); set('pay-link',doc.payLink);
   document.getElementById('t-tax').value=doc.taxPct||0;
   document.getElementById('t-paid').value=doc.amountPaid||0;
   document.getElementById('t-late').value=doc.lateFee||0;

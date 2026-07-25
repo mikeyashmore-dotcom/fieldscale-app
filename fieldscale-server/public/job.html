@@ -59,6 +59,7 @@
   <nav>
     <a href="/">Takeoff</a>
     <a href="/leads.html">Leads</a>
+    <a href="/customers.html">Customers</a>
     <a href="/proposals.html">Estimates</a>
     <a href="/jobs.html" class="active">Jobs</a>
     <a href="/schedule.html">Schedule</a>
@@ -146,6 +147,27 @@
     </div>
     <div style="margin:10px 0 18px"><button class="btn ghost" id="add-cost">＋ Add cost</button></div>
 
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0">
+        <h3 style="margin:0">Time &amp; labor</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 10px">Log hours worked — they roll into this job's labor cost. Or clock in and out to time a shift.</p>
+        <div class="clockbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+          <input id="clk-worker" placeholder="Worker" style="width:130px" />
+          <span class="dollar" style="display:inline-flex;align-items:center;gap:2px;color:var(--steel)">$<input id="clk-rate" class="num" inputmode="decimal" placeholder="rate/hr" style="width:80px" /></span>
+          <button class="btn primary" id="clock-btn">Clock in</button>
+          <span id="clock-live" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--orange-dim)"></span>
+        </div>
+      </div>
+      <div class="lines-scroll">
+        <table class="lines time-table">
+          <thead><tr><th>Worker</th><th>Date</th><th class="num">Hours</th><th class="num">Rate&nbsp;$</th><th class="num">Labor&nbsp;$</th><th>Note</th><th></th></tr></thead>
+          <tbody id="time-lines"></tbody>
+        </table>
+      </div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-time">＋ Add time entry</button>
+        <span id="time-total" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--steel);margin-left:12px"></span></div>
+    </div>
+
     <div class="block">
       <h3>Receipts &amp; documents</h3>
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">Attach receipts, photos or PDFs. They stay with this job for its whole life.</p>
@@ -175,6 +197,16 @@
       </div>
     </div>
     <div style="margin:10px 0 18px"><button class="btn ghost" id="add-blank">＋ Add scope line</button></div>
+
+    <div class="block">
+      <h3>Task checklist</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 10px">A punch list of to-dos for this job. Check them off as you go.</p>
+      <div id="tasks-wrap"></div>
+      <div class="task-add" style="display:flex;gap:8px;margin-top:8px">
+        <input id="task-input" placeholder="Add a task and press Enter…" style="flex:1" />
+        <button class="btn ghost" id="add-task">＋ Add</button>
+      </div>
+    </div>
 
     <div class="block">
       <h3>Daily logs</h3>
@@ -252,7 +284,10 @@ function approvedCO(){
   }, {price:0, cost:0});
 }
 const COST_CATEGORIES=['Labor','Material','Subcontractor','Equipment','Other'];
-function costsTotal(){ return (doc.costs||[]).reduce((s,c)=>s+(Number(c.amount)||0),0); }
+function laborTotal(){ return (doc.timeEntries||[]).reduce((s,t)=>s+(Number(t.hours)||0)*(Number(t.rate)||0),0); }
+function hoursTotal(){ return (doc.timeEntries||[]).reduce((s,t)=>s+(Number(t.hours)||0),0); }
+// Logged costs plus labor from time entries — everything rolls into "actual cost to date".
+function costsTotal(){ return (doc.costs||[]).reduce((s,c)=>s+(Number(c.amount)||0),0) + laborTotal(); }
 function renderCosting(){
   const co=approvedCO();
   const baseContract=num('c-contract'), baseBudget=num('c-budget'), actual=costsTotal();
@@ -324,6 +359,7 @@ async function refreshDash(){
 // ---- Actual costs (labor / material / sub / equipment), rolled into "actual cost to date" ----
 function renderCostBreakdown(){
   const by={}; (doc.costs||[]).forEach(c=>{ const k=c.category||'Other'; by[k]=(by[k]||0)+(Number(c.amount)||0); });
+  by['Labor'] = (by['Labor']||0) + laborTotal();  // time entries count as labor
   const parts=COST_CATEGORIES.filter(k=>by[k]).map(k=>`${k}: ${money(by[k])}`);
   document.getElementById('cost-breakdown').textContent = parts.length ? parts.join('  ·  ') : '';
 }
@@ -358,6 +394,97 @@ document.getElementById('add-cost').addEventListener('click', ()=>{
   doc.costs=doc.costs||[];
   doc.costs.push({ id:'x_'+Math.random().toString(16).slice(2,8), category:'Labor', description:'', amount:0, date:'' });
   renderCosts();
+});
+
+// ---- Task checklist (a punch list on the job; lives in the job doc) ----
+function renderTasks(){
+  const wrap=document.getElementById('tasks-wrap');
+  const tasks=doc.tasks||[];
+  if(!tasks.length){ wrap.innerHTML=`<div style="color:var(--steel);font-size:13px">No tasks yet.</div>`; return; }
+  const doneN=tasks.filter(t=>t.done).length;
+  wrap.innerHTML=`<div style="font-size:12px;color:var(--steel);margin-bottom:6px">${doneN} of ${tasks.length} done</div>`+
+    tasks.map((t,i)=>`<div class="task-row" style="display:flex;align-items:center;gap:8px;padding:4px 0">
+      <input type="checkbox" data-tk="${i}" ${t.done?'checked':''} />
+      <input data-tt="${i}" value="${escapeHtml(t.text)}" style="flex:1;${t.done?'text-decoration:line-through;color:var(--steel)':''}" />
+      <button class="rowdel" data-tdel="${i}" title="Remove">✕</button>
+    </div>`).join('');
+}
+function addTask(){
+  const inp=document.getElementById('task-input'); const v=(inp.value||'').trim(); if(!v) return;
+  doc.tasks=doc.tasks||[]; doc.tasks.push({ id:'tk_'+Math.random().toString(16).slice(2,8), text:v, done:false });
+  inp.value=''; renderTasks();
+}
+document.getElementById('add-task').addEventListener('click', addTask);
+document.getElementById('task-input').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addTask(); } });
+document.getElementById('tasks-wrap').addEventListener('change', e=>{
+  const k=e.target.getAttribute('data-tk'); if(k!==null){ doc.tasks[k].done=e.target.checked; renderTasks(); }
+});
+document.getElementById('tasks-wrap').addEventListener('input', e=>{
+  const t=e.target.getAttribute('data-tt'); if(t!==null){ doc.tasks[t].text=e.target.value; }
+});
+document.getElementById('tasks-wrap').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-tdel');
+  if(d!==null && d!==undefined){ doc.tasks.splice(Number(d),1); renderTasks(); }
+});
+
+// ---- Time & labor (time entries roll into labor cost; clock in/out times a shift) ----
+function renderTime(){
+  const tb=document.getElementById('time-lines'); const te=doc.timeEntries||[];
+  if(!te.length){ tb.innerHTML=`<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--steel)">No time logged yet.</td></tr>`; }
+  else tb.innerHTML=te.map((t,i)=>`<tr>
+    <td><input data-ti="${i}" data-tf="worker" value="${escapeHtml(t.worker||'')}" style="width:120px" /></td>
+    <td><input data-ti="${i}" data-tf="date" type="date" value="${escapeHtml(t.date||'')}" style="width:140px" /></td>
+    <td class="num"><input class="num" data-ti="${i}" data-tf="hours" value="${t.hours||0}" inputmode="decimal" style="width:70px" /></td>
+    <td class="num"><span class="dollar">$<input class="num" data-ti="${i}" data-tf="rate" value="${t.rate||0}" inputmode="decimal" style="width:70px" /></span></td>
+    <td class="num amt" data-tlabor="${i}">${money((Number(t.hours)||0)*(Number(t.rate)||0))}</td>
+    <td><input data-ti="${i}" data-tf="note" value="${escapeHtml(t.note||'')}" placeholder="—" style="width:150px" /></td>
+    <td class="num"><button class="rowdel" data-tdel2="${i}" title="Remove">✕</button></td>
+  </tr>`).join('');
+  document.getElementById('time-total').textContent = te.length ? `${hoursTotal().toFixed(2)} hrs · ${money(laborTotal())} labor` : '';
+}
+document.getElementById('time-lines').addEventListener('input', e=>{
+  const i=e.target.getAttribute('data-ti'), f=e.target.getAttribute('data-tf'); if(i===null) return;
+  const num=(f==='hours'||f==='rate');
+  doc.timeEntries[i][f]= num ? (parseFloat(e.target.value)||0) : e.target.value;
+  if(num){ const t=doc.timeEntries[i]; const cell=document.querySelector(`[data-tlabor="${i}"]`); if(cell) cell.textContent=money((Number(t.hours)||0)*(Number(t.rate)||0));
+    document.getElementById('time-total').textContent=`${hoursTotal().toFixed(2)} hrs · ${money(laborTotal())} labor`; renderCosting(); renderCostBreakdown(); }
+});
+document.getElementById('time-lines').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-tdel2');
+  if(d!==null && d!==undefined){ doc.timeEntries.splice(Number(d),1); renderTime(); renderCosting(); renderCostBreakdown(); }
+});
+function addTimeEntry(entry){
+  doc.timeEntries=doc.timeEntries||[];
+  doc.timeEntries.push(Object.assign({ id:'te_'+Math.random().toString(16).slice(2,8), worker:'', date:'', hours:0, rate:0, note:'' }, entry||{}));
+  renderTime(); renderCosting(); renderCostBreakdown();
+}
+document.getElementById('add-time').addEventListener('click', ()=>addTimeEntry());
+// Clock in/out: store the running shift on the doc so it survives a reload; on clock-out, log the hours.
+let clockTimer=null;
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function renderClock(){
+  const btn=document.getElementById('clock-btn'), live=document.getElementById('clock-live');
+  if(clockTimer){ clearInterval(clockTimer); clockTimer=null; }
+  if(doc.activeClock && doc.activeClock.start){
+    btn.textContent='Clock out'; btn.classList.remove('primary');
+    document.getElementById('clk-worker').value=doc.activeClock.worker||'';
+    document.getElementById('clk-rate').value=doc.activeClock.rate||'';
+    const tick=()=>{ const ms=Date.now()-doc.activeClock.start; const h=Math.floor(ms/3600000), m=Math.floor(ms/60000)%60, s=Math.floor(ms/1000)%60;
+      live.textContent='● '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'); };
+    tick(); clockTimer=setInterval(tick,1000);
+  } else { btn.textContent='Clock in'; btn.classList.add('primary'); live.textContent=''; }
+}
+document.getElementById('clock-btn').addEventListener('click', async ()=>{
+  if(doc.activeClock && doc.activeClock.start){
+    const hrs=Math.round((Date.now()-doc.activeClock.start)/3600000*100)/100;
+    addTimeEntry({ worker:doc.activeClock.worker||'', date:todayStr(), hours:hrs, rate:Number(doc.activeClock.rate)||0, note:'Clocked shift' });
+    doc.activeClock=null; renderClock();
+    try{ await save(); toast('Clocked out — '+hrs+' hrs logged.'); refreshDash(); }catch(err){ toast(err.message,true); }
+  } else {
+    doc.activeClock={ worker:document.getElementById('clk-worker').value||'', rate:parseFloat(document.getElementById('clk-rate').value)||0, start:Date.now() };
+    renderClock();
+    try{ await save(); toast('Clocked in.'); }catch(err){ toast(err.message,true); }
+  }
 });
 
 // ---- Receipts (files attached to the job, stored server-side for the life of the job) ----
@@ -592,6 +719,9 @@ function fillForm(){
   renderCosts();
   renderReceipts();
   renderDailyLogs();
+  renderTasks();
+  renderTime();
+  renderClock();
   renderCosting();
 }
 let statusVal='scheduled';
@@ -604,6 +734,7 @@ async function init(){
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
+    doc.tasks = doc.tasks||[]; doc.timeEntries = doc.timeEntries||[];
     receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){

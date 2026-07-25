@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Customers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .toolbar{display:flex;gap:8px;align-items:center;margin:0 0 18px}
+  .toolbar input{max-width:280px}
+  td.num,th.num{font-family:'IBM Plex Mono',monospace}
+  .rowlink{cursor:pointer}
+  .rowlink:hover td{background:#FbF9F3}
+  .chips{display:flex;gap:5px;flex-wrap:wrap}
+  .chip{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;background:var(--paper);color:var(--steel);font-family:'IBM Plex Mono',monospace}
+  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:640px} }
+</style>
+<meta name="fs-module" content="crm">
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/leads.html">Leads</a>
+    <a href="/customers.html" class="active">Customers</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
+    <a href="/schedule.html">Schedule</a>
+    <a href="/purchase-orders.html">Purchase Orders</a>
+    <a href="/workorders.html">Work Orders</a>
+    <a href="/invoices.html">Invoices</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/reports.html">Reports</a>
+    <a href="/company.html">Company</a>
+    <a href="/admin.html" id="owner-nav">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <h1>Customers</h1>
+  <p class="sub">Everyone you've quoted, worked for or invoiced — grouped into one hub per customer. Click a name to see all their work and history.</p>
+
+  <div class="toolbar">
+    <input id="search" placeholder="Search customers…" />
+  </div>
+
+  <div id="loading" class="loading">Loading…</div>
+  <div class="card" id="list-card" style="display:none">
+    <table>
+      <thead>
+        <tr><th>Customer</th><th>Activity</th><th class="num">Quoted</th><th class="num">Invoiced</th><th class="num">Outstanding</th><th>Last activity</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtDate(ms){ if(!ms) return '—'; return new Date(ms).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+let all=[];
+function chips(c){
+  const out=[];
+  if(c.leads) out.push(`<span class="chip">${c.leads} lead${c.leads>1?'s':''}</span>`);
+  if(c.estimates) out.push(`<span class="chip">${c.estimates} est</span>`);
+  if(c.jobs) out.push(`<span class="chip">${c.jobs} job${c.jobs>1?'s':''}</span>`);
+  if(c.invoices) out.push(`<span class="chip">${c.invoices} inv</span>`);
+  return `<div class="chips">${out.join('')||'—'}</div>`;
+}
+function render(list){
+  const tb=document.getElementById('rows');
+  if(!list.length){
+    tb.innerHTML=`<tr><td colspan="6" style="padding:32px;text-align:center;color:var(--steel)">
+      No customers yet. They appear here as you add leads, estimates, jobs or invoices with a customer name.</td></tr>`;
+    return;
+  }
+  tb.innerHTML=list.map(c=>`<tr class="rowlink" data-name="${esc(c.name)}">
+    <td><strong>${esc(c.name)||'(no name)'}</strong></td>
+    <td>${chips(c)}</td>
+    <td class="num">${c.quoted?money(c.quoted):'—'}</td>
+    <td class="num">${c.invoiced?money(c.invoiced):'—'}</td>
+    <td class="num">${c.outstanding>0.005?money(c.outstanding):'—'}</td>
+    <td class="muted">${fmtDate(c.lastActivity)}</td>
+  </tr>`).join('');
+}
+document.getElementById('rows').addEventListener('click', e=>{
+  const row=e.target.closest && e.target.closest('[data-name]');
+  if(row){ location.href='/customer.html?name='+encodeURIComponent(row.getAttribute('data-name')); }
+});
+document.getElementById('search').addEventListener('input', e=>{
+  const q=e.target.value.trim().toLowerCase();
+  render(!q ? all : all.filter(c=>(c.name||'').toLowerCase().includes(q)));
+});
+
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{
+    all=await apiFetch('/api/customers');
+    document.getElementById('loading').style.display='none';
+    document.getElementById('list-card').style.display='block';
+    render(all);
+  }catch(err){ document.getElementById('loading').textContent='Could not load customers: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

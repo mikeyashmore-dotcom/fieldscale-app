@@ -8,7 +8,7 @@
   // Which module each nav destination belongs to. Anything not listed (Company, Owner) is always on.
   var NAV_MODULE = {
     '/': 'takeoff', '/index.html': 'takeoff',
-    '/leads.html': 'crm', '/lead.html': 'crm',
+    '/leads.html': 'crm', '/lead.html': 'crm', '/customers.html': 'crm', '/customer.html': 'crm',
     '/proposals.html': 'estimating', '/estimate.html': 'estimating', '/estimates.html': 'estimating',
     '/invoices.html': 'invoicing', '/invoice.html': 'invoicing',
     '/jobs.html': 'jobs', '/job.html': 'jobs', '/schedule.html': 'jobs',

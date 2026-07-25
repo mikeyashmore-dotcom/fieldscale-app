@@ -250,6 +250,10 @@ function writePODoc(id, doc){
 const PO_STATUSES = ['draft', 'ordered', 'received'];
 function poStatus(s){ return PO_STATUSES.indexOf(s) >= 0 ? s : 'draft'; }
 
+// ---------- Customers (a hub view; the "records" are derived from leads/estimates/jobs/invoices
+//            that share a client name — only notes + a manual activity log are stored). ----------
+function custKey(name){ return String(name || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+
 // ---------- Projects/Jobs (the won work to schedule and do) ----------
 const JOBS_DIR = path.join(DATA_DIR, 'jobs');
 function jobPath(id){ return path.join(JOBS_DIR, id + '.json'); }
@@ -330,6 +334,7 @@ function loadDB() {
   parsed.workOrders = parsed.workOrders || [];
   parsed.leads = parsed.leads || [];
   parsed.purchaseOrders = parsed.purchaseOrders || [];
+  parsed.customers = parsed.customers || []; // per-customer notes + activity log (records are derived otherwise)
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -1452,6 +1457,77 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Customers: a hub aggregated by client name across leads / estimates / jobs / invoices ----
+      if (pathname === '/api/customers' && req.method === 'GET') {
+        const map = {}; // key -> aggregate
+        const bump = (name, patch) => {
+          const k = custKey(name); if (!k) return null;
+          if (!map[k]) map[k] = { key: k, name: (name || '').trim(), leads: 0, estimates: 0, jobs: 0,
+            invoices: 0, quoted: 0, invoiced: 0, paid: 0, lastActivity: 0 };
+          const c = map[k]; Object.keys(patch).forEach(f => { if (f === 'lastActivity') c[f] = Math.max(c[f], patch[f] || 0); else c[f] += patch[f] || 0; });
+          return c;
+        };
+        db.leads.filter(l => l.companyId === me.companyId).forEach(l => bump(l.name, { leads: 1, lastActivity: l.updatedAt || 0 }));
+        db.estimates.filter(e => e.companyId === me.companyId).forEach(e => bump(e.client, { estimates: 1, quoted: Number(e.total) || 0, lastActivity: e.updatedAt || 0 }));
+        db.jobs.filter(j => j.companyId === me.companyId).forEach(j => bump(j.client, { jobs: 1, lastActivity: j.updatedAt || 0 }));
+        db.invoices.filter(i => i.companyId === me.companyId).forEach(i => bump(i.client, { invoices: 1, invoiced: Number(i.total) || 0, paid: Number(i.amountPaid) || 0, lastActivity: i.updatedAt || 0 }));
+        // Include named customers that only exist as a saved note.
+        db.customers.filter(c => c.companyId === me.companyId).forEach(c => { const x = bump(c.displayName || c.key, { lastActivity: c.updatedAt || 0 }); });
+        const list = Object.values(map).map(c => ({ ...c, quoted: Math.round(c.quoted * 100) / 100,
+          invoiced: Math.round(c.invoiced * 100) / 100, paid: Math.round(c.paid * 100) / 100,
+          outstanding: Math.round((c.invoiced - c.paid) * 100) / 100 }))
+          .sort((a, b) => b.lastActivity - a.lastActivity);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/customer' && req.method === 'GET') {
+        const k = custKey((parsed.query && parsed.query.name) || '');
+        if (!k) return sendJSON(res, 400, { error: 'A customer name is required.' });
+        const leads = db.leads.filter(l => l.companyId === me.companyId && custKey(l.name) === k)
+          .map(l => ({ id: l.id, name: l.name, stage: l.stage, value: l.value, updatedAt: l.updatedAt }));
+        const estimates = db.estimates.filter(e => e.companyId === me.companyId && custKey(e.client) === k)
+          .map(e => ({ id: e.id, name: e.name, status: e.status, total: e.total, updatedAt: e.updatedAt }));
+        const jobs = db.jobs.filter(j => j.companyId === me.companyId && custKey(j.client) === k)
+          .map(j => ({ id: j.id, name: j.name, status: j.status, updatedAt: j.updatedAt }));
+        const invoices = db.invoices.filter(i => i.companyId === me.companyId && custKey(i.client) === k)
+          .map(i => ({ id: i.id, name: i.name, total: i.total, amountPaid: i.amountPaid, status: invoiceStatus(i.total, i.amountPaid), updatedAt: i.updatedAt }));
+        const rec = db.customers.find(c => c.companyId === me.companyId && c.key === k) || null;
+        const displayName = (rec && rec.displayName) || (leads[0] && leads[0].name) || (estimates[0] && '') || k;
+        // Build a timeline from derived records + the manual activity log.
+        const tl = [];
+        leads.forEach(l => tl.push({ ts: l.updatedAt, type: 'lead', text: 'Lead — ' + (l.stage || 'new'), link: '/lead.html?id=' + l.id }));
+        estimates.forEach(e => tl.push({ ts: e.updatedAt, type: 'estimate', text: 'Estimate “' + (e.name || '') + '” — ' + (e.status || 'draft') + (e.total ? (' — $' + e.total) : ''), link: '/estimate.html?id=' + e.id }));
+        jobs.forEach(j => tl.push({ ts: j.updatedAt, type: 'job', text: 'Job “' + (j.name || '') + '” — ' + (j.status || 'scheduled'), link: '/job.html?id=' + j.id }));
+        invoices.forEach(i => tl.push({ ts: i.updatedAt, type: 'invoice', text: 'Invoice “' + (i.name || '') + '” — ' + invoiceStatus(i.total, i.amountPaid) + (i.total ? (' — $' + i.total) : ''), link: '/invoice.html?id=' + i.id }));
+        (rec ? rec.activity || [] : []).forEach(a => tl.push({ ts: a.ts, type: 'note', text: a.text, link: '' }));
+        tl.sort((a, b) => b.ts - a.ts);
+        const totals = {
+          quoted: estimates.reduce((s, e) => s + (Number(e.total) || 0), 0),
+          invoiced: invoices.reduce((s, i) => s + (Number(i.total) || 0), 0),
+          paid: invoices.reduce((s, i) => s + (Number(i.amountPaid) || 0), 0)
+        };
+        totals.outstanding = Math.round((totals.invoiced - totals.paid) * 100) / 100;
+        return sendJSON(res, 200, { key: k, name: displayName, notes: (rec && rec.notes) || '',
+          leads, estimates, jobs, invoices, timeline: tl, totals });
+      }
+      // Add a manual activity entry and/or set the customer's notes.
+      if (pathname === '/api/customer' && (req.method === 'POST' || req.method === 'PUT')) {
+        const b = await readBody(req);
+        const k = custKey(b.name || '');
+        if (!k) return sendJSON(res, 400, { error: 'A customer name is required.' });
+        let rec = db.customers.find(c => c.companyId === me.companyId && c.key === k);
+        if (!rec) { rec = { id: 'cu_' + crypto.randomBytes(8).toString('hex'), companyId: me.companyId,
+          key: k, displayName: (b.name || '').trim(), notes: '', activity: [], createdAt: Date.now(), updatedAt: Date.now() };
+          db.customers.push(rec); }
+        if (typeof b.notes === 'string') rec.notes = b.notes.slice(0, 20000);
+        if (b.activityText && String(b.activityText).trim()) {
+          rec.activity = rec.activity || [];
+          rec.activity.push({ id: 'ac_' + crypto.randomBytes(5).toString('hex'), ts: Date.now(), text: String(b.activityText).slice(0, 2000) });
+        }
+        rec.updatedAt = Date.now();
+        saveDB(db);
+        return sendJSON(res, 200, { ok: true });
+      }
+
       // ---- Reports: business summary (AR aging, job profitability, estimate win-rate) ----
       if (pathname === '/api/reports/summary' && req.method === 'GET') {
         const DAY = 86400000, now = Date.now();
@@ -1659,7 +1735,8 @@ const server = http.createServer(async (req, res) => {
         }, { price: 0, cost: 0 });
         const contract = (Number(cost.contract) || 0) + co.price;
         const budget = (Number(cost.budget) || 0) + co.cost;
-        const actualCost = (jdoc.costs || []).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+        const laborCost = (jdoc.timeEntries || []).reduce((s, t) => s + (Number(t.hours) || 0) * (Number(t.rate) || 0), 0);
+        const actualCost = (jdoc.costs || []).reduce((s, c) => s + (Number(c.amount) || 0), 0) + laborCost;
         const round = n => Math.round(n * 100) / 100;
         // Purchase orders raised against this job — committed (ordered + received) vs. received so far.
         let poCommitted = 0, poReceived = 0, poCount = 0;
@@ -1892,6 +1969,10 @@ const server = http.createServer(async (req, res) => {
             id: l.id, name: l.name, workType: l.workType, value: l.value, stage: l.stage, source: l.source,
             followUp: l.followUp, createdAt: l.createdAt, updatedAt: l.updatedAt, doc: readLeadDoc(l.id)
           })),
+          customers: db.customers.filter(c => c.companyId === me.companyId).map(c => ({
+            id: c.id, key: c.key, displayName: c.displayName, notes: c.notes, activity: c.activity || [],
+            createdAt: c.createdAt, updatedAt: c.updatedAt
+          })),
           projects, estimates, invoices, jobs, workOrders, purchaseOrders
         });
       }
@@ -2003,6 +2084,17 @@ const server = http.createServer(async (req, res) => {
           }
           if (pb.doc) writePODoc(po.id, pb.doc);
           po.updatedAt = Date.now(); poN++;
+        });
+        (Array.isArray(b.customers) ? b.customers : []).forEach(cb => {
+          const key = custKey(cb.key || cb.displayName || '');
+          if (!key) return;
+          let rec = db.customers.find(x => x.companyId === me.companyId && x.key === key);
+          if (!rec) { rec = { id: 'cu_' + crypto.randomBytes(8).toString('hex'), companyId: me.companyId,
+            key, displayName: cb.displayName || '', notes: '', activity: [], createdAt: cb.createdAt || Date.now(), updatedAt: Date.now() };
+            db.customers.push(rec); }
+          if (typeof cb.notes === 'string') rec.notes = cb.notes;
+          if (Array.isArray(cb.activity)) rec.activity = cb.activity;
+          rec.updatedAt = Date.now();
         });
         saveDB(db);
         return sendJSON(res, 200, { restored: true, projects: projN, estimates: estN, invoices: invN, jobs: jobN, workOrders: woN, leads: leadN, purchaseOrders: poN });

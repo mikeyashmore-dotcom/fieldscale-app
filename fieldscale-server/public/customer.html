@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Customer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .wrap{max-width:1000px}
+  .pagebar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .pagebar h1{margin:0}
+  .pagebar .spacer{flex:1}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:12px 14px}
+  .tile .lab{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel)}
+  .tile .v{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;color:var(--ink-navy);margin-top:3px}
+  .tile .v.neg{color:var(--danger)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:16px}
+  .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px;display:flex;justify-content:space-between}
+  .itemrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--paper-line);cursor:pointer}
+  .itemrow:last-child{border-bottom:none}
+  .itemrow:hover{background:#FbF9F3}
+  .itemrow .nm{flex:1;font-size:13px}
+  .itemrow .pill{padding:1px 7px;border-radius:20px;font-size:10.5px;font-weight:600;text-transform:capitalize;background:var(--paper);color:var(--steel)}
+  .itemrow .amt{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel)}
+  .none{color:var(--steel);font-size:13px;padding:4px 0}
+  textarea{min-height:90px;resize:vertical}
+  .tl{list-style:none;margin:0;padding:0}
+  .tl li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--paper-line)}
+  .tl li:last-child{border-bottom:none}
+  .tl .dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex:none;background:var(--steel-light)}
+  .tl .dot.estimate{background:var(--cyan-dim)} .tl .dot.invoice{background:var(--orange-dim)}
+  .tl .dot.job{background:var(--good)} .tl .dot.lead{background:var(--steel)} .tl .dot.note{background:var(--ink-navy)}
+  .tl .txt{flex:1;font-size:13px}
+  .tl .txt a{color:var(--blueprint-2)}
+  .tl .when{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel);white-space:nowrap}
+  .addnote{display:flex;gap:8px;margin-bottom:12px}
+  @media (max-width:760px){ .cols{grid-template-columns:1fr} }
+</style>
+<meta name="fs-module" content="crm">
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav>
+    <a href="/">Takeoff</a>
+    <a href="/leads.html">Leads</a>
+    <a href="/customers.html" class="active">Customers</a>
+    <a href="/proposals.html">Estimates</a>
+    <a href="/jobs.html">Jobs</a>
+    <a href="/schedule.html">Schedule</a>
+    <a href="/purchase-orders.html">Purchase Orders</a>
+    <a href="/workorders.html">Work Orders</a>
+    <a href="/invoices.html">Invoices</a>
+    <a href="/estimates.html">Price Book</a>
+    <a href="/reports.html">Reports</a>
+    <a href="/company.html">Company</a>
+    <a href="/admin.html" id="owner-nav">Owner</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="loading">Loading…</div>
+  <div id="content" style="display:none">
+    <div class="pagebar">
+      <a href="/customers.html" class="btn ghost">← Customers</a>
+      <h1 id="cust-name"></h1>
+      <div class="spacer"></div>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="cols">
+      <div>
+        <div class="block"><h3><span>Leads</span></h3><div id="leads"></div></div>
+        <div class="block"><h3><span>Estimates</span></h3><div id="estimates"></div></div>
+        <div class="block"><h3><span>Jobs</span></h3><div id="jobs"></div></div>
+        <div class="block"><h3><span>Invoices</span></h3><div id="invoices"></div></div>
+      </div>
+      <div>
+        <div class="block">
+          <h3><span>Notes</span><button class="btn ghost" id="save-notes" style="font-size:11px;padding:3px 10px">Save</button></h3>
+          <textarea id="notes" placeholder="Anything worth remembering about this customer…"></textarea>
+        </div>
+        <div class="block">
+          <h3><span>Activity timeline</span></h3>
+          <div class="addnote">
+            <input id="note-input" placeholder="Log a call, email or note…" style="flex:1" />
+            <button class="btn ghost" id="add-note">Add</button>
+          </div>
+          <ul class="tl" id="timeline"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+const custNameParam = new URLSearchParams(location.search).get('name');
+if(!custNameParam){ location.href='/customers.html'; }
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(ms){ if(!ms) return ''; return new Date(ms).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+
+function itemRow(href, name, status, amt){
+  return `<div class="itemrow" onclick="location.href='${href}'">
+    <span class="nm">${esc(name)||'(untitled)'}</span>
+    ${status?`<span class="pill">${esc(status)}</span>`:''}
+    ${amt?`<span class="amt">${money(amt)}</span>`:''}</div>`;
+}
+function fillList(id, arr, fn){
+  const el=document.getElementById(id);
+  el.innerHTML = arr.length ? arr.map(fn).join('') : '<div class="none">None yet.</div>';
+}
+function renderTimeline(tl){
+  const el=document.getElementById('timeline');
+  if(!tl.length){ el.innerHTML='<li><span class="txt none">No activity yet.</span></li>'; return; }
+  el.innerHTML=tl.map(e=>`<li>
+    <span class="dot ${esc(e.type)}"></span>
+    <span class="txt">${e.link?`<a href="${esc(e.link)}">${esc(e.text)}</a>`:esc(e.text)}</span>
+    <span class="when">${fmtDate(e.ts)}</span></li>`).join('');
+}
+
+let data=null;
+function render(){
+  document.getElementById('cust-name').textContent=data.name||'(no name)';
+  const t=data.totals||{};
+  document.getElementById('tiles').innerHTML=
+    `<div class="tile"><div class="lab">Quoted</div><div class="v">${money(t.quoted)}</div></div>`+
+    `<div class="tile"><div class="lab">Invoiced</div><div class="v">${money(t.invoiced)}</div></div>`+
+    `<div class="tile"><div class="lab">Paid</div><div class="v">${money(t.paid)}</div></div>`+
+    `<div class="tile"><div class="lab">Outstanding</div><div class="v ${t.outstanding>0.005?'neg':''}">${money(t.outstanding)}</div></div>`;
+  fillList('leads', data.leads, l=>itemRow('/lead.html?id='+l.id, l.name, l.stage, l.value));
+  fillList('estimates', data.estimates, e=>itemRow('/estimate.html?id='+e.id, e.name, e.status, e.total));
+  fillList('jobs', data.jobs, j=>itemRow('/job.html?id='+j.id, j.name, j.status, 0));
+  fillList('invoices', data.invoices, i=>itemRow('/invoice.html?id='+i.id, i.name, i.status, i.total));
+  document.getElementById('notes').value=data.notes||'';
+  renderTimeline(data.timeline||[]);
+}
+
+document.getElementById('save-notes').addEventListener('click', async ()=>{
+  try{ await apiFetch('/api/customer', { method:'PUT', body: JSON.stringify({ name:data.name, notes:document.getElementById('notes').value }) }); toast('Notes saved.'); }
+  catch(err){ toast(err.message,true); }
+});
+async function addNote(){
+  const inp=document.getElementById('note-input'); const v=(inp.value||'').trim(); if(!v) return;
+  try{
+    await apiFetch('/api/customer', { method:'POST', body: JSON.stringify({ name:data.name, activityText:v }) });
+    inp.value=''; await load(); toast('Added to timeline.');
+  }catch(err){ toast(err.message,true); }
+}
+document.getElementById('add-note').addEventListener('click', addNote);
+document.getElementById('note-input').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addNote(); } });
+
+async function load(){
+  data=await apiFetch('/api/customer?name='+encodeURIComponent(custNameParam));
+  render();
+}
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{
+    await load();
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+  }catch(err){ document.getElementById('loading').textContent='Could not load this customer: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

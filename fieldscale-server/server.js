@@ -1013,7 +1013,11 @@ const server = http.createServer(async (req, res) => {
           // and base64-inflated into one JSON string — that's what OOM'd/timed out on large sets.
           const p = planPath(project.id);
           const stat = fs.statSync(p);
-          res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': stat.size, 'Cache-Control': 'no-store' });
+          // A project's plan PDF is written once and never changes (new upload = new project id),
+          // so let the browser cache it hard. This stops every reference tab / reload from
+          // re-downloading the whole plan set — the big win for reference-tab speed.
+          res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': stat.size,
+            'Cache-Control': 'private, max-age=31536000, immutable' });
           const rs = fs.createReadStream(p);
           rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the plan.' }); else res.destroy(); });
           rs.pipe(res);

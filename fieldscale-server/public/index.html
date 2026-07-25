@@ -2076,7 +2076,9 @@ async function restoreProjectState(data){
     state.pdfTextIndex = [];
     openPagesPanel();
     await renderPage();
-    indexDocument();
+    // A reference tab is just for viewing one sheet — skip full-text indexing (parses every
+    // page) so it opens fast. The main working tab still indexes for cross-sheet search.
+    if(!IS_REF_TAB) indexDocument();
   }
   renderTakeoffList();
   redrawOverlay();

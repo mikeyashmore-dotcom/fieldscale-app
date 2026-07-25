@@ -80,6 +80,7 @@
       <input class="title" id="inv-name" placeholder="Invoice name" />
       <span class="statuspill unpaid" id="status-pill">unpaid</span>
       <div class="spacer"></div>
+      <button class="btn ghost" id="dup-btn" title="Create a fresh copy of this invoice (unpaid, new number)">⎘ Duplicate</button>
       <button class="btn ghost" id="save-btn">Save</button>
       <button class="btn primary" id="pdf-btn">Generate PDF</button>
     </div>
@@ -135,6 +136,16 @@
         <div class="block">
           <h3>Payment terms</h3>
           <textarea id="terms" placeholder="How to pay, due date, late fees…"></textarea>
+        </div>
+        <div class="block">
+          <h3>Recurring</h3>
+          <div style="font-size:12px;color:var(--steel);margin:-4px 0 10px">Set this up to repeat (e.g. a monthly retainer). It'll show on your Follow-ups page when the next one is due — one click makes the copy.</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span>Repeat every</span>
+            <input id="rec-every" class="pay" inputmode="numeric" value="0" style="width:56px" />
+            <span>months · next</span>
+            <input id="rec-next" type="date" style="width:auto" />
+          </div>
         </div>
       </div>
       <div class="totals">
@@ -294,6 +305,7 @@ function syncDocFromForm(){
   doc.project=val('project'); doc.invoiceNo=val('inv-no'); doc.date=val('inv-date'); doc.dueDate=val('inv-due');
   doc.notes=val('notes'); doc.terms=val('terms');
   doc.taxPct=parseFloat(val('t-tax'))||0; doc.amountPaid=parseFloat(val('t-paid'))||0; doc.lateFee=parseFloat(val('t-late'))||0;
+  doc.recurEvery=parseInt(val('rec-every'))||0; doc.recurNextDate=val('rec-next');
   doc.discount=parseFloat(val('t-disc'))||0; doc.discountType=(doc.discountType==='amt'?'amt':'pct');
   doc.deposit=parseFloat(val('t-dep'))||0; doc.depositType=(doc.depositType==='amt'?'amt':'pct');
 }
@@ -303,6 +315,11 @@ async function save(){
   await apiFetch('/api/invoices/'+invId, { method:'PUT', body: JSON.stringify({ name:invName, client:doc.client.name, total:t.total, amountPaid:t.paid, doc }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Invoice saved.'); }catch(err){ toast(err.message,true); } });
+document.getElementById('dup-btn').addEventListener('click', async ()=>{
+  if(!confirm('Make a fresh copy of this invoice? The copy is unpaid, undated and gets the next invoice number.')) return;
+  try{ await save(); const r=await apiFetch('/api/invoices/'+invId+'/duplicate',{method:'POST'}); toast('Copy created.'); location.href='/invoice.html?id='+encodeURIComponent(r.id); }
+  catch(err){ toast(err.message,true); }
+});
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ await save(); openInvoicePDF(); }catch(err){ toast(err.message,true); } });
 
 function openInvoicePDF(){
@@ -394,6 +411,8 @@ function fillForm(){
   document.getElementById('t-tax').value=doc.taxPct||0;
   document.getElementById('t-paid').value=doc.amountPaid||0;
   document.getElementById('t-late').value=doc.lateFee||0;
+  document.getElementById('rec-every').value=doc.recurEvery||0;
+  document.getElementById('rec-next').value=doc.recurNextDate||'';
   document.getElementById('t-disc').value=doc.discount||0;
   document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
   document.getElementById('t-dep').value=doc.deposit||0;

@@ -86,6 +86,17 @@
     <h2>Estimate win-rate</h2>
     <p class="section-sub">How many of your quotes turn into work. Mark an estimate <strong>Accepted</strong> or <strong>Rejected</strong> at the top of its page to feed this.</p>
     <div class="tiles" id="est-tiles"></div>
+
+    <h2>Cash-flow forecast</h2>
+    <p class="section-sub">Money you can expect to collect from unpaid invoices, by when it's due.</p>
+    <div class="tiles" id="cf-tiles"></div>
+
+    <h2>Lead sources</h2>
+    <p class="section-sub">Where your leads come from and which sources actually turn into won work. Set a “Lead source” on each lead to feed this.</p>
+    <div class="card"><table>
+      <thead><tr><th>Source</th><th class="num">Leads</th><th class="num">Won</th><th class="num">Lost</th><th class="num">Conversion</th><th class="num">Won $</th></tr></thead>
+      <tbody id="src-rows"></tbody>
+    </table></div>
   </div>
 </div>
 
@@ -149,12 +160,34 @@ function renderEst(e){
     tile('Open (draft/sent)', (c.draft||0)+(c.sent||0)) +
     tile('Open value ($)', money(e.value.outstanding));
 }
+function renderCashflow(cf){
+  cf=cf||{};
+  document.getElementById('cf-tiles').innerHTML =
+    tile('Overdue', money(cf.overdue), cf.overdue>0?'neg':'') +
+    tile('Due ≤ 30 days', money(cf.d0_30), 'pos') +
+    tile('31–60 days', money(cf.d31_60)) +
+    tile('61–90 days', money(cf.d61_90)) +
+    tile('90+ days', money(cf.later)) +
+    tile('No due date', money(cf.undated));
+}
+function renderSources(list){
+  const tb=document.getElementById('src-rows');
+  if(!list||!list.length){ tb.innerHTML='<tr><td colspan="6" class="empty">No leads yet. Add a lead with a source to see this.</td></tr>'; return; }
+  tb.innerHTML=list.map(s=>`<tr>
+    <td><strong>${esc(s.source)}</strong></td>
+    <td class="num">${s.leads}</td>
+    <td class="num pos">${s.won}</td>
+    <td class="num">${s.lost}</td>
+    <td class="num">${s.conversion==null?'—':s.conversion+'%'}</td>
+    <td class="num">${s.wonValue?money(s.wonValue):'—'}</td></tr>`).join('');
+}
 
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{
     const r=await apiFetch('/api/reports/summary');
     renderAR(r.ar); renderJobs(r.jobs); renderEst(r.estimates);
+    renderCashflow(r.cashflow); renderSources(r.leadSources);
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
   }catch(err){ document.getElementById('loading').textContent='Could not load reports: '+err.message; }

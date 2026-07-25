@@ -51,6 +51,7 @@
   <div class="toolbar">
     <input id="search" placeholder="Search customers…" />
   </div>
+  <div id="dupe-banner" style="display:none;background:rgba(232,114,44,.1);border:1px solid rgba(232,114,44,.5);border-radius:var(--radius);padding:10px 14px;margin:0 0 16px;font-size:13px;color:var(--orange-dim)"></div>
 
   <div id="loading" class="loading">Loading…</div>
   <div class="card" id="list-card" style="display:none">
@@ -117,13 +118,38 @@ document.getElementById('search').addEventListener('input', e=>{
   render(!q ? all : all.filter(c=>(c.name||'').toLowerCase().includes(q)));
 });
 
+// Simple duplicate detection: flag customer names that are near-identical (typos) or one contains the other.
+function editDistance(a,b){
+  a=a.toLowerCase();b=b.toLowerCase();const m=a.length,n=b.length;const dp=Array.from({length:m+1},(_,i)=>[i,...Array(n).fill(0)]);
+  for(let j=0;j<=n;j++)dp[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return dp[m][n];
+}
+function findDupes(list){
+  const out=[];
+  for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){
+    const a=(list[i].name||'').trim(), b=(list[j].name||'').trim(); if(!a||!b) continue;
+    const la=a.toLowerCase(), lb=b.toLowerCase();
+    const contains = la.length>3 && lb.length>3 && (la.includes(lb)||lb.includes(la));
+    const near = Math.abs(a.length-b.length)<=3 && editDistance(a,b)<=2 && a.toLowerCase()!==b.toLowerCase();
+    if(contains||near) out.push([a,b]);
+  }
+  return out.slice(0,8);
+}
+function showDupes(list){
+  const dupes=findDupes(list); const el=document.getElementById('dupe-banner');
+  if(!dupes.length){ el.style.display='none'; return; }
+  el.style.display='block';
+  el.innerHTML='<strong>Possible duplicate customers:</strong> '+dupes.map(p=>`“${esc(p[0])}” &amp; “${esc(p[1])}”`).join(' · ')+
+    ' — these may be the same person spelled differently. Rename one to match to merge them.';
+}
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{
     all=await apiFetch('/api/customers');
     document.getElementById('loading').style.display='none';
     document.getElementById('list-card').style.display='block';
-    render(all);
+    render(all); showDupes(all);
   }catch(err){ document.getElementById('loading').textContent='Could not load customers: '+err.message; }
 }
 init();

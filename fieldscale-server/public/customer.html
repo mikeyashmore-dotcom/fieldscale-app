@@ -74,6 +74,7 @@
       <a href="/customers.html" class="btn ghost">← Customers</a>
       <h1 id="cust-name"></h1>
       <div class="spacer"></div>
+      <button class="btn ghost" id="stmt-btn" title="Print an account statement for this customer">🧾 Statement</button>
     </div>
 
     <div class="tiles" id="tiles"></div>
@@ -176,12 +177,46 @@ async function addNote(){
 document.getElementById('add-note').addEventListener('click', addNote);
 document.getElementById('note-input').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addNote(); } });
 
+let company={};
+document.getElementById('stmt-btn').addEventListener('click', ()=>{
+  const t=data.totals||{}; const co=company||{};
+  const coLines=[co.phone,co.email,co.website,co.address].filter(Boolean).map(esc).join(' &middot; ');
+  const rows=(data.invoices||[]).slice().sort((a,b)=>a.updatedAt-b.updatedAt).map(i=>{
+    const bal=(Number(i.total)||0)-(Number(i.amountPaid)||0);
+    return `<tr><td>${esc(i.name)||'Invoice'}</td><td>${fmtDate(i.updatedAt)}</td><td class="s">${esc(i.status)}</td>
+      <td class="r">${money(i.total)}</td><td class="r">${money(i.amountPaid)}</td><td class="r">${money(bal)}</td></tr>`;
+  }).join('');
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ${esc(data.name)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box}body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
+.head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
+.co h1{font-family:'Oswald',sans-serif;font-size:22px;margin:0 0 4px;color:#0E2A47}.co .sub{color:#7C8896;font-size:12px}
+.doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:24px;color:#E8722C}.doc .meta{color:#7C8896;font-size:12px;margin-top:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase}
+th.r,td.r{text-align:right}td{padding:8px 10px;border-bottom:1px solid #E4DFCF}td.s{text-transform:capitalize;color:#7C8896}
+.tot{width:280px;margin-left:auto}.tot .tr{display:flex;justify-content:space-between;padding:5px 0}
+.tot .tr.bal{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:#C0392B}
+@media print{body{padding:0}.noprint{display:none}@page{margin:16mm}}
+.bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}.bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;cursor:pointer}.sp{height:52px}</style></head><body>
+<div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="sp noprint"></div>
+<div class="head"><div class="co">${co.logo?`<img src="${esc(co.logo)}" style="max-height:50px;margin-bottom:8px">`:''}<h1>${esc(co.name||'Statement')}</h1><div class="sub">${coLines}</div></div>
+<div class="doc"><div class="big">STATEMENT</div><div class="meta">For: <strong>${esc(data.name)}</strong><br>${new Date().toLocaleDateString()}</div></div></div>
+<table><thead><tr><th>Invoice</th><th>Date</th><th>Status</th><th class="r">Amount</th><th class="r">Paid</th><th class="r">Balance</th></tr></thead>
+<tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No invoices.</td></tr>'}</tbody></table>
+<div class="tot"><div class="tr"><span>Total invoiced</span><span>${money(t.invoiced)}</span></div>
+<div class="tr"><span>Total paid</span><span>${money(t.paid)}</span></div>
+<div class="tr bal"><span>Balance due</span><span>${money(t.outstanding)}</span></div></div></body></html>`;
+  const w=window.open('','_blank'); if(!w){ toast('Please allow pop-ups to print the statement.',true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+});
+
 async function load(){
   data=await apiFetch('/api/customer?name='+encodeURIComponent(custNameParam));
   render();
 }
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{ const c=await apiFetch('/api/company'); company=c.profile||{}; }catch(e){ company={}; }
   try{
     await load();
     document.getElementById('loading').style.display='none';

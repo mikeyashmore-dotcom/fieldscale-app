@@ -220,6 +220,7 @@
       <div class="task-add" style="display:flex;gap:8px;margin-top:8px">
         <input id="task-input" placeholder="Add a task and press Enter…" style="flex:1" />
         <button class="btn ghost" id="add-task">＋ Add</button>
+        <button class="btn ghost" id="add-closeout" title="Add the standard end-of-job checklist">＋ Closeout checklist</button>
       </div>
     </div>
 
@@ -432,6 +433,13 @@ function addTask(){
 }
 document.getElementById('add-task').addEventListener('click', addTask);
 document.getElementById('task-input').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addTask(); } });
+const CLOSEOUT=['Final walkthrough with customer','Punch list completed','Site cleaned & debris removed','Final invoice sent','Warranty / care info given to customer','Lien release signed (if required)','Ask customer for a review'];
+document.getElementById('add-closeout').addEventListener('click', ()=>{
+  doc.tasks=doc.tasks||[];
+  const have=new Set(doc.tasks.map(t=>(t.text||'').toLowerCase()));
+  CLOSEOUT.forEach(txt=>{ if(!have.has(txt.toLowerCase())) doc.tasks.push({ id:'tk_'+Math.random().toString(16).slice(2,8), text:txt, done:false }); });
+  renderTasks(); toast('Closeout checklist added.');
+});
 document.getElementById('tasks-wrap').addEventListener('change', e=>{
   const k=e.target.getAttribute('data-tk'); if(k!==null){ doc.tasks[k].done=e.target.checked; renderTasks(); }
 });

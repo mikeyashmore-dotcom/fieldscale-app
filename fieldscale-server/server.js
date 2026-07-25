@@ -1423,6 +1423,31 @@ const server = http.createServer(async (req, res) => {
         saveDB(db);
         return sendJSON(res, 200, { id: inv.id });
       }
+      // Duplicate an invoice into a fresh unpaid draft — the building block for recurring invoices.
+      const invDupMatch = pathname.match(/^\/api\/invoices\/([a-zA-Z0-9_]+)\/duplicate$/);
+      if (invDupMatch && req.method === 'POST') {
+        const src = db.invoices.find(i => i.id === invDupMatch[1] && i.companyId === me.companyId);
+        if (!src) return sendJSON(res, 404, { error: 'Invoice not found.' });
+        const sdoc = readInvoiceDoc(src.id) || {};
+        const company = companyById(me.companyId);
+        const doc = JSON.parse(JSON.stringify(sdoc));
+        doc.amountPaid = 0; doc.date = ''; doc.dueDate = '';
+        doc.invoiceNo = assignInvoiceNo(company) || '';
+        // Advance the recurring schedule marker on the ORIGINAL if it recurs.
+        if (Number(sdoc.recurEvery) > 0) {
+          const base = sdoc.recurNextDate ? new Date(sdoc.recurNextDate) : new Date();
+          base.setMonth(base.getMonth() + Number(sdoc.recurEvery));
+          sdoc.recurNextDate = base.toISOString().slice(0, 10);
+          writeInvoiceDoc(src.id, sdoc);
+        }
+        const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: src.name, client: src.client || '', total: Number(src.total) || 0, amountPaid: 0,
+          createdAt: Date.now(), updatedAt: Date.now() };
+        writeInvoiceDoc(inv.id, doc);
+        db.invoices.push(inv);
+        saveDB(db);
+        return sendJSON(res, 200, { id: inv.id });
+      }
       const invMatch = pathname.match(/^\/api\/invoices\/([a-zA-Z0-9_]+)$/);
       if (invMatch) {
         const inv = db.invoices.find(i => i.id === invMatch[1] && i.companyId === me.companyId);
@@ -1640,7 +1665,36 @@ const server = http.createServer(async (req, res) => {
         const decidedVal = est.value.accepted + est.value.rejected;
         est.valueWinRate = decidedVal > 0 ? Math.round(est.value.accepted / decidedVal * 1000) / 10 : null;
         ['accepted', 'rejected', 'outstanding'].forEach(k => est.value[k] = Math.round(est.value[k] * 100) / 100);
-        return sendJSON(res, 200, { ar, jobs, estimates: est });
+
+        // Lead sources — how many leads each source brings and how many turn into won work.
+        var srcMap = {};
+        db.leads.filter(l => l.companyId === me.companyId).forEach(l => {
+          var k = (l.source || '').trim() || '(unspecified)';
+          if (!srcMap[k]) srcMap[k] = { source: k, leads: 0, won: 0, lost: 0, wonValue: 0 };
+          srcMap[k].leads++;
+          if (l.stage === 'won') { srcMap[k].won++; srcMap[k].wonValue += Number(l.value) || 0; }
+          else if (l.stage === 'lost') srcMap[k].lost++;
+        });
+        var leadSources = Object.values(srcMap).map(s => {
+          var d = s.won + s.lost;
+          return { ...s, wonValue: Math.round(s.wonValue * 100) / 100, conversion: d > 0 ? Math.round(s.won / d * 1000) / 10 : null };
+        }).sort((a, b) => b.leads - a.leads);
+
+        // Cash-flow forecast — expected money in from unpaid invoices, bucketed by when they're due.
+        var cf = { overdue: 0, d0_30: 0, d31_60: 0, d61_90: 0, later: 0, undated: 0, total: 0 };
+        db.invoices.filter(i => i.companyId === me.companyId).forEach(i => {
+          var owed = Math.round(((Number(i.total) || 0) - (Number(i.amountPaid) || 0)) * 100) / 100;
+          if (owed <= 0.005) return;
+          cf.total += owed;
+          var idoc = readInvoiceDoc(i.id) || {};
+          if (!idoc.dueDate) { cf.undated += owed; return; }
+          var days = Math.floor((Date.parse(idoc.dueDate) - Date.now()) / 86400000);
+          if (days < 0) cf.overdue += owed; else if (days <= 30) cf.d0_30 += owed;
+          else if (days <= 60) cf.d31_60 += owed; else if (days <= 90) cf.d61_90 += owed; else cf.later += owed;
+        });
+        Object.keys(cf).forEach(k => cf[k] = Math.round(cf[k] * 100) / 100);
+
+        return sendJSON(res, 200, { ar, jobs, estimates: est, leadSources, cashflow: cf });
       }
 
       // ---- Schedule: jobs with their start/due dates for the calendar ----
@@ -1679,7 +1733,17 @@ const server = http.createServer(async (req, res) => {
             daysOver: daysOver > 0 ? daysOver : 0, overdue: daysOver > 0 });
         });
         invoices.sort((a, b) => b.daysOver - a.daysOver || b.owed - a.owed);
-        return sendJSON(res, 200, { leads, invoices, today: todayStr });
+        // Recurring invoices due to be generated (recurNextDate on or before today).
+        const recurring = [];
+        db.invoices.filter(i => i.companyId === me.companyId).forEach(i => {
+          const doc = readInvoiceDoc(i.id) || {};
+          if (Number(doc.recurEvery) > 0 && doc.recurNextDate) {
+            recurring.push({ id: i.id, name: i.name, client: i.client || '', every: Number(doc.recurEvery),
+              nextDate: doc.recurNextDate, due: doc.recurNextDate <= todayStr });
+          }
+        });
+        recurring.sort((a, b) => (a.nextDate < b.nextDate ? -1 : 1));
+        return sendJSON(res, 200, { leads, invoices, recurring, today: todayStr });
       }
 
       // ---- Projects/Jobs: list / create / convert-from-estimate ----

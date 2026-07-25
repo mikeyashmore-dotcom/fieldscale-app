@@ -65,6 +65,13 @@
       <thead><tr><th>Invoice</th><th>Client</th><th>Due</th><th class="num">Days over</th><th class="num">Owed</th></tr></thead>
       <tbody id="inv-rows"></tbody>
     </table></div>
+
+    <h2>Recurring invoices <span class="count" id="rec-count"></span></h2>
+    <p class="section-sub">Invoices set to repeat. Generate the next copy when it's due.</p>
+    <div class="card"><table>
+      <thead><tr><th>Invoice</th><th>Client</th><th>Every</th><th>Next due</th><th></th></tr></thead>
+      <tbody id="rec-rows"></tbody>
+    </table></div>
   </div>
 </div>
 
@@ -103,7 +110,25 @@ function render(d){
     <td class="num">${i.daysOver>0?`<span class="pill over">${i.daysOver}d</span>`:'<span class="pill ok">—</span>'}</td>
     <td class="num">${money(i.owed)}</td>
   </tr>`).join('') : '<tr><td colspan="5" class="empty">Nothing outstanding — all invoices are paid. 🎉</td></tr>';
+
+  const rr=document.getElementById('rec-rows'); const rec=d.recurring||[];
+  const dueRec=rec.filter(r=>r.due).length;
+  document.getElementById('rec-count').textContent = rec.length ? `(${rec.length}${dueRec?`, ${dueRec} due now`:''})` : '';
+  rr.innerHTML = rec.length ? rec.map(r=>`<tr>
+    <td class="rowlink" onclick="location.href='/invoice.html?id=${esc(r.id)}'">${esc(r.name)}</td>
+    <td class="muted">${esc(r.client)||'—'}</td>
+    <td class="muted">${r.every} mo</td>
+    <td>${esc(r.nextDate)} ${r.due?'<span class="pill over">due</span>':''}</td>
+    <td class="num">${r.due?`<button class="pill soon" style="border:none;cursor:pointer" data-gen="${esc(r.id)}">Generate next</button>`:''}</td>
+  </tr>`).join('') : '<tr><td colspan="5" class="empty">No recurring invoices. Set one up on an invoice under “Recurring”.</td></tr>';
 }
+document.getElementById('rec-rows').addEventListener('click', async e=>{
+  const id=e.target.getAttribute && e.target.getAttribute('data-gen'); if(!id) return;
+  e.stopPropagation();
+  try{ const r=await apiPost('/api/invoices/'+id+'/duplicate'); location.href='/invoice.html?id='+encodeURIComponent(r.id); }
+  catch(err){ alert(err.message); }
+});
+async function apiPost(path){ const res=await fetch(path,{method:'POST',headers:{'Authorization':'Bearer '+getToken()}}); const d=await res.json(); if(!res.ok) throw new Error(d.error||'Failed'); return d; }
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{

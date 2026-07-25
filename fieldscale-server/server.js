@@ -803,10 +803,11 @@ const server = http.createServer(async (req, res) => {
       }
 
       // GET /api/branding — the company name + logo, used to brand the app header on every page.
+      // The profile's Company Name field is the source of truth.
       if (pathname === '/api/branding' && req.method === 'GET') {
         const prof = readCompany(me.companyId) || {};
         const company = companyById(me.companyId);
-        return sendJSON(res, 200, { companyName: (company && company.name) || prof.name || '', logo: prof.logo || '' });
+        return sendJSON(res, 200, { companyName: prof.name || (company && company.name) || '', logo: prof.logo || '' });
       }
 
       // GET /api/lead-form-token — the token that powers the public website lead-capture form.
@@ -1270,7 +1271,11 @@ const server = http.createServer(async (req, res) => {
           contractTemplate: typeof p.contractTemplate === 'string' ? p.contractTemplate.slice(0, 20000) : (existingProfile.contractTemplate || '')
         };
         writeCompany(me.companyId, clean);
-        saveDB(db); // persist any invoice-counter change on the company record
+        // Keep the company RECORD's name in sync with the profile's Company Name field, so the
+        // header, home page, and everywhere else that reads the record show the name you edited.
+        const companyRec = companyById(me.companyId);
+        if (companyRec && clean.name) companyRec.name = clean.name;
+        saveDB(db); // persist the name sync + any invoice-counter change on the company record
         return sendJSON(res, 200, { profile: clean, invoiceNext: nextInvoiceNo(companyById(me.companyId)) });
       }
 

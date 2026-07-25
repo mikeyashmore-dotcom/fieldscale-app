@@ -97,8 +97,11 @@ function tile(lab,val,cls,href){
 async function init(){
   let me;
   try{ me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
-  document.getElementById('co-name').textContent = me.companyName || '';
-  if(!me.companyName) document.getElementById('co-wrap').style.display='none';
+  // Use the profile's Company Name (via branding) so this matches the header and the field you edit.
+  let coName = me.companyName || '';
+  try{ const br=await apiFetch('/api/branding'); if(br.companyName) coName=br.companyName; }catch(e){}
+  document.getElementById('co-name').textContent = coName;
+  if(!coName) document.getElementById('co-wrap').style.display='none';
 
   // Cards — hide ones for modules this company isn't on.
   const enabled = Array.isArray(me.modules) ? me.modules : null;

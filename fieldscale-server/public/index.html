@@ -794,6 +794,12 @@
   }
   .page-list-row:hover .plr-newtab{opacity:1;}
   .page-list-row .plr-newtab:hover{color:var(--orange);}
+  .ref-menu{position:fixed;z-index:9999;background:#fff;border:1px solid #E4DFCF;border-radius:6px;
+    box-shadow:0 8px 28px rgba(0,0,0,.28);padding:5px;min-width:190px;
+    font-family:'IBM Plex Sans',sans-serif;font-size:13px;}
+  .ref-menu-item{padding:8px 12px;border-radius:4px;cursor:pointer;color:#0E2A47;white-space:nowrap;}
+  .ref-menu-item:hover{background:#F6F3EA;}
+  .ref-menu-item.danger{color:#C0392B;}
   .plr-hidden-toggle{
     font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--steel);
     padding:7px 9px; cursor:pointer; border-top:1px solid var(--paper-line); margin-top:4px;
@@ -1272,6 +1278,7 @@ const state = {
   drawing:null, // current in-progress draw
   aiSelection:null, // {x,y,w,h} in native (unzoomed) pixels
   highlights:[], // {id, pageNum, x, y, w, h, color} — translucent marks that live on a specific sheet
+  refLinks:[], // {id, pageNum, x, y, targetPage, detail, sheetLabel} — clickable detail-callout links between sheets
   highlightColor:'#FFE14D',
   countLabel:'Fixture',
   snapMode:'ortho',   // 'free' | 'ortho' — ortho is the default
@@ -1995,6 +2002,7 @@ async function serializeProjectState(){
     areas: state.areas,
     quickMeasurements: state.quickMeasurements,
     highlights: state.highlights,
+    refLinks: state.refLinks,           // detail-callout links between sheets
     calibrations: state.calibrations,   // per-sheet scales
     pageNames: state.pageNames,
     projectMeta: state.projectMeta,     // address, client, dates
@@ -2015,6 +2023,7 @@ async function restoreProjectState(data){
   state.areas = data.areas || [];
   state.quickMeasurements = data.quickMeasurements || [];
   state.highlights = data.highlights || [];
+  state.refLinks = data.refLinks || [];
   state.pageNames = data.pageNames || {};
   state.projectMeta = Object.assign({address:'', client:'', planDate:'', bidDue:''}, data.projectMeta || {});
   state.hiddenPages = data.hiddenPages || [];
@@ -2316,7 +2325,7 @@ function npResetToBlank(name){
   currentProjectId = null;
   document.getElementById('proj-name').value = name;
   state.projectMeta = {address:'', client:'', planDate:'', bidDue:''};
-  state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[];
+  state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.refLinks=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; state.searchHighlights=[]; state.searchHighlightPage=null;
@@ -3487,6 +3496,12 @@ els.overlay.addEventListener('mousedown',(e)=>{
   if(e.button!==0) return;
   let p = getNativePoint(e);
 
+  // A left-click on a reference tag follows it like a hyperlink (in the pan/select tools).
+  if(state.tool==='pan' || state.tool==='select'){
+    const rl = refLinkAtPoint(p);
+    if(rl){ e.preventDefault(); gotoRefLink(rl); return; }
+  }
+
   if(state.tool==='select'){
     const hit = pickAt(p);
     const additive = e.shiftKey;
@@ -3749,9 +3764,83 @@ function clearHighlightsOnPage(){
   redrawOverlay();
 }
 
+// ---------- Reference links (detail-callout tags that jump to another sheet) ----------
+// A ref link is a small clickable badge placed over a detail callout on the plan. It stores
+// which sheet (and detail) the callout points to, so left-click (or right-click → Go to)
+// jumps straight there. Lives on the sheet it was placed on, saved with the project.
+const REF_HIT_PX = 16;               // click tolerance, in screen pixels
+function refLinksOnPage(){ return state.refLinks.filter(r=>(r.pageNum||1)===state.pageNum); }
+function refLinkAtPoint(p){
+  const tol = REF_HIT_PX/state.zoom;
+  const list = refLinksOnPage();
+  for(let i=list.length-1;i>=0;i--){ const r=list[i]; if(Math.hypot(p.x-r.x,p.y-r.y)<=tol) return r; }
+  return null;
+}
+function normSheet(s){ return String(s||'').toUpperCase().replace(/\s+/g,'').replace(/[^A-Z0-9.\-]/g,''); }
+// Match a sheet number the user types (e.g. "A.07") to the page it names, using the AI-read
+// sheet numbers. Falls back to a bare page number.
+function resolveSheet(label){
+  const want = normSheet(label);
+  if(!want) return null;
+  for(let pn=1; pn<=state.numPages; pn++){
+    const info = state.pageNames[pn];
+    if(info && info.number && normSheet(info.number)===want) return pn;
+  }
+  const n = parseInt(label,10);
+  if(!isNaN(n) && n>=1 && n<=state.numPages && String(n)===String(label).trim()) return n;
+  return null;
+}
+function sheetLabelFor(pn){ const info=state.pageNames[pn]; return (info && info.number) ? info.number : ('Page '+pn); }
+async function gotoRefLink(r){
+  if(!r || !r.targetPage || r.targetPage<1 || r.targetPage>state.numPages){ alert('That linked sheet is no longer available.'); return; }
+  if(r.targetPage===state.pageNum){ redrawOverlay(); return; }
+  state.pageNum = r.targetPage;
+  state.searchHighlightPage = null; state.searchHighlights = [];
+  await renderPage();
+}
+function addRefLinkAt(p){
+  const label = prompt('This tag points to which sheet?\nEnter the sheet number exactly as on the plans (e.g. A.07), or a page number:');
+  if(label===null) return;
+  let targetPage = resolveSheet(label);
+  if(!targetPage){
+    const pg = prompt(`Couldn't match "${label}" to a sheet automatically.\nWhich page number is it? (1–${state.numPages})`);
+    if(pg===null) return;
+    const n = parseInt(pg,10);
+    if(isNaN(n)||n<1||n>state.numPages){ alert('That page number is out of range.'); return; }
+    targetPage = n;
+  }
+  const detail = (prompt('Detail label shown on the tag (optional, e.g. C2):','')||'').trim();
+  state.refLinks.push({ id:'rl_'+Math.random().toString(36).slice(2,9), pageNum:state.pageNum,
+    x:p.x, y:p.y, targetPage, detail, sheetLabel: sheetLabelFor(targetPage) });
+  markDirty(); redrawOverlay();
+}
+function removeRefLink(r){ state.refLinks = state.refLinks.filter(x=>x.id!==r.id); markDirty(); redrawOverlay(); }
+
+// A tiny floating menu shown on right-click (create / go / remove).
+let refMenuEl = null;
+function closeRefMenu(){ if(refMenuEl){ refMenuEl.remove(); refMenuEl=null; } }
+document.addEventListener('click', closeRefMenu);
+document.addEventListener('scroll', closeRefMenu, true);
+window.addEventListener('resize', closeRefMenu);
+function showRefMenu(clientX, clientY, items){
+  closeRefMenu();
+  const m = document.createElement('div'); m.className='ref-menu';
+  items.forEach(it=>{
+    const b = document.createElement('div'); b.className='ref-menu-item'+(it.danger?' danger':'');
+    b.textContent = it.label;
+    b.addEventListener('click', (e)=>{ e.stopPropagation(); closeRefMenu(); it.action(); });
+    m.appendChild(b);
+  });
+  m.style.left = clientX+'px'; m.style.top = clientY+'px';
+  document.body.appendChild(m); refMenuEl = m;
+  const r = m.getBoundingClientRect();
+  if(r.right>window.innerWidth) m.style.left = Math.max(4, clientX-r.width)+'px';
+  if(r.bottom>window.innerHeight) m.style.top = Math.max(4, clientY-r.height)+'px';
+}
+
 // Middle-click now pans (see mousedown above). Right-click, while actively drawing a
-// line/wall/area/measurement, undoes just the last placed point (not the whole thing) —
-// otherwise it's left alone for the browser's normal context menu.
+// line/wall/area/measurement, undoes just the last placed point (not the whole thing).
+// Otherwise it opens the reference-link menu (add a tag, or jump to / remove one).
 els.overlay.addEventListener('contextmenu',(e)=>{
   if(state.drawing && MEASURE_TOOLS.includes(state.tool) && state.drawing.points){
     e.preventDefault();
@@ -3764,6 +3853,22 @@ els.overlay.addEventListener('contextmenu',(e)=>{
     }
     redrawOverlay();
     updateFinishBtn();
+    return;
+  }
+  if(!state.pdfDoc) return;
+  e.preventDefault();
+  const p = getNativePoint(e);
+  const hit = refLinkAtPoint(p);
+  if(hit){
+    const lbl = 'Sheet '+(hit.sheetLabel||('Page '+hit.targetPage)) + (hit.detail?(' · '+hit.detail):'');
+    showRefMenu(e.clientX, e.clientY, [
+      { label:'→ Go to '+lbl, action:()=>gotoRefLink(hit) },
+      { label:'Remove this link', danger:true, action:()=>removeRefLink(hit) }
+    ]);
+  } else {
+    showRefMenu(e.clientX, e.clientY, [
+      { label:'🔗 Add reference tag here', action:()=>addRefLinkAt(p) }
+    ]);
   }
 });
 
@@ -4673,6 +4778,23 @@ function redrawOverlay(){
     octx.strokeStyle = h.color;
     octx.lineWidth = 1;
     octx.strokeRect(h.x, h.y, h.w, h.h);
+  });
+
+  // Reference-link badges — small clickable circles over detail callouts, drawn at a
+  // constant on-screen size so they stay easy to click at any zoom.
+  const refR = 13/state.zoom;
+  refLinksOnPage().forEach(r=>{
+    octx.save();
+    octx.beginPath(); octx.arc(r.x, r.y, refR, 0, Math.PI*2);
+    octx.fillStyle = 'rgba(232,114,44,0.94)'; // orange, so links stand out from takeoff geometry
+    octx.fill();
+    octx.lineWidth = 1.5/state.zoom; octx.strokeStyle = '#fff'; octx.stroke();
+    octx.fillStyle = '#fff';
+    octx.textAlign = 'center'; octx.textBaseline = 'middle';
+    const txt = (r.detail || '↦').slice(0,3);
+    octx.font = '700 '+(txt.length>2?9:11)/state.zoom+'px "IBM Plex Sans",sans-serif';
+    octx.fillText(txt, r.x, r.y);
+    octx.restore();
   });
 
   // Everything below is scoped to the sheet on screen. Geometry belongs to the sheet it

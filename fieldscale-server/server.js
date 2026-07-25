@@ -1443,27 +1443,31 @@ const server = http.createServer(async (req, res) => {
         const est = db.estimates.find(e => e.id === estimateId && e.companyId === me.companyId);
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         const edoc = readEstimateDoc(est.id);
-        const mk = 1 + (Number(edoc.markupPct) || 0) / 100;
-        // Fold markup into each unit price at FULL precision (don't round per line) so the invoice
-        // total equals the estimate the customer approved — rounding each line first made the
-        // invoice drift from the estimate by a few cents up to a dollar or two.
+        // Overhead + Profit both fold into the price the customer sees (they never see the split).
+        const mk = 1 + ((Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0)) / 100;
+        // Fold at FULL precision (don't round per line) so the invoice total equals the estimate
+        // the customer approved — rounding each line first made it drift by a few cents.
         const lines = (edoc.lines || []).map(l => ({
           id: 'l_' + crypto.randomBytes(6).toString('hex'), name: l.name, code: l.code, unit: l.unit,
-          qty: Number(l.qty) || 0, unitCost: (Number(l.unitCost) || 0) * mk
+          description: l.description || '', qty: Number(l.qty) || 0, unitCost: (Number(l.unitCost) || 0) * mk
         }));
         // Carry any discount from the estimate so the invoice bills exactly what was quoted.
         const discountType = edoc.discountType === 'amt' ? 'amt' : 'pct';
         const discountInput = Number(edoc.discount) || 0;
+        // Tax on materials only (build-up lines) — matches the estimate. Carried as a fixed amount
+        // because the invoice's line model doesn't keep the material breakdown.
+        const materialBase = (edoc.lines || []).reduce((s, l) => s + (l.mode === 'buildup' ? (Number(l.material) || 0) : 0), 0);
+        const materialTax = Math.round(materialBase * (Number(edoc.taxPct) || 0) / 100 * 100) / 100;
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
-          invoiceNo: '', date: '', dueDate: '', lines, taxPct: Number(edoc.taxPct) || 0,
+          invoiceNo: '', date: '', dueDate: '', lines, taxPct: 0, taxAmount: materialTax,
           discount: discountInput, discountType,
           notes: edoc.notes || '', terms: edoc.terms || '', amountPaid: 0, fromEstimateId: est.id
         };
         const subtotal = lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
         let discount = discountType === 'amt' ? discountInput : subtotal * discountInput / 100;
         discount = Math.min(Math.max(discount, 0), subtotal);
-        const total = Math.round((subtotal - discount) * (1 + doc.taxPct / 100) * 100) / 100;
+        const total = Math.round(((subtotal - discount) + materialTax) * 100) / 100;
         const autoNo = assignInvoiceNo(companyById(me.companyId));
         if (autoNo) doc.invoiceNo = autoNo;
         const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
@@ -1868,9 +1872,9 @@ const server = http.createServer(async (req, res) => {
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         const edoc = readEstimateDoc(est.id);
         // Freeze the job's budget from the estimate: cost basis = sum(qty x unitCost);
-        // contract (revenue for the work) = cost + markup. Tax is a pass-through, not revenue.
+        // contract (revenue) = cost + overhead + profit. Tax is a pass-through, not revenue.
         const budget = (edoc.lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0);
-        const contract = Math.round((budget * (1 + (Number(edoc.markupPct) || 0) / 100)) * 100) / 100;
+        const contract = Math.round((budget * (1 + ((Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0)) / 100)) * 100) / 100;
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
           lines: (edoc.lines || []).map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),

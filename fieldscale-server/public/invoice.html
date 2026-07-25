@@ -208,7 +208,8 @@ function computeTotals(){
   let discount = doc.discountType==='amt' ? discInput : subtotal*discInput/100;
   discount = Math.min(Math.max(discount,0), subtotal); // never negative, never more than the subtotal
   const taxable = subtotal - discount;
-  const tax = taxable*(Number(doc.taxPct)||0)/100;
+  // A fixed tax amount (e.g. materials-only tax carried from an estimate) wins over the % if set.
+  const tax = (doc.taxAmount!=null && doc.taxAmount!=='') ? (Number(doc.taxAmount)||0) : taxable*(Number(doc.taxPct)||0)/100;
   const lateFee = Math.max(0, Number(doc.lateFee)||0); // flat late fee added to the bill
   const total = taxable + tax + lateFee;
   const paid = Number(doc.amountPaid)||0;
@@ -291,7 +292,7 @@ document.getElementById('t-dep-type').addEventListener('click', ()=>{
   document.getElementById('t-dep-type').textContent = doc.depositType==='amt' ? '$' : '%';
   renderTotals();
 });
-document.getElementById('t-tax').addEventListener('input', ()=>{ doc.taxPct=parseFloat(document.getElementById('t-tax').value)||0; renderTotals(); });
+document.getElementById('t-tax').addEventListener('input', ()=>{ doc.taxPct=parseFloat(document.getElementById('t-tax').value)||0; doc.taxAmount=null; renderTotals(); });
 document.getElementById('t-paid').addEventListener('input', ()=>{ doc.amountPaid=parseFloat(document.getElementById('t-paid').value)||0; renderTotals(); });
 document.getElementById('t-late').addEventListener('input', ()=>{ doc.lateFee=parseFloat(document.getElementById('t-late').value)||0; renderTotals(); });
 
@@ -385,7 +386,7 @@ function openInvoicePDF(){
   <div class="totals">
     <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
     ${t.discount>0?`<div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
-    ${doc.taxPct?`<div class="tr"><span>Tax (${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:''}
+    ${(doc.taxAmount!=null&&doc.taxAmount!==''&&t.tax>0.005)?`<div class="tr"><span>Tax</span><span>${money(t.tax)}</span></div>`:(doc.taxPct?`<div class="tr"><span>Tax (${doc.taxPct}%)</span><span>${money(t.tax)}</span></div>`:'')}
     ${t.lateFee>0.005?`<div class="tr"><span>Late fee</span><span>${money(t.lateFee)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
     ${t.deposit>0.005?`<div class="tr"><span>Deposit due${doc.depositType!=='amt'&&doc.deposit?` (${doc.deposit}%)`:''}</span><span>${money(t.deposit)}</span></div>`:''}

@@ -74,7 +74,11 @@
       + '.fs-cobrand.on{display:inline-flex}'
       + '.fs-cobrand img{max-height:26px;max-width:130px;display:block;border-radius:2px}'
       + '.fs-cobrand .fs-coname{color:#F6F3EA;font-family:"Oswald",sans-serif;font-weight:600;font-size:15px;white-space:nowrap}'
-      + '@media (max-width:760px){.fs-cobrand .fs-coname{display:none}.fs-cobrand{margin-left:8px;padding-left:8px}}';
+      + '@media (max-width:760px){.fs-cobrand .fs-coname{display:none}.fs-cobrand{margin-left:8px;padding-left:8px}}'
+      // Save action: bigger + green, and a matching bar for the bottom-of-page Save.
+      + '.btn.save{background:#4A9B6E;border-color:#4A9B6E;color:#fff;font-weight:600;padding:10px 22px;font-size:14px}'
+      + '.btn.save:hover{background:#3f8a60;border-color:#3f8a60}'
+      + '.save-bottom-bar{display:flex;justify-content:flex-end;margin:24px 0 6px;padding-top:16px;border-top:1px solid #E4DFCF}';
     var st = document.createElement('style'); st.id = 'fs-nav-css'; st.textContent = css;
     document.head.appendChild(st);
   }
@@ -209,9 +213,31 @@
   // Let the Company page trigger an immediate re-fetch after the logo/name changes.
   window.fsRefreshBranding = function () { try { localStorage.removeItem('fs_brand'); } catch (e) {} renderBranding(); };
 
+  // Make the page's Save button green + bigger, and mirror it at the bottom of the page so a
+  // long form can be saved without scrolling back up. Pages opt in simply by having a #save-btn.
+  function setupSaveButtons() {
+    var top = document.getElementById('save-btn');
+    if (!top) return;
+    top.classList.add('save');
+    var host = document.getElementById('content') || document.querySelector('.wrap');
+    if (!host || document.getElementById('save-btn-bottom')) return;
+    var bar = document.createElement('div');
+    bar.className = 'save-bottom-bar';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'save-btn-bottom';
+    btn.className = 'btn save';
+    btn.textContent = top.textContent.trim() || 'Save';
+    // Reuse the page's own save handler by clicking the top button.
+    btn.addEventListener('click', function () { document.getElementById('save-btn').click(); });
+    bar.appendChild(btn);
+    host.appendChild(bar);
+  }
+
   async function run() {
     injectCSS();
     build();
+    setupSaveButtons();
     renderBranding();
     var t = getToken();
     if (!t) return; // logged out — the page handles its own login redirect

@@ -43,6 +43,10 @@ input.num{text-align:right;font-family:'IBM Plex Mono',monospace}
 .btn.primary:hover{background:var(--orange-dim)}
 .btn.ghost{background:#fff;color:var(--charcoal);border-color:var(--steel-light)}
 .btn.ghost:hover{background:var(--paper);border-color:var(--steel)}
+/* Save action: bigger + green so it stands out on every page. */
+.btn.save{background:var(--good);border-color:var(--good);color:#fff;font-weight:600;padding:10px 22px;font-size:14px}
+.btn.save:hover{background:#3f8a60;border-color:#3f8a60}
+.save-bottom-bar{display:flex;justify-content:flex-end;margin:24px 0 6px;padding-top:16px;border-top:1px solid var(--paper-line)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--good);color:#fff;
        padding:10px 18px;border-radius:var(--radius);font-weight:500;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;font-size:13px}

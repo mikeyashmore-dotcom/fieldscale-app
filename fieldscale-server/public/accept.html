@@ -85,9 +85,11 @@ function render(d){
     <td>${esc(l.name)}${(showCode&&l.code)?`<div class="code">${esc(l.code)}</div>`:''}</td>
     ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}${showUom?`<td>${esc(l.unit)}</td>`:''}
     ${showUnitPrice?`<td class="r">${money(lineUnit(l)*sf)}</td>`:''}${showLineTotal?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}</tr>`).join('');
-  // Deposit + validity terms, combined with any free-text terms (same as the PDF).
+  // Deposit + balance-due + validity terms, combined with any free-text terms (same as the PDF).
   const termsExtra=[];
-  if((Number(d.depositPct)||0)>0) termsExtra.push(`A deposit of ${d.depositPct}% (${money(t.total*d.depositPct/100)}) is required to begin work; the balance is due upon completion.`);
+  const balPhrase=({completion:'upon completion',receipt:'upon receipt of the final invoice',net7:'within 7 days of completion',net15:'within 15 days of completion',net30:'within 30 days of completion'})[d.balanceDue]||'';
+  if((Number(d.depositPct)||0)>0) termsExtra.push(`A deposit of ${d.depositPct}% (${money(t.total*d.depositPct/100)}) is required to begin work; the balance is due ${balPhrase||'upon completion'}.`);
+  else if(balPhrase) termsExtra.push(`Payment in full is due ${balPhrase}.`);
   if((Number(d.validDays)||0)>0) termsExtra.push(`This proposal is valid for ${d.validDays} days from the date of issue.`);
   const termsBody=[...termsExtra.map(esc), ...(d.terms?[esc(d.terms)]:[])].join('\n');
   const sig=d.signature;

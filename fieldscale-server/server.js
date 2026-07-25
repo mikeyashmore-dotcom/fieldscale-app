@@ -745,7 +745,7 @@ const server = http.createServer(async (req, res) => {
         showQty: doc.showQty !== false, showUnit: doc.showUnit !== false,
         showUnitPrice: doc.showUnitPrice !== false, showLineTotal: doc.showLineTotal !== false,
         estimateClass: doc.estimateClass || 'residential',
-        validDays: doc.validDays || 0, depositPct: doc.depositPct || 0,
+        validDays: doc.validDays || 0, depositPct: doc.depositPct || 0, balanceDue: doc.balanceDue || '',
         discount: doc.discount || 0, discountType: doc.discountType || 'pct',
         notes: doc.notes || '', terms: doc.terms || '', signature: doc.signature || null });
     }

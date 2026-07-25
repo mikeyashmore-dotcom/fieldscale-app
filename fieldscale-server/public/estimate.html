@@ -204,6 +204,15 @@
                 <option value="35">35%</option><option value="40">40%</option><option value="45">45%</option>
                 <option value="50">50%</option>
               </select></label>
+            <label>Balance due
+              <select id="balance-due">
+                <option value="">— not specified —</option>
+                <option value="completion">Upon completion</option>
+                <option value="receipt">Due on receipt</option>
+                <option value="net7">Within 7 days</option>
+                <option value="net15">Within 15 days</option>
+                <option value="net30">Within 30 days</option>
+              </select></label>
           </div>
           <div class="pdhint">These appear as terms on the proposal. Add anything else below.</div>
           <textarea id="terms" placeholder="Payment terms, warranty, exclusions…"></textarea>
@@ -272,6 +281,8 @@ function lineUnitPrice(l){
   if(l.mode==='flat') return Number(l.unitPrice)||0;
   return q>0 ? lineAmount(l)/q : lineAmount(l);
 }
+// Phrasing for the "balance due" terms dropdown (shared wording with the public approval page).
+function balanceDuePhrase(k){ return ({completion:'upon completion',receipt:'upon receipt of the final invoice',net7:'within 7 days of completion',net15:'within 15 days of completion',net30:'within 30 days of completion'})[k]||''; }
 // Units: a small dropdown. Legacy free-text units are mapped/kept so nothing is lost.
 const UNIT_OPTS=['SF','LF','EA','CY','HR','LS'];
 const UNIT_MAP={sqft:'SF',sf:'SF',lnft:'LF',lf:'LF',lin:'LF',each:'EA',ea:'EA',cuyd:'CY',cy:'CY',cy3:'CY',hour:'HR',hr:'HR',hrs:'HR',ls:'LS'};
@@ -450,6 +461,7 @@ function syncDocFromForm(){
   doc.showUnit=document.getElementById('opt-uom').checked;
   doc.validDays=parseInt(document.getElementById('valid-days').value,10)||0;
   doc.depositPct=parseInt(document.getElementById('deposit-pct').value,10)||0;
+  doc.balanceDue=document.getElementById('balance-due').value;
   doc.showUnitPrice=document.getElementById('opt-unit').checked;
   doc.showLineTotal=document.getElementById('opt-line').checked;
   // Keep each line's unitCost = material + labor(hrs×rate) at full precision so the invoice, PDF and
@@ -605,9 +617,11 @@ function proposalDocHTML(forDownload){
       ${showUnitPrice?`<td class="r">${money(lineUnitPrice(l)*sf)}</td>`:''}
       ${showLineTotal?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}
     </tr>`).join('');
-  // Deposit + validity are structured terms; combine them with the free-text terms for the proposal.
+  // Deposit + balance-due + validity are structured terms; combine with the free-text terms.
   const termsExtra=[];
-  if(doc.depositPct>0) termsExtra.push(`A deposit of ${doc.depositPct}% (${money(t.total*doc.depositPct/100)}) is required to begin work; the balance is due upon completion.`);
+  const balPhrase=balanceDuePhrase(doc.balanceDue);
+  if(doc.depositPct>0) termsExtra.push(`A deposit of ${doc.depositPct}% (${money(t.total*doc.depositPct/100)}) is required to begin work; the balance is due ${balPhrase||'upon completion'}.`);
+  else if(balPhrase) termsExtra.push(`Payment in full is due ${balPhrase}.`);
   if(doc.validDays>0) termsExtra.push(`This proposal is valid for ${doc.validDays} days from the date of issue.`);
   const termsBody=[...termsExtra.map(escapeHtml), ...(doc.terms?[escapeHtml(doc.terms)]:[])].join('\n');
   const co=doc.company||{}, cl=doc.client||{};
@@ -733,6 +747,7 @@ function fillForm(){
   document.getElementById('opt-uom').checked = doc.showUnit!==false;
   document.getElementById('valid-days').value = doc.validDays || '';
   document.getElementById('deposit-pct').value = String(doc.depositPct || 0);
+  document.getElementById('balance-due').value = doc.balanceDue || '';
   document.getElementById('opt-unit').checked = doc.showUnitPrice!==false;
   document.getElementById('opt-line').checked = doc.showLineTotal!==false;
 }

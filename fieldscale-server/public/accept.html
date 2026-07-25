@@ -53,6 +53,10 @@ function lineAmount(l){ if(l.mode==='flat') return (Number(l.qty)||0)*(Number(l.
   if(l.mode==='buildup') return (Number(l.material)||0)+(Number(l.laborHours)||0)*(Number(l.laborRate)||0);
   return (Number(l.qty)||0)*(Number(l.unitCost)||0); }
 function lineUnit(l){ const q=Number(l.qty)||0; const a=lineAmount(l); return q>0?a/q:a; }
+// Per-line markup / taxable (category rules) — snapshotted onto each line when the estimate was saved.
+function effMk(l,d){ return (l.mkEff!=null)?Number(l.mkEff):((Number(d.markupPct)||0)+(Number(d.profitPct)||0)); }
+function effTax(l){ return (l.taxEff!=null)?!!l.taxEff:(l.mode==='buildup'); }
+function taxBase(l){ return l.mode==='buildup'?(Number(l.material)||0):lineAmount(l); }
 
 async function api(path, opts={}){
   const res=await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
@@ -62,14 +66,12 @@ async function api(path, opts={}){
 }
 function money0(n){ return money(n); }
 function computeTotals(d){
-  const subtotal=(d.lines||[]).reduce((s,l)=>s+lineAmount(l),0);
-  // Overhead + profit fold into the price; tax is materials-only (flat lines assumed tax-included).
-  const mk=1+((Number(d.markupPct)||0)+(Number(d.profitPct)||0))/100;
-  const price=subtotal*mk;
+  // Each line's markup can differ (category rules); tax base is each line's taxable portion.
+  let subtotal=0, price=0, materialBase=0;
+  (d.lines||[]).forEach(l=>{ const amt=lineAmount(l); subtotal+=amt; price+=amt*(1+effMk(l,d)/100); if(effTax(l)) materialBase+=taxBase(l); });
   const discInput=Number(d.discount)||0;
   let discount=d.discountType==='amt'?discInput:price*discInput/100;
   discount=Math.min(Math.max(discount,0),price);
-  const materialBase=(d.lines||[]).reduce((s,l)=>s+(l.mode==='buildup'?(Number(l.material)||0):0),0);
   const tax=materialBase*(Number(d.taxPct)||0)/100;
   return { subtotal, price, discount, tax, total:(price-discount)+tax };
 }
@@ -77,15 +79,16 @@ function render(d){
   const t=computeTotals(d);
   const co=d.company||{}, cl=d.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(esc).join('<br>');
-  // Overhead, profit and tax stay internal — fold them into the prices the client sees.
-  const sf=t.subtotal>0?(t.price+t.tax)/t.subtotal:1;
+  // Overhead, profit and tax stay internal — fold them into the prices the client sees, per line
+  // (markup can vary by category), then spread the material tax across all lines proportionally.
+  const ft=t.price>0?(t.price+t.tax)/t.price:1;
   const showQty=d.showQty!==false, showUom=d.showUnit!==false,
         showUnitPrice=d.showUnitPrice!==false, showLineTotal=d.showLineTotal!==false,
         showCode=d.estimateClass!=='none';
   const rows=(d.lines||[]).map((l,i)=>`<tr><td class="c">${i+1}</td>
     <td>${esc(l.name)}${(showCode&&l.code)?`<div class="code">${esc(l.code)}</div>`:''}</td>
     ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}${showUom?`<td>${esc(l.unit)}</td>`:''}
-    ${showUnitPrice?`<td class="r">${money(lineUnit(l)*sf)}</td>`:''}${showLineTotal?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}</tr>`).join('');
+    ${showUnitPrice?`<td class="r">${money(lineUnit(l)*(1+effMk(l,d)/100)*ft)}</td>`:''}${showLineTotal?`<td class="r">${money(lineAmount(l)*(1+effMk(l,d)/100)*ft)}</td>`:''}</tr>`).join('');
   // Deposit + balance-due + validity terms, combined with any free-text terms (same as the PDF).
   const termsExtra=[];
   const balPhrase=({completion:'upon completion',receipt:'upon receipt of the final invoice',net7:'within 7 days of completion',net15:'within 15 days of completion',net30:'within 30 days of completion'})[d.balanceDue]||'';

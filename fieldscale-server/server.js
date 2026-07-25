@@ -737,7 +737,7 @@ const server = http.createServer(async (req, res) => {
       // Only expose what a client should see — the proposal, not internal notes.
       const lines = (doc.lines || []).map(l => ({ name: l.name, code: l.code, unit: l.unit,
         qty: l.qty, unitCost: l.unitCost, mode: l.mode, unitPrice: l.unitPrice, material: l.material,
-        laborHours: l.laborHours, laborRate: l.laborRate }));
+        laborHours: l.laborHours, laborRate: l.laborRate, mkEff: l.mkEff, taxEff: l.taxEff }));
       return sendJSON(res, 200, { name: est.name, status: est.status,
         company: doc.company || {}, client: doc.client || {}, project: doc.project || '',
         estimateNo: doc.estimateNo || '', date: doc.date || '', validUntil: doc.validUntil || '',
@@ -1271,6 +1271,12 @@ const server = http.createServer(async (req, res) => {
             role: String(t.role || '').slice(0, 80),
             rate: Number(t.rate) || 0
           })).filter(t => t.name || t.role) : [],
+          // Markup-by-category & tax rules: per-category markup % and taxable flag, matched by line Code.
+          markupRules: Array.isArray(p.markupRules) ? p.markupRules.slice(0, 60).map(r => ({
+            code: String(r.code || '').slice(0, 80),
+            markupPct: Number(r.markupPct) || 0,
+            taxable: !!r.taxable
+          })).filter(r => r.code) : (existingProfile.markupRules || []),
           // Editable contract template (with {{placeholders}}). Preserve it if this save didn't include it.
           contractTemplate: typeof p.contractTemplate === 'string' ? p.contractTemplate.slice(0, 20000) : (existingProfile.contractTemplate || '')
         };
@@ -1447,20 +1453,27 @@ const server = http.createServer(async (req, res) => {
         const est = db.estimates.find(e => e.id === estimateId && e.companyId === me.companyId);
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         const edoc = readEstimateDoc(est.id);
-        // Overhead + Profit both fold into the price the customer sees (they never see the split).
-        const mk = 1 + ((Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0)) / 100;
+        // Default markup (Overhead + Profit) for lines without a category rule. Per line we use the
+        // snapshot the estimate saved (mkEff / taxEff) so the invoice bills exactly what was quoted.
+        const defMk = (Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0);
         // Fold at FULL precision (don't round per line) so the invoice total equals the estimate
         // the customer approved — rounding each line first made it drift by a few cents.
-        const lines = (edoc.lines || []).map(l => ({
-          id: 'l_' + crypto.randomBytes(6).toString('hex'), name: l.name, code: l.code, unit: l.unit,
-          description: l.description || '', qty: Number(l.qty) || 0, unitCost: (Number(l.unitCost) || 0) * mk
-        }));
+        const lines = (edoc.lines || []).map(l => {
+          const effMk = (l.mkEff !== undefined && l.mkEff !== null) ? Number(l.mkEff) : defMk;
+          return { id: 'l_' + crypto.randomBytes(6).toString('hex'), name: l.name, code: l.code, unit: l.unit,
+            description: l.description || '', qty: Number(l.qty) || 0, unitCost: (Number(l.unitCost) || 0) * (1 + effMk / 100) };
+        });
         // Carry any discount from the estimate so the invoice bills exactly what was quoted.
         const discountType = edoc.discountType === 'amt' ? 'amt' : 'pct';
         const discountInput = Number(edoc.discount) || 0;
-        // Tax on materials only (build-up lines) — matches the estimate. Carried as a fixed amount
-        // because the invoice's line model doesn't keep the material breakdown.
-        const materialBase = (edoc.lines || []).reduce((s, l) => s + (l.mode === 'buildup' ? (Number(l.material) || 0) : 0), 0);
+        // Tax base = the taxable portion of each line (category rules can flip a trade on/off).
+        // Default: build-up material is taxed; flat prices are tax-included. Carried as a fixed amount.
+        const materialBase = (edoc.lines || []).reduce((s, l) => {
+          const taxable = (l.taxEff !== undefined && l.taxEff !== null) ? !!l.taxEff : (l.mode === 'buildup');
+          if (!taxable) return s;
+          const base = l.mode === 'buildup' ? (Number(l.material) || 0) : (Number(l.qty) || 0) * (Number(l.unitCost) || 0);
+          return s + base;
+        }, 0);
         const materialTax = Math.round(materialBase * (Number(edoc.taxPct) || 0) / 100 * 100) / 100;
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
@@ -1876,9 +1889,13 @@ const server = http.createServer(async (req, res) => {
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         const edoc = readEstimateDoc(est.id);
         // Freeze the job's budget from the estimate: cost basis = sum(qty x unitCost);
-        // contract (revenue) = cost + overhead + profit. Tax is a pass-through, not revenue.
+        // contract (revenue) = cost + markup, per line (category rules may vary the markup).
+        const defMkJob = (Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0);
         const budget = (edoc.lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0);
-        const contract = Math.round((budget * (1 + ((Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0)) / 100)) * 100) / 100;
+        const contract = Math.round((edoc.lines || []).reduce((s, l) => {
+          const effMk = (l.mkEff !== undefined && l.mkEff !== null) ? Number(l.mkEff) : defMkJob;
+          return s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0) * (1 + effMk / 100);
+        }, 0) * 100) / 100;
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
           lines: (edoc.lines || []).map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),

@@ -105,6 +105,21 @@
     </div>
 
     <div class="card" style="margin-top:18px">
+      <h3 style="font-family:'Oswald',sans-serif;font-size:16px;margin:0 0 4px">Markup by category &amp; tax rules</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 12px">Charge a different markup for different trades, and choose which trades get taxed. On an estimate, any line whose Code matches a rule below uses that markup and tax setting instead of the estimate's default Overhead + Profit. Leave this empty to use the default everywhere.</p>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;font-size:11px;color:var(--steel);text-transform:uppercase;padding:4px 6px">Category (code)</th>
+          <th style="text-align:right;font-size:11px;color:var(--steel);text-transform:uppercase;padding:4px 6px">Markup %</th>
+          <th style="text-align:center;font-size:11px;color:var(--steel);text-transform:uppercase;padding:4px 6px">Taxable</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="rule-rows"></tbody>
+      </table>
+      <button class="btn ghost" id="add-rule" style="margin-top:10px">＋ Add rule</button>
+    </div>
+
+    <div class="card" style="margin-top:18px">
       <h3 style="font-family:'Oswald',sans-serif;font-size:16px;margin:0 0 4px">Contract template</h3>
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">The text used when you generate a contract from an accepted estimate. Use these placeholders — they fill in automatically:
         <br><code>{{client}}</code> <code>{{project}}</code> <code>{{total}}</code> <code>{{scope}}</code> <code>{{company}}</code> <code>{{date}}</code> <code>{{license}}</code></p>
@@ -204,6 +219,42 @@ document.getElementById('add-team').addEventListener('click', ()=>{
   team.push({ id:'tm_'+Math.random().toString(16).slice(2,8), name:'', role:'', rate:0 }); renderTeam();
 });
 
+// ---- Markup by category & tax rules ----
+const CSI_DIVISIONS = ['01 - General Requirements','02 - Existing Conditions','03 - Concrete','04 - Masonry','05 - Metals','06 - Wood, Plastics & Composites','07 - Thermal & Moisture Protection','08 - Openings','09 - Finishes','10 - Specialties','11 - Equipment','12 - Furnishings','13 - Special Construction','14 - Conveying Equipment','21 - Fire Suppression','22 - Plumbing','23 - HVAC','25 - Integrated Automation','26 - Electrical','27 - Communications','28 - Electronic Safety & Security','31 - Earthwork','32 - Exterior Improvements','33 - Utilities'];
+let rules=[];
+function ruleCatSelect(i,cur){
+  const list=CSI_DIVISIONS.slice(); if(cur && !list.includes(cur)) list.unshift(cur);
+  return `<select data-ri="${i}" data-rf="code"><option value="">— pick a category —</option>`+
+    list.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')+`</select>`;
+}
+function renderRules(){
+  const tb=document.getElementById('rule-rows');
+  if(!rules.length){ tb.innerHTML=`<tr><td colspan="4" style="color:var(--steel);font-size:13px;padding:8px 6px">No category rules — every line uses the estimate's default markup.</td></tr>`; return; }
+  tb.innerHTML=rules.map((r,i)=>`<tr>
+    <td style="padding:3px 6px">${ruleCatSelect(i,r.code)}</td>
+    <td style="padding:3px 6px"><input class="num" data-ri="${i}" data-rf="markupPct" value="${r.markupPct||0}" inputmode="decimal" style="text-align:right;width:80px;font-family:'IBM Plex Mono',monospace" /></td>
+    <td style="padding:3px 6px;text-align:center"><input type="checkbox" data-ri="${i}" data-rf="taxable" ${r.taxable?'checked':''} /></td>
+    <td style="padding:3px 6px;text-align:right"><button class="btn ghost" data-rdel="${i}" style="padding:4px 8px">✕</button></td>
+  </tr>`).join('');
+}
+document.getElementById('rule-rows').addEventListener('input', e=>{
+  const i=e.target.getAttribute('data-ri'), f=e.target.getAttribute('data-rf'); if(i===null) return;
+  if(f==='taxable') rules[i].taxable=e.target.checked;
+  else if(f==='markupPct') rules[i].markupPct=parseFloat(e.target.value)||0;
+  else rules[i][f]=e.target.value;
+});
+document.getElementById('rule-rows').addEventListener('change', e=>{
+  const i=e.target.getAttribute('data-ri'), f=e.target.getAttribute('data-rf'); if(i===null) return;
+  if(f==='taxable') rules[i].taxable=e.target.checked; else if(f==='code') rules[i].code=e.target.value;
+});
+document.getElementById('rule-rows').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-rdel');
+  if(d!==null && d!==undefined){ rules.splice(Number(d),1); renderRules(); }
+});
+document.getElementById('add-rule').addEventListener('click', ()=>{
+  rules.push({ code:'', markupPct:0, taxable:true }); renderRules();
+});
+
 // ---- Contract template ----
 const DEFAULT_CONTRACT = `CONSTRUCTION CONTRACT
 
@@ -238,11 +289,12 @@ document.getElementById('copy-leadform').addEventListener('click', async ()=>{
 document.getElementById('save-btn').addEventListener('click', async ()=>{
   const profile={ name:val('name'), phone:val('phone'), email:val('email'),
     license:val('license'), website:val('website'), address:val('address'), logo, team,
-    contractTemplate: val('contract-template') };
+    markupRules: rules.filter(r=>r.code), contractTemplate: val('contract-template') };
   try{
     const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile, invoiceNext: val('invoice-next') }) });
     logo=r.profile.logo||''; showLogo();
     team=r.profile.team||[]; renderTeam();
+    rules=r.profile.markupRules||[]; renderRules();
     set('invoice-next', r.invoiceNext);
     if(window.fsRefreshBranding) window.fsRefreshBranding(); // update the header logo everywhere
     toast('Company profile saved.');
@@ -263,6 +315,7 @@ async function init(){
     set('invoice-next', r.invoiceNext);
     logo=p.logo||''; showLogo();
     team=p.team||[]; renderTeam();
+    rules=p.markupRules||[]; renderRules();
     document.getElementById('contract-template').value = p.contractTemplate || DEFAULT_CONTRACT;
     // Website lead-capture link
     try{

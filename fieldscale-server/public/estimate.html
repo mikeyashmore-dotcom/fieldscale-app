@@ -230,6 +230,7 @@
         <div class="tr"><span>Subtotal</span><span class="v" id="t-sub">$0.00</span></div>
         <div class="tr"><span>Overhead <input class="pct" id="t-markup" inputmode="decimal" value="0" />%</span><span class="v" id="t-mk">$0.00</span></div>
         <div class="tr"><span>Profit <input class="pct" id="t-profit" inputmode="decimal" value="0" />%</span><span class="v" id="t-pf">$0.00</span></div>
+        <div class="tr" id="t-catmk-row" style="display:none"><span title="Markup from your category rules (Company page)">Category markup</span><span class="v" id="t-catmk">$0.00</span></div>
         <div class="tr"><span>Discount <input class="pct" id="t-disc" inputmode="decimal" value="0" /><button type="button" class="disc-type" id="t-disc-type" title="Switch between percent off and a dollar amount">%</button></span><span class="v" id="t-discv">$0.00</span></div>
         <div class="tr"><span>Tax (materials) <input class="pct" id="t-tax" inputmode="decimal" value="0" />%</span><span class="v" id="t-tx">$0.00</span></div>
         <div class="tr total"><span>Total</span><span class="v" id="t-total">$0.00</span></div>
@@ -284,6 +285,13 @@ function lineUnitPrice(l){
   if(l.mode==='flat') return Number(l.unitPrice)||0;
   return q>0 ? lineAmount(l)/q : lineAmount(l);
 }
+// Markup by category & tax rules: a line whose Code matches a company rule uses that rule's markup
+// and taxable setting; otherwise it uses the estimate's default (Overhead + Profit) and the default
+// tax behaviour (build-up material is taxed, flat prices are assumed tax-included).
+function lineRule(l){ const rs=(companyProfile&&companyProfile.markupRules)||[]; return l&&l.code ? rs.find(r=>r.code===l.code) : null; }
+function effMarkup(l){ const r=lineRule(l); return r ? (Number(r.markupPct)||0) : ((Number(doc.markupPct)||0)+(Number(doc.profitPct)||0)); }
+function effTaxable(l){ const r=lineRule(l); return r ? !!r.taxable : (l.mode==='buildup'); }
+function lineTaxBase(l){ return l.mode==='buildup' ? (Number(l.material)||0) : lineAmount(l); }
 // Phrasing for the "balance due" terms dropdown (shared wording with the public approval page).
 function balanceDuePhrase(k){ return ({completion:'upon completion',receipt:'upon receipt of the final invoice',net7:'within 7 days of completion',net15:'within 15 days of completion',net30:'within 30 days of completion'})[k]||''; }
 // Units: a small dropdown. Legacy free-text units are mapped/kept so nothing is lost.
@@ -315,27 +323,36 @@ function assemblyUnitCost(a){
 
 function computeTotals(){
   const subtotal = doc.lines.reduce((s,l)=> s + lineAmount(l), 0);
-  // Overhead (was "Markup") and Profit are both a % of the subtotal (cost), added to build the price.
-  const overhead = subtotal*(Number(doc.markupPct)||0)/100;   // markupPct is stored as the overhead %
-  const profit   = subtotal*(Number(doc.profitPct)||0)/100;
-  const price = subtotal + overhead + profit;
+  // Lines with no category rule use the estimate's default Overhead + Profit; ruled lines use the
+  // rule's markup (a "Category markup" bucket). With no rules this equals the old overhead+profit.
+  let subDefault=0, categoryMarkup=0, materialBase=0;
+  doc.lines.forEach(l=>{
+    const amt=lineAmount(l);
+    if(lineRule(l)) categoryMarkup += amt*effMarkup(l)/100;
+    else subDefault += amt;
+    if(effTaxable(l)) materialBase += lineTaxBase(l);
+  });
+  const overhead = subDefault*(Number(doc.markupPct)||0)/100;   // markupPct is stored as the overhead %
+  const profit   = subDefault*(Number(doc.profitPct)||0)/100;
+  const price = subtotal + overhead + profit + categoryMarkup;
   // Discount comes off the price — a % of price or a flat $ amount.
   const discInput = Number(doc.discount)||0;
   let discount = doc.discountType==='amt' ? discInput : price*discInput/100;
   discount = Math.min(Math.max(discount,0), price);
   const taxable = price - discount;
-  // Tax is charged on MATERIAL only, and only for build-up lines. A flat-price line is assumed to
-  // already include everything (tax included in the price), so it's not taxed again.
-  const materialBase = doc.lines.reduce((s,l)=> s + (l.mode==='buildup' ? (Number(l.material)||0) : 0), 0);
+  // Tax base = the taxable portion of each line (rules can make a trade taxable or not). Default:
+  // build-up material is taxed; a flat price is assumed tax-included.
   const tax = materialBase*(Number(doc.taxPct)||0)/100;
   const total = taxable + tax;
-  return { subtotal, overhead, profit, markup: overhead, price, discount, materialBase, tax, total };
+  return { subtotal, overhead, profit, categoryMarkup, markup: overhead, price, discount, materialBase, tax, total };
 }
 function renderTotals(){
   const t=computeTotals();
   document.getElementById('t-sub').textContent=money(t.subtotal);
   document.getElementById('t-mk').textContent=money(t.overhead);
   document.getElementById('t-pf').textContent=money(t.profit);
+  document.getElementById('t-catmk-row').style.display = t.categoryMarkup>0.005 ? '' : 'none';
+  document.getElementById('t-catmk').textContent=money(t.categoryMarkup);
   document.getElementById('t-discv').textContent = t.discount>0 ? '-'+money(t.discount) : money(0);
   document.getElementById('t-tx').textContent=money(t.tax);
   document.getElementById('t-total').textContent=money(t.total);
@@ -469,7 +486,9 @@ function syncDocFromForm(){
   doc.showLineTotal=document.getElementById('opt-line').checked;
   // Keep each line's unitCost = material + labor(hrs×rate) at full precision so the invoice, PDF and
   // server totals match the estimate exactly (rounding it here would drift the invoice by pennies).
-  (doc.lines||[]).forEach(l=>{ l.unitCost=lineUnitPrice(l); });
+  // Also snapshot the effective markup % and taxable flag so the invoice conversion and the public
+  // approval page fold in exactly the same category markup / tax the customer was quoted.
+  (doc.lines||[]).forEach(l=>{ l.unitCost=lineUnitPrice(l); l.mkEff=effMarkup(l); l.taxEff=effTaxable(l); });
 }
 function val(id){ return document.getElementById(id).value; }
 
@@ -606,9 +625,13 @@ document.getElementById('to-invoice-btn').addEventListener('click', async ()=>{
 function proposalDocHTML(forDownload){
   const t=computeTotals();
   // Overhead, profit and tax are internal — the customer only ever sees final prices. Fold all of
-  // them into the shown line prices (scale so the amounts add up to the pre-discount total).
-  const sf = t.subtotal>0 ? (t.price + t.tax)/t.subtotal : 1;
-  // Which columns the customer sees (overhead/profit/tax already folded into the prices via sf).
+  // them into the shown line prices. Each line's markup can differ (category rules), so fold per line:
+  // customer amount = cost × (1 + that line's markup). Then spread the material tax across all lines
+  // proportionally so the shown amounts still add up to the pre-discount total.
+  const ft = t.price>0 ? (t.price + t.tax)/t.price : 1;
+  const custUnit = l => lineUnitPrice(l)*(1+effMarkup(l)/100)*ft;
+  const custAmt  = l => lineAmount(l)*(1+effMarkup(l)/100)*ft;
+  // Which columns the customer sees (overhead/profit/tax already folded into these prices).
   const showQty = doc.showQty!==false, showUnit = doc.showUnit!==false,
         showUnitPrice = doc.showUnitPrice!==false, showLineTotal = doc.showLineTotal!==false,
         showCode = doc.estimateClass!=='none';
@@ -617,8 +640,8 @@ function proposalDocHTML(forDownload){
       <td>${(showCode&&l.code)?`<span class="code" style="margin-right:6px">${escapeHtml(l.code)}</span>`:''}<strong>${escapeHtml(l.name)}</strong>${l.description?`<div class="code">${escapeHtml(l.description)}</div>`:''}</td>
       ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}
       ${showUnit?`<td>${escapeHtml(normUnit(l.unit))}</td>`:''}
-      ${showUnitPrice?`<td class="r">${money(lineUnitPrice(l)*sf)}</td>`:''}
-      ${showLineTotal?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}
+      ${showUnitPrice?`<td class="r">${money(custUnit(l))}</td>`:''}
+      ${showLineTotal?`<td class="r">${money(custAmt(l))}</td>`:''}
     </tr>`).join('');
   // Deposit + balance-due + validity are structured terms; combine with the free-text terms.
   const termsExtra=[];

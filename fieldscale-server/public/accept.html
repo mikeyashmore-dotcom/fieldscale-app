@@ -78,10 +78,11 @@ function render(d){
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(esc).join(' · ');
   // Overhead, profit and tax stay internal — fold them into the prices the client sees.
   const sf=t.subtotal>0?(t.price+t.tax)/t.subtotal:1;
+  const showUnit=d.showUnitPrice!==false, showLine=d.showLineTotal!==false;
   const rows=(d.lines||[]).map((l,i)=>`<tr><td class="c">${i+1}</td>
     <td>${esc(l.name)}${l.code?`<div class="code">${esc(l.code)}</div>`:''}</td>
     <td class="r">${Number(l.qty)||0}</td><td>${esc(l.unit)}</td>
-    <td class="r">${money(lineUnit(l)*sf)}</td><td class="r">${money(lineAmount(l)*sf)}</td></tr>`).join('');
+    ${showUnit?`<td class="r">${money(lineUnit(l)*sf)}</td>`:''}${showLine?`<td class="r">${money(lineAmount(l)*sf)}</td>`:''}</tr>`).join('');
   const sig=d.signature;
   const approveBlock = sig&&sig.name
     ? `<div class="accepted"><strong>✓ Approved</strong><br>Accepted by <strong>${esc(sig.name)}</strong> on ${new Date(sig.at).toLocaleString()}.</div>`
@@ -101,8 +102,8 @@ function render(d){
       <div><h4>Prepared for</h4><div><strong>${esc(cl.name||'—')}</strong>${cl.address?('<br>'+esc(cl.address)):''}</div></div>
       ${d.project?`<div><h4>Project</h4><div>${esc(d.project)}</div></div>`:''}
     </div>
-    <table><thead><tr><th class="c">#</th><th>Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>'}</tbody></table>
+    <table><thead><tr><th class="c">#</th><th>Description</th><th class="r">Qty</th><th>Unit</th>${showUnit?'<th class="r">Unit price</th>':''}${showLine?'<th class="r">Amount</th>':''}</tr></thead>
+      <tbody>${rows||`<tr><td colspan="${4+(showUnit?1:0)+(showLine?1:0)}" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>`}</tbody></table>
     <div class="totals">
       ${t.discount>0?`<div class="tr"><span>Subtotal</span><span>${money(t.price+t.tax)}</span></div>
       <div class="tr"><span>Discount</span><span>-${money(t.discount)}</span></div>`:''}

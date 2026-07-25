@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .hi{font-family:'Oswald',sans-serif;font-size:24px;font-weight:600;margin:0 0 2px}
+  .hi .co{color:var(--cyan-dim)}
+  .sub{color:var(--steel);margin:0 0 22px}
+  h2{font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:26px 0 10px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px 16px;text-decoration:none;display:block;transition:border-color .12s}
+  a.tile:hover{border-color:var(--cyan-dim)}
+  .tile .lab{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel)}
+  .tile .v{font-family:'Oswald',sans-serif;font-size:26px;font-weight:600;color:var(--ink-navy);margin-top:4px}
+  .tile .v.pos{color:var(--good)} .tile .v.neg{color:var(--danger)} .tile .v.warn{color:var(--orange-dim)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+  a.card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;text-decoration:none;color:var(--ink-navy);display:flex;align-items:center;gap:12px;transition:border-color .12s,transform .12s}
+  a.card:hover{border-color:var(--cyan-dim);transform:translateY(-1px)}
+  a.card .ic{font-size:22px;flex:none}
+  a.card .t{font-family:'Oswald',sans-serif;font-weight:600;font-size:15px}
+  a.card .d{color:var(--steel);font-size:12px;margin-top:1px}
+  .attn{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:6px 16px}
+  .attn a{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--paper-line);text-decoration:none;color:var(--ink-navy);font-size:14px}
+  .attn a:last-child{border-bottom:none}
+  .attn a:hover{color:var(--cyan-dim)}
+  .attn .pill{font-family:'IBM Plex Mono',monospace;font-size:12px}
+  .attn .over{color:var(--danger)} .attn .soon{color:var(--orange-dim)}
+  .attn-empty{color:var(--steel);padding:16px 0;font-size:13px}
+</style>
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav></nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="loading">Loading…</div>
+  <div id="content" style="display:none">
+    <h1 class="hi">Welcome back<span id="co-wrap">, <span class="co" id="co-name"></span></span></h1>
+    <p class="sub">Here's where your business stands today.</p>
+
+    <div class="tiles" id="stat-tiles"></div>
+
+    <h2>Needs attention</h2>
+    <div class="attn" id="attn"></div>
+
+    <h2>Jump to</h2>
+    <div class="cards" id="cards"></div>
+  </div>
+</div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path){
+  const res=await fetch(path,{headers:{'Authorization':'Bearer '+getToken()}});
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json(); if(!res.ok) throw new Error(data.error||'Request failed'); return data;
+}
+function money(n){ n=Number(n)||0; return '$'+n.toLocaleString(undefined,{maximumFractionDigits:0}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// Quick-link cards; each ties to a module so we can hide ones the company isn't on.
+const CARDS=[
+  {href:'/',icon:'📐',t:'Takeoff',d:'Measure off plans',mod:'takeoff'},
+  {href:'/leads.html',icon:'🎯',t:'Leads',d:'New opportunities',mod:'crm'},
+  {href:'/customers.html',icon:'👥',t:'Customers',d:'Everyone in one place',mod:'crm'},
+  {href:'/proposals.html',icon:'📝',t:'Estimates',d:'Quote the work',mod:'estimating'},
+  {href:'/estimates.html',icon:'📚',t:'Price Book',d:'Your costs & assemblies',mod:'estimating'},
+  {href:'/jobs.html',icon:'🔨',t:'Jobs',d:'Work you\'ve won',mod:'jobs'},
+  {href:'/schedule.html',icon:'📅',t:'Schedule',d:'Jobs on a calendar',mod:'jobs'},
+  {href:'/purchase-orders.html',icon:'📦',t:'Purchase Orders',d:'Order materials',mod:'jobs'},
+  {href:'/workorders.html',icon:'🧾',t:'Work Orders',d:'Send crews out',mod:'jobs'},
+  {href:'/invoices.html',icon:'💵',t:'Invoices',d:'Bill & get paid',mod:'invoicing'},
+  {href:'/followups.html',icon:'⏰',t:'Follow-ups',d:'Who to chase',mod:null},
+  {href:'/reports.html',icon:'📊',t:'Reports',d:'The full picture',mod:null},
+  {href:'/company.html',icon:'⚙️',t:'Company',d:'Profile & settings',mod:null}
+];
+
+function tile(lab,val,cls,href){
+  const inner=`<div class="lab">${lab}</div><div class="v${cls?(' '+cls):''}">${val}</div>`;
+  return href ? `<a class="tile" href="${href}">${inner}</a>` : `<div class="tile">${inner}</div>`;
+}
+
+async function init(){
+  let me;
+  try{ me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  document.getElementById('co-name').textContent = me.companyName || '';
+  if(!me.companyName) document.getElementById('co-wrap').style.display='none';
+
+  // Cards — hide ones for modules this company isn't on.
+  const enabled = Array.isArray(me.modules) ? me.modules : null;
+  const cardsOn = CARDS.filter(c => !c.mod || !enabled || enabled.indexOf(c.mod)>=0);
+  document.getElementById('cards').innerHTML = cardsOn.map(c=>
+    `<a class="card" href="${c.href}"><span class="ic">${c.icon}</span><span><span class="t">${esc(c.t)}</span><br><span class="d">${esc(c.d)}</span></span></a>`).join('');
+
+  // Stats + needs-attention (best-effort; fine if a section is empty).
+  try{
+    const [r,fu] = await Promise.all([ apiFetch('/api/reports/summary'), apiFetch('/api/followups') ]);
+    const overdueInv = (fu.invoices||[]).filter(i=>i.overdue).length;
+    const dueLeads = (fu.leads||[]).filter(l=>l.overdue).length;
+    document.getElementById('stat-tiles').innerHTML =
+      tile('Outstanding', money(r.ar.outstanding), r.ar.outstanding>0?'warn':'', '/reports.html') +
+      tile('Expected ≤30 days', money(r.cashflow.d0_30), 'pos', '/reports.html') +
+      tile('Active jobs', r.production.activeJobs||0, '', '/jobs.html') +
+      tile('Behind schedule', (r.production.behind||[]).length, (r.production.behind||[]).length?'neg':'', '/reports.html') +
+      tile('Win rate', r.estimates.winRate==null?'—':r.estimates.winRate+'%', 'pos', '/reports.html') +
+      tile('To follow up', (dueLeads+overdueInv), (dueLeads+overdueInv)?'warn':'', '/followups.html');
+
+    // Needs attention: a few overdue invoices + due leads.
+    const items=[];
+    (fu.invoices||[]).slice(0,4).forEach(i=>items.push({href:'/invoice.html?id='+i.id,
+      text:'Invoice: '+(i.name||'—')+(i.client?(' · '+i.client):''),
+      pill:(i.daysOver>0?('<span class="over">'+i.daysOver+'d overdue</span>'):'<span class="soon">due</span>')+' · '+money(i.owed)}));
+    (fu.leads||[]).filter(l=>l.overdue).slice(0,4).forEach(l=>items.push({href:'/lead.html?id='+l.id,
+      text:'Follow up: '+(l.name||'—'), pill:'<span class="over">due '+esc(l.followUp)+'</span>'}));
+    const attn=document.getElementById('attn');
+    attn.innerHTML = items.length ? items.map(x=>`<a href="${x.href}"><span>${esc(x.text)}</span><span class="pill">${x.pill}</span></a>`).join('')
+      : '<div class="attn-empty">Nothing needs attention right now. 🎉</div>';
+  }catch(e){
+    document.getElementById('stat-tiles').innerHTML='';
+    document.getElementById('attn').innerHTML='<div class="attn-empty">Stats will appear as you add estimates, jobs and invoices.</div>';
+  }
+
+  document.getElementById('loading').style.display='none';
+  document.getElementById('content').style.display='block';
+}
+init();
+</script>
+</body>
+</html>

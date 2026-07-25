@@ -93,6 +93,13 @@
     });
     nav.innerHTML = html;
 
+    // The brand/logo (top-left) is the home button — click it to reach the company dashboard.
+    document.querySelectorAll('header .brand, .topbar .brand').forEach(function (b) {
+      b.style.cursor = 'pointer';
+      b.title = 'Home — company dashboard';
+      b.addEventListener('click', function () { location.href = '/home.html'; });
+    });
+
     // Account links (Company / Owner) on the right of the header.
     var acct = document.createElement('div'); acct.className = 'nav-account';
     acct.innerHTML = ACCOUNT.map(function (a) {

@@ -16,7 +16,8 @@
     { label: 'Takeoff', href: '/', module: 'takeoff' },
     { label: 'Estimate', items: [
       { label: 'Estimates', href: '/proposals.html', module: 'estimating' },
-      { label: 'Price Book', href: '/estimates.html', module: 'estimating' }
+      { label: 'Price Book', href: '/estimates.html', module: 'estimating' },
+      { label: 'Field Measure', href: '/fieldmeasure.html', module: 'estimating' }
     ] },
     { label: 'Job', items: [
       { label: 'Jobs', href: '/jobs.html', module: 'jobs' },

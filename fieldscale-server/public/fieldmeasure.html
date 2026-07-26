@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Field Measure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<meta name="fs-module" content="estimating">
+<style>
+  .wrap{max-width:900px}
+  .sub{color:var(--steel);margin:0 0 18px}
+  .calc{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;margin-bottom:16px}
+  .calc h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 12px}
+  .grid{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .fld label{display:block;font-size:11px;color:var(--steel);text-transform:uppercase;letter-spacing:.03em;margin-bottom:3px}
+  .fld input,.fld select{padding:8px 10px;border:1px solid var(--steel-light);border-radius:var(--radius);font-size:14px;font-family:inherit;width:110px}
+  .fld input[type=text]{width:180px}
+  .result{font-family:'Oswald',sans-serif;font-size:20px;color:var(--ink-navy);margin-left:auto;white-space:nowrap}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--paper-line)}
+  th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-size:11px;text-transform:uppercase}
+  td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+  .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:16px}
+  .rowdel:hover{color:var(--danger)}
+  .totals{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--charcoal)}
+  .totals b{color:var(--ink-navy)}
+  .hint{font-size:12px;color:var(--steel);margin-top:6px}
+</style>
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav></nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <h1 style="font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px">Field Measure</h1>
+  <p class="sub">Measure by hand when there's no plan — enter dimensions and get area (SF), linear feet (LF), volume (CY), perimeter or a count. Build a list and total it, then copy the quantities into an estimate.</p>
+
+  <div class="calc">
+    <h3>Add a measurement</h3>
+    <div class="grid">
+      <div class="fld"><label>Label</label><input type="text" id="m-name" placeholder="e.g. Living room floor" /></div>
+      <div class="fld"><label>Type</label>
+        <select id="m-type">
+          <option value="area">Area (L × W → SF)</option>
+          <option value="volume">Volume (L × W × D → CY)</option>
+          <option value="linear">Linear (length → LF)</option>
+          <option value="perimeter">Perimeter (2·(L+W) → LF)</option>
+          <option value="count">Count (EA)</option>
+        </select>
+      </div>
+      <div class="fld" id="f-l"><label>Length (ft)</label><input id="m-l" inputmode="decimal" value="" /></div>
+      <div class="fld" id="f-w"><label>Width (ft)</label><input id="m-w" inputmode="decimal" value="" /></div>
+      <div class="fld" id="f-d" style="display:none"><label>Depth (in)</label><input id="m-d" inputmode="decimal" value="" /></div>
+      <div class="fld" id="f-c" style="display:none"><label>Count</label><input id="m-c" inputmode="decimal" value="" /></div>
+      <div class="result" id="m-preview">—</div>
+    </div>
+    <div style="margin-top:12px"><button class="btn" id="add-m">＋ Add to list</button></div>
+    <div class="hint">Depth is entered in inches; volume is returned in cubic yards (SF × depth ÷ 12 ÷ 27).</div>
+  </div>
+
+  <div class="calc">
+    <h3>Measurements</h3>
+    <table><thead><tr><th>Label</th><th>Type</th><th class="num">Quantity</th><th>Unit</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+    <div class="totals" id="totals"></div>
+    <div style="margin-top:12px;display:flex;gap:8px"><button class="btn ghost" id="copy-m">Copy list</button><button class="btn ghost" id="clear-m">Clear</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path){ const t=getToken(); const res=await fetch(path,{headers:t?{'Authorization':'Bearer '+t}:{}}); if(res.status===401){ location.href='/'; throw new Error('x'); } return res.json(); }
+try{ apiFetch('/api/me').then(m=>{ if(m&&m.username) document.getElementById('who').textContent=m.username; }).catch(()=>{}); }catch(e){}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer; function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'; clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',1800); }
+function num(id){ return parseFloat(document.getElementById(id).value)||0; }
+function round(n){ return Math.round(n*100)/100; }
+
+// Compute quantity + unit for the current inputs.
+function compute(){
+  const type=document.getElementById('m-type').value;
+  if(type==='area') return { qty:round(num('m-l')*num('m-w')), unit:'SF' };
+  if(type==='volume') return { qty:round(num('m-l')*num('m-w')*(num('m-d')/12)/27), unit:'CY' };
+  if(type==='linear') return { qty:round(num('m-l')), unit:'LF' };
+  if(type==='perimeter') return { qty:round(2*(num('m-l')+num('m-w'))), unit:'LF' };
+  return { qty:round(num('m-c')), unit:'EA' };
+}
+function syncFields(){
+  const type=document.getElementById('m-type').value;
+  document.getElementById('f-w').style.display = (type==='area'||type==='volume'||type==='perimeter')?'':'none';
+  document.getElementById('f-l').style.display = (type==='count')?'none':'';
+  document.getElementById('f-d').style.display = (type==='volume')?'':'none';
+  document.getElementById('f-c').style.display = (type==='count')?'':'none';
+  updatePreview();
+}
+function updatePreview(){ const c=compute(); document.getElementById('m-preview').textContent = c.qty ? (c.qty+' '+c.unit) : '—'; }
+document.getElementById('m-type').addEventListener('change', syncFields);
+['m-l','m-w','m-d','m-c'].forEach(id=>document.getElementById(id).addEventListener('input', updatePreview));
+
+let list=[];
+function renderList(){
+  const tb=document.getElementById('rows');
+  tb.innerHTML = list.length ? list.map((m,i)=>`<tr><td>${esc(m.name)||'—'}</td><td>${esc(m.type)}</td><td class="num">${m.qty}</td><td>${m.unit}</td><td style="text-align:right"><button class="rowdel" data-del="${i}">✕</button></td></tr>`).join('')
+    : '<tr><td colspan="5" style="color:var(--steel);padding:16px">Nothing added yet.</td></tr>';
+  const by={}; list.forEach(m=>{ by[m.unit]=(by[m.unit]||0)+m.qty; });
+  document.getElementById('totals').innerHTML = Object.keys(by).length ? Object.keys(by).map(u=>`<span>Total <b>${round(by[u])} ${u}</b></span>`).join('') : '';
+}
+document.getElementById('add-m').addEventListener('click', ()=>{
+  const c=compute(); if(!c.qty){ toast('Enter dimensions first.'); return; }
+  list.push({ name:document.getElementById('m-name').value.trim(), type:document.getElementById('m-type').selectedOptions[0].text.split(' (')[0], qty:c.qty, unit:c.unit });
+  document.getElementById('m-name').value=''; ['m-l','m-w','m-d','m-c'].forEach(id=>document.getElementById(id).value=''); updatePreview();
+  renderList();
+});
+document.getElementById('rows').addEventListener('click', e=>{ const d=e.target.getAttribute&&e.target.getAttribute('data-del'); if(d!==null&&d!==undefined){ list.splice(Number(d),1); renderList(); } });
+document.getElementById('clear-m').addEventListener('click', ()=>{ if(list.length&&confirm('Clear all measurements?')){ list=[]; renderList(); } });
+document.getElementById('copy-m').addEventListener('click', async ()=>{
+  if(!list.length){ toast('Nothing to copy.'); return; }
+  const txt=list.map(m=>`${m.name||'Measurement'}: ${m.qty} ${m.unit}`).join('\n');
+  try{ await navigator.clipboard.writeText(txt); toast('Copied to clipboard.'); }catch(e){ prompt('Copy:', txt); }
+});
+syncFields(); renderList();
+</script>
+</body>
+</html>

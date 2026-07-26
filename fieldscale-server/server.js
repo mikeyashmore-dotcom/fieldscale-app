@@ -1401,8 +1401,16 @@ const server = http.createServer(async (req, res) => {
             rate: Number(t.rate) || 0,
             email: String(t.email || '').slice(0, 120),
             phone: String(t.phone || '').slice(0, 60),
-            empNo: String(t.empNo || '').slice(0, 60)
+            empNo: String(t.empNo || '').slice(0, 60),
+            certs: String(t.certs || '').slice(0, 300),
+            certExpires: String(t.certExpires || '').slice(0, 20)
           })).filter(t => t.name || t.role || t.email || t.phone || t.empNo) : (existingProfile.team || []),
+          // Reusable task/checklist templates for jobs. Preserved if omitted.
+          taskTemplates: Array.isArray(p.taskTemplates) ? p.taskTemplates.slice(0, 100).map(tt => ({
+            id: String(tt.id || ('tt_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
+            name: String(tt.name || '').slice(0, 120),
+            tasks: Array.isArray(tt.tasks) ? tt.tasks.slice(0, 200).map(x => String(x || '').slice(0, 300)).filter(Boolean) : []
+          })).filter(tt => tt.name) : (existingProfile.taskTemplates || []),
           // Subcontractor roster + compliance (W-9 on file, insurance/license expiry). Preserved if omitted.
           subs: Array.isArray(p.subs) ? p.subs.slice(0, 300).map(sb => ({
             id: String(sb.id || ('sb_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
@@ -1450,10 +1458,35 @@ const server = http.createServer(async (req, res) => {
           rate: Number(t.rate) || 0,
           email: String(t.email || '').slice(0, 120),
           phone: String(t.phone || '').slice(0, 60),
-          empNo: String(t.empNo || '').slice(0, 60)
+          empNo: String(t.empNo || '').slice(0, 60),
+          certs: String(t.certs || '').slice(0, 300),
+          certExpires: String(t.certExpires || '').slice(0, 20)
         })).filter(t => t.name || t.role || t.email || t.phone || t.empNo) : [];
         writeCompany(me.companyId, prof);
         return sendJSON(res, 200, { team: prof.team });
+      }
+
+      // ---- Reusable task templates (job checklists) ----
+      if (pathname === '/api/task-templates' && req.method === 'GET') {
+        return sendJSON(res, 200, { templates: (readCompany(me.companyId) || {}).taskTemplates || [] });
+      }
+      if (pathname === '/api/task-templates' && req.method === 'POST') {
+        const { name, tasks } = await readBody(req);
+        if (!String(name || '').trim()) return sendJSON(res, 400, { error: 'Name the template.' });
+        const prof = readCompany(me.companyId) || {};
+        prof.taskTemplates = prof.taskTemplates || [];
+        prof.taskTemplates.push({ id: 'tt_' + crypto.randomBytes(4).toString('hex'),
+          name: String(name).slice(0, 120),
+          tasks: (Array.isArray(tasks) ? tasks : []).slice(0, 200).map(x => String(x || '').slice(0, 300)).filter(Boolean) });
+        writeCompany(me.companyId, prof);
+        return sendJSON(res, 200, { templates: prof.taskTemplates });
+      }
+      const ttDelMatch = pathname.match(/^\/api\/task-templates\/([a-zA-Z0-9_]+)$/);
+      if (ttDelMatch && req.method === 'DELETE') {
+        const prof = readCompany(me.companyId) || {};
+        prof.taskTemplates = (prof.taskTemplates || []).filter(t => t.id !== ttDelMatch[1]);
+        writeCompany(me.companyId, prof);
+        return sendJSON(res, 200, { templates: prof.taskTemplates });
       }
 
       // ---- Subcontractors (roster + compliance) ----

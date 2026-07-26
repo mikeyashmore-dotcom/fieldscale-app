@@ -42,12 +42,14 @@
     <h1 style="font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px">Employees</h1>
     <p class="sub">Your crew and their details — the charged hourly rate, contact info, and the employee number from your payroll app. Rates here fill in automatically when you log time on a job and let you assign crew.</p>
 
+    <div class="alertbar" id="alertbar" style="display:none;background:rgba(232,114,44,.1);border:1px solid rgba(232,114,44,.35);color:var(--orange-dim);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:13px"></div>
+
     <div class="card lines-scroll">
       <table>
         <thead>
           <tr>
             <th>Name</th><th>Role / trade</th><th class="num">Rate&nbsp;$/hr</th>
-            <th>Email</th><th>Phone</th><th>Employee&nbsp;#&nbsp;(payroll)</th><th></th>
+            <th>Email</th><th>Phone</th><th>Employee&nbsp;#</th><th>Certifications</th><th>Cert. expires</th><th></th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -82,9 +84,11 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;'
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
 let team=[]; let canEdit=false;
+function expStatus(d){ if(!d) return ''; const dt=new Date(d+'T00:00:00'); if(isNaN(dt)) return ''; const days=(dt-new Date())/86400000; if(days<0) return 'exp'; if(days<=30) return 'soon'; return ''; }
+function flagHtml(d){ const s=expStatus(d); if(s==='exp') return ' <span style="color:var(--danger);font-size:10.5px;font-weight:600">expired</span>'; if(s==='soon') return ' <span style="color:var(--orange-dim);font-size:10.5px;font-weight:600">expiring</span>'; return ''; }
 function render(){
   const tb=document.getElementById('rows');
-  if(!team.length){ tb.innerHTML=`<tr><td colspan="7" class="empty">No employees yet.${canEdit?' Click <strong>＋ Add employee</strong> to add your crew.':''}</td></tr>`; return; }
+  if(!team.length){ tb.innerHTML=`<tr><td colspan="9" class="empty">No employees yet.${canEdit?' Click <strong>＋ Add employee</strong> to add your crew.':''}</td></tr>`; renderAlerts(); return; }
   const dis = canEdit ? '' : 'disabled';
   tb.innerHTML=team.map((t,i)=>`<tr>
     <td><input data-i="${i}" data-f="name" value="${esc(t.name)}" placeholder="Full name" ${dis} /></td>
@@ -93,12 +97,22 @@ function render(){
     <td><input data-i="${i}" data-f="email" type="email" value="${esc(t.email)}" placeholder="name@email.com" ${dis} /></td>
     <td><input data-i="${i}" data-f="phone" value="${esc(t.phone)}" placeholder="(555) 555-5555" ${dis} /></td>
     <td><input data-i="${i}" data-f="empNo" value="${esc(t.empNo)}" placeholder="payroll ID" ${dis} /></td>
+    <td><input data-i="${i}" data-f="certs" value="${esc(t.certs)}" placeholder="e.g. OSHA 30, EPA" ${dis} /></td>
+    <td><input data-i="${i}" data-f="certExpires" type="date" value="${esc(t.certExpires)}" ${dis} />${flagHtml(t.certExpires)}</td>
     <td style="text-align:right">${canEdit?`<button class="rowdel" data-del="${i}" title="Remove">✕</button>`:''}</td>
   </tr>`).join('');
+  renderAlerts();
+}
+function renderAlerts(){
+  const issues=[];
+  team.forEach(t=>{ const s=expStatus(t.certExpires); const nm=t.name||'An employee'; if(s==='exp') issues.push(`${nm}: certification expired`); else if(s==='soon') issues.push(`${nm}: certification expiring soon`); });
+  const bar=document.getElementById('alertbar');
+  if(issues.length){ bar.style.display='block'; bar.innerHTML='⚠ '+issues.map(esc).join(' · '); } else bar.style.display='none';
 }
 document.getElementById('rows').addEventListener('input', e=>{
   const i=e.target.getAttribute('data-i'), f=e.target.getAttribute('data-f'); if(i===null) return;
   team[i][f] = f==='rate' ? (parseFloat(e.target.value)||0) : e.target.value;
+  if(f==='certExpires') render();
 });
 document.getElementById('rows').addEventListener('click', e=>{
   const d=e.target.getAttribute && e.target.getAttribute('data-del');

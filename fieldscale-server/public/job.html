@@ -230,10 +230,15 @@
       <h3>Task checklist</h3>
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">A punch list of to-dos for this job. Check them off as you go.</p>
       <div id="tasks-wrap"></div>
-      <div class="task-add" style="display:flex;gap:8px;margin-top:8px">
-        <input id="task-input" placeholder="Add a task and press Enter…" style="flex:1" />
+      <div class="task-add" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <input id="task-input" placeholder="Add a task and press Enter…" style="flex:1;min-width:160px" />
         <button class="btn ghost" id="add-task">＋ Add</button>
         <button class="btn ghost" id="add-closeout" title="Add the standard end-of-job checklist">＋ Closeout checklist</button>
+      </div>
+      <div id="tmpl-row" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+        <select id="tmpl-select" style="padding:6px 8px"><option value="">Apply a template…</option></select>
+        <button class="btn ghost" id="apply-tmpl">Apply</button>
+        <button class="btn ghost" id="save-tmpl" title="Save these tasks as a reusable template">Save these as a template</button>
       </div>
     </div>
 
@@ -283,6 +288,16 @@
         <tbody id="insp-lines"></tbody>
       </table></div>
       <div style="padding:10px 14px"><button class="btn ghost" id="add-insp">＋ Add date</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">RFIs &amp; submittals</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Track requests for information and submittals — what was sent, to whom, and where it stands.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Subject</th><th>Type</th><th>To</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="rfi-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-rfi">＋ Add RFI / submittal</button></div>
     </div>
 
     <div class="block" style="padding:0;overflow:hidden">
@@ -512,6 +527,27 @@ document.getElementById('add-closeout').addEventListener('click', ()=>{
 document.getElementById('tasks-wrap').addEventListener('change', e=>{
   const k=e.target.getAttribute('data-tk'); if(k!==null){ doc.tasks[k].done=e.target.checked; renderTasks(); }
 });
+// ---- Task templates ----
+let taskTemplates=[];
+async function loadTemplates(){
+  try{ const r=await apiFetch('/api/task-templates'); taskTemplates=r.templates||[]; }catch(e){ taskTemplates=[]; }
+  const sel=document.getElementById('tmpl-select');
+  sel.innerHTML='<option value="">Apply a template…</option>'+taskTemplates.map(t=>`<option value="${t.id}">${escapeHtml(t.name)} (${(t.tasks||[]).length})</option>`).join('');
+}
+document.getElementById('apply-tmpl').addEventListener('click', ()=>{
+  const id=document.getElementById('tmpl-select').value; if(!id) return;
+  const t=taskTemplates.find(x=>x.id===id); if(!t) return;
+  doc.tasks=doc.tasks||[]; const have=new Set(doc.tasks.map(x=>(x.text||'').toLowerCase()));
+  (t.tasks||[]).forEach(txt=>{ if(!have.has(txt.toLowerCase())) doc.tasks.push({ id:'tk_'+Math.random().toString(16).slice(2,8), text:txt, done:false }); });
+  renderTasks(); toast('Applied “'+t.name+'”.');
+});
+document.getElementById('save-tmpl').addEventListener('click', async ()=>{
+  const tasks=(doc.tasks||[]).map(t=>t.text).filter(Boolean);
+  if(!tasks.length){ toast('Add some tasks first.', true); return; }
+  const name=prompt('Name this task template:'); if(name===null||!name.trim()) return;
+  try{ const r=await apiFetch('/api/task-templates',{method:'POST',body:JSON.stringify({name:name.trim(),tasks})}); taskTemplates=r.templates||[]; await loadTemplates(); toast('Template saved.'); }
+  catch(err){ toast(err.message, true); }
+});
 
 // ---- Punch list (deficiencies to fix before closeout; each with a location) ----
 function renderPunch(){
@@ -618,6 +654,14 @@ const renderInspections = bindListSection('inspections','insp-lines','add-insp',
   {f:'status',type:'select',opts:['Scheduled','Passed','Failed','Received','Done']},
   {f:'notes',ph:''}
 ], ()=>({label:'',type:'Inspection',date:'',status:'Scheduled',notes:''}));
+const renderRfis = bindListSection('rfis','rfi-lines','add-rfi',[
+  {f:'subject',ph:'e.g. Beam size clarification'},
+  {f:'type',type:'select',opts:['RFI','Submittal']},
+  {f:'to',ph:'Architect / GC'},
+  {f:'date',type:'date'},
+  {f:'status',type:'select',opts:['Open','Answered','Approved','Rejected','Closed']},
+  {f:'notes',ph:''}
+], ()=>({subject:'',type:'RFI',to:'',date:'',status:'Open',notes:''}));
 document.getElementById('tasks-wrap').addEventListener('input', e=>{
   const t=e.target.getAttribute('data-tt'); if(t!==null){ doc.tasks[t].text=e.target.value; }
 });
@@ -669,7 +713,7 @@ function renderTime(){
     <td class="num"><input class="num" data-ti="${i}" data-tf="hours" value="${t.hours||0}" inputmode="decimal" style="width:70px" /></td>
     <td class="num"><span class="dollar">$<input class="num" data-ti="${i}" data-tf="rate" value="${t.rate||0}" inputmode="decimal" style="width:70px" /></span></td>
     <td class="num amt" data-tlabor="${i}">${money((Number(t.hours)||0)*(Number(t.rate)||0))}</td>
-    <td><input data-ti="${i}" data-tf="note" value="${escapeHtml(t.note||'')}" placeholder="—" style="width:150px" /></td>
+    <td><input data-ti="${i}" data-tf="note" value="${escapeHtml(t.note||'')}" placeholder="—" style="width:150px" />${t.loc?` <a href="https://maps.google.com/?q=${t.loc.lat},${t.loc.lng}" target="_blank" rel="noopener" title="Clock-in location">📍</a>`:''}</td>
     <td class="num"><button class="rowdel" data-tdel2="${i}" title="Remove">✕</button></td>
   </tr>`).join('');
   document.getElementById('time-total').textContent = te.length ? `${hoursTotal().toFixed(2)} hrs · ${money(laborTotal())} labor` : '';
@@ -706,16 +750,21 @@ function renderClock(){
     tick(); clockTimer=setInterval(tick,1000);
   } else { btn.textContent='Clock in'; btn.classList.add('primary'); live.textContent=''; }
 }
+// Best-effort GPS: resolves to {lat,lng} or null; never blocks the clock action for long.
+function getLoc(){ return new Promise(res=>{ if(!navigator.geolocation) return res(null); let done=false; const fin=v=>{ if(done)return; done=true; res(v); };
+  navigator.geolocation.getCurrentPosition(p=>fin({lat:Math.round(p.coords.latitude*1e5)/1e5,lng:Math.round(p.coords.longitude*1e5)/1e5}), ()=>fin(null), {enableHighAccuracy:false,timeout:4000,maximumAge:60000}); setTimeout(()=>fin(null),4500); }); }
 document.getElementById('clock-btn').addEventListener('click', async ()=>{
   if(doc.activeClock && doc.activeClock.start){
     const hrs=Math.round((Date.now()-doc.activeClock.start)/3600000*100)/100;
-    addTimeEntry({ worker:doc.activeClock.worker||'', date:todayStr(), hours:hrs, rate:Number(doc.activeClock.rate)||0, note:'Clocked shift' });
+    const outLoc=await getLoc();
+    addTimeEntry({ worker:doc.activeClock.worker||'', date:todayStr(), hours:hrs, rate:Number(doc.activeClock.rate)||0, note:'Clocked shift', loc:doc.activeClock.loc||null, locOut:outLoc||null });
     doc.activeClock=null; renderClock();
     try{ await save(); toast('Clocked out — '+hrs+' hrs logged.'); refreshDash(); }catch(err){ toast(err.message,true); }
   } else {
-    doc.activeClock={ worker:document.getElementById('clk-worker').value||'', rate:parseFloat(document.getElementById('clk-rate').value)||0, start:Date.now() };
+    const loc=await getLoc();
+    doc.activeClock={ worker:document.getElementById('clk-worker').value||'', rate:parseFloat(document.getElementById('clk-rate').value)||0, start:Date.now(), loc };
     renderClock();
-    try{ await save(); toast('Clocked in.'); }catch(err){ toast(err.message,true); }
+    try{ await save(); toast('Clocked in.'+(loc?' 📍 Location recorded.':'')); }catch(err){ toast(err.message,true); }
   }
 });
 
@@ -927,6 +976,7 @@ async function openJobPDF(){
     + ((doc.selections||[]).length?`<div class="sec"><h4>Selections &amp; allowances</h4></div><table><thead><tr><th>Item</th><th class="r">Allowance</th><th class="r">Actual</th><th>Status</th></tr></thead><tbody>${doc.selections.map(s=>`<tr><td>${escapeHtml(s.item)}</td><td class="r">${money(s.allowance)}</td><td class="r">${money(s.actual)}</td><td>${escapeHtml(s.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + ((doc.materials||[]).length?`<div class="sec"><h4>Materials</h4></div><table><thead><tr><th>Material</th><th class="r">Qty</th><th>Unit</th><th>Supplier</th><th>Status</th></tr></thead><tbody>${doc.materials.map(m=>`<tr><td>${escapeHtml(m.item)}</td><td class="r">${Number(m.qty)||0}</td><td>${escapeHtml(m.unit||'')}</td><td>${escapeHtml(m.supplier||'')}</td><td>${escapeHtml(m.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + ((doc.inspections||[]).length?`<div class="sec"><h4>Inspections &amp; deliveries</h4></div><table><thead><tr><th>What</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody>${doc.inspections.map(x=>`<tr><td>${escapeHtml(x.label)}</td><td>${escapeHtml(x.type||'')}</td><td>${escapeHtml(pdfDate(x.date))}</td><td>${escapeHtml(x.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.rfis||[]).length?`<div class="sec"><h4>RFIs &amp; submittals</h4></div><table><thead><tr><th>Subject</th><th>Type</th><th>To</th><th>Date</th><th>Status</th></tr></thead><tbody>${doc.rfis.map(x=>`<tr><td>${escapeHtml(x.subject)}</td><td>${escapeHtml(x.type||'')}</td><td>${escapeHtml(x.to||'')}</td><td>${escapeHtml(pdfDate(x.date))}</td><td>${escapeHtml(x.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + (doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:'')
     + `<div class="foot">${escapeHtml(co.name||'')} — job sheet</div>`;
   printWindow(jobName||'Job', body);
@@ -962,6 +1012,7 @@ function fillForm(){
   renderSelections();
   renderMaterials();
   renderInspections();
+  renderRfis();
   renderDraws();
   renderWarranty();
   renderTime();
@@ -981,7 +1032,7 @@ async function init(){
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
     doc.tasks = doc.tasks||[]; doc.punch = doc.punch||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
-    doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[];
+    doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[]; doc.rfis = doc.rfis||[];
     receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){
@@ -992,8 +1043,8 @@ async function init(){
     fillForm(); renderLines();
     // Field employees don't see money: hide costing/dashboard/change-order sections and skip the
     // financial summary + company fetch (both blocked server-side for them anyway).
-    if(isField){ document.querySelectorAll('.fin-hide').forEach(el=>el.style.display='none'); }
-    else { refreshDash();
+    if(isField){ document.querySelectorAll('.fin-hide').forEach(el=>el.style.display='none'); const tr=document.getElementById('tmpl-row'); if(tr) tr.style.display='none'; }
+    else { refreshDash(); loadTemplates();
     // Team roster → crew datalist (and default time-entry rates).
     getCompany().then(co=>{
       const team=(co&&co.team)||[];

@@ -172,6 +172,12 @@
         <option value="none">No codes</option>
       </select>
       <span style="font-size:11.5px;color:var(--steel-light)">← sets the Code list below (or hides it)</span>
+      <label style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-left:16px">Pricing type</label>
+      <select id="est-type" class="est-class-sel" title="How this job is priced — shown on the proposal">
+        <option value="detailed">Detailed / fixed price</option>
+        <option value="tm">Time &amp; materials</option>
+        <option value="flat">Flat rate</option>
+      </select>
     </div>
     <div class="card lines-scroll">
       <table class="lines">
@@ -492,6 +498,7 @@ function syncDocFromForm(){
   doc.discount=parseFloat(document.getElementById('t-disc').value)||0;
   doc.discountType=(doc.discountType==='amt'?'amt':'pct');
   doc.estimateClass=document.getElementById('est-class').value;
+  doc.estType=document.getElementById('est-type').value;
   doc.showQty=document.getElementById('opt-qty').checked;
   doc.showUnit=document.getElementById('opt-uom').checked;
   doc.validDays=parseInt(document.getElementById('valid-days').value,10)||0;
@@ -699,6 +706,8 @@ function proposalDocHTML(forDownload){
   if(doc.depositPct>0) termsExtra.push(`A deposit of ${doc.depositPct}% (${money(t.total*doc.depositPct/100)}) is required to begin work; the balance is due ${balPhrase||'upon completion'}.`);
   else if(balPhrase) termsExtra.push(`Payment in full is due ${balPhrase}.`);
   if(doc.validDays>0) termsExtra.push(`This proposal is valid for ${doc.validDays} days from the date of issue.`);
+  if(doc.estType==='tm') termsExtra.push('This is a Time & Materials estimate: the figures are a good-faith estimate; actual billing is based on labor and materials used, plus markup.');
+  else if(doc.estType==='flat') termsExtra.push('This is a flat-rate price for the work described, regardless of the actual hours or materials.');
   const termsBody=[...termsExtra.map(escapeHtml), ...(doc.terms?[escapeHtml(doc.terms)]:[])].join('\n');
   const co=doc.company||{}, cl=doc.client||{};
   const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(escapeHtml).join('<br>');
@@ -735,7 +744,7 @@ function proposalDocHTML(forDownload){
   ${forDownload?'':'<div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="spacer40 noprint"></div>'}
   <div class="head">
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
-    <div class="doc"><div class="big">ESTIMATE</div><div class="meta">
+    <div class="doc"><div class="big">ESTIMATE</div>${doc.estType&&doc.estType!=='detailed'?`<div style="text-align:right;font-size:11px;color:#7C8896;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">${doc.estType==='tm'?'Time &amp; Materials':'Flat rate'}</div>`:''}<div class="meta">
       ${doc.estimateNo?('No. '+escapeHtml(doc.estimateNo)+'<br>'):''}
       ${doc.date?('Date: '+escapeHtml(pdfDate(doc.date))+'<br>'):''}
       ${doc.validUntil?('Valid until: '+escapeHtml(pdfDate(doc.validUntil))):''}
@@ -819,6 +828,7 @@ function fillForm(){
   document.getElementById('t-disc').value=doc.discount||0;
   document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
   document.getElementById('est-class').value = doc.estimateClass || 'residential';
+  document.getElementById('est-type').value = doc.estType || 'detailed';
   // Default all on for older estimates that predate these options.
   document.getElementById('opt-qty').checked = doc.showQty!==false;
   document.getElementById('opt-uom').checked = doc.showUnit!==false;

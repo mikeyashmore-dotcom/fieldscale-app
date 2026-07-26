@@ -24,8 +24,9 @@
   }
   // Force Inter for UI/body + keep Oswald for headings, overriding the pages' older per-page fonts.
   var st = document.createElement('style'); st.id = 'fs-font-override';
-  st.textContent = "body,input,textarea,select,button,table,th,td,.btn,.navtop,.navmenu a,.acct-btn,.who,.tile,.pill,.card{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif !important}"
-    + "h1,h2,h3,h4,h5,.brand,.fs-coname,.v{font-family:'Oswald','Inter',sans-serif !important}";
+  // Blueprint Blue uses Inter throughout — headings and brand included (no Oswald).
+  st.textContent = "body,input,textarea,select,button,table,th,td,.btn,.navtop,.navmenu a,.acct-btn,.who,.tile,.pill,.card,"
+    + "h1,h2,h3,h4,h5,h6,.brand,.fs-coname,.v{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif !important}";
   document.head.appendChild(st);
 })();
 

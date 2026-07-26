@@ -40,7 +40,7 @@ body{margin:0;font-family:'Inter','IBM Plex Sans',system-ui,sans-serif;backgroun
 a{color:var(--accent);text-decoration:none}
 header{display:flex;align-items:center;gap:20px;padding:0 16px;height:52px;background:var(--ink-navy);
        border-bottom:2px solid var(--cyan-dim);color:var(--header-text);position:sticky;top:0;z-index:5}
-header .brand{font-family:'Oswald','Inter',sans-serif;font-weight:600;font-size:19px;letter-spacing:.5px;
+header .brand{font-family:'Inter',system-ui,sans-serif;font-weight:700;font-size:19px;letter-spacing:.3px;
               color:var(--header-text);display:flex;align-items:center;gap:8px;white-space:nowrap}
 header .brand .mark{width:22px;height:22px;border:2px solid var(--cyan);border-radius:3px;position:relative;flex:none}
 header .brand .mark::before,header .brand .mark::after{content:'';position:absolute;background:var(--cyan)}
@@ -52,7 +52,7 @@ header nav a.active{color:var(--header-text);border-bottom:2px solid var(--accen
 header .spacer{flex:1}
 header .who{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel-light)}
 .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 80px}
-h1{font-family:'Oswald','Inter',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px;color:var(--heading)}
+h1{font-family:'Inter',system-ui,sans-serif;font-size:23px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px;color:var(--heading)}
 h2,h3{color:var(--heading)}
 .sub{color:var(--steel);margin:0 0 20px}
 .card{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}

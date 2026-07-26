@@ -331,6 +331,10 @@ function writePlanDoc(id, doc){
 const RECEIPTS_DIR = path.join(DATA_DIR, 'receipts');
 function receiptDir(jobId){ return path.join(RECEIPTS_DIR, jobId); }
 function receiptPath(jobId, rid){ return path.join(receiptDir(jobId), rid); }
+// Subcontractor compliance docs (COI, W-9, license…) — files on disk, metadata on the company profile's sub record.
+const SUBDOCS_DIR = path.join(DATA_DIR, 'sub-docs');
+function subDocDir(subId){ return path.join(SUBDOCS_DIR, subId); }
+function subDocPath(subId, docId){ return path.join(subDocDir(subId), docId); }
 const MAX_RECEIPT_BYTES = 25 * 1024 * 1024; // a phone photo or a PDF receipt, not a plan set
 
 // Payment status from what's been paid against the total.
@@ -1655,8 +1659,10 @@ const server = http.createServer(async (req, res) => {
             tasks: Array.isArray(tt.tasks) ? tt.tasks.slice(0, 200).map(x => String(x || '').slice(0, 300)).filter(Boolean) : []
           })).filter(tt => tt.name) : (existingProfile.taskTemplates || []),
           // Subcontractor roster + compliance (W-9 on file, insurance/license expiry). Preserved if omitted.
-          subs: Array.isArray(p.subs) ? p.subs.slice(0, 300).map(sb => ({
-            id: String(sb.id || ('sb_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
+          subs: Array.isArray(p.subs) ? (function(){ const prevDocs={}; (existingProfile.subs||[]).forEach(s=>{ prevDocs[s.id]=s.docs||[]; });
+            return p.subs.slice(0, 300).map(sb => { const id=String(sb.id || ('sb_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40);
+            return {
+            id,
             name: String(sb.name || '').slice(0, 120),
             trade: String(sb.trade || '').slice(0, 80),
             contact: String(sb.contact || '').slice(0, 80),
@@ -1665,8 +1671,8 @@ const server = http.createServer(async (req, res) => {
             w9: !!sb.w9,
             coiExpires: String(sb.coiExpires || '').slice(0, 20),
             licenseExpires: String(sb.licenseExpires || '').slice(0, 20),
-            notes: String(sb.notes || '').slice(0, 2000)
-          })).filter(sb => sb.name || sb.trade || sb.email || sb.phone) : (existingProfile.subs || []),
+            notes: String(sb.notes || '').slice(0, 2000), docs: prevDocs[id] || []
+          }; }).filter(sb => sb.name || sb.trade || sb.email || sb.phone); })() : (existingProfile.subs || []),
           // Markup-by-category & tax rules: per-category markup % and taxable flag, matched by line Code.
           markupRules: Array.isArray(p.markupRules) ? p.markupRules.slice(0, 60).map(r => ({
             code: String(r.code || '').slice(0, 80),
@@ -1740,16 +1746,84 @@ const server = http.createServer(async (req, res) => {
         if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Only the owner or an admin can manage subcontractors.' });
         const { subs } = await readBody(req);
         const prof = readCompany(me.companyId) || {};
-        prof.subs = Array.isArray(subs) ? subs.slice(0, 300).map(sb => ({
-          id: String(sb.id || ('sb_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
-          name: String(sb.name || '').slice(0, 120), trade: String(sb.trade || '').slice(0, 80),
-          contact: String(sb.contact || '').slice(0, 80), phone: String(sb.phone || '').slice(0, 60),
-          email: String(sb.email || '').slice(0, 120), w9: !!sb.w9,
-          coiExpires: String(sb.coiExpires || '').slice(0, 20), licenseExpires: String(sb.licenseExpires || '').slice(0, 20),
-          notes: String(sb.notes || '').slice(0, 2000)
-        })).filter(sb => sb.name || sb.trade || sb.email || sb.phone) : [];
+        // Uploaded docs are server-managed (files on disk); a list save must never trust client doc
+        // metadata — preserve each sub's existing docs by id instead.
+        const prevDocs = {}; (prof.subs || []).forEach(s => { prevDocs[s.id] = s.docs || []; });
+        prof.subs = Array.isArray(subs) ? subs.slice(0, 300).map(sb => {
+          const id = String(sb.id || ('sb_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40);
+          return {
+            id, name: String(sb.name || '').slice(0, 120), trade: String(sb.trade || '').slice(0, 80),
+            contact: String(sb.contact || '').slice(0, 80), phone: String(sb.phone || '').slice(0, 60),
+            email: String(sb.email || '').slice(0, 120), w9: !!sb.w9,
+            coiExpires: String(sb.coiExpires || '').slice(0, 20), licenseExpires: String(sb.licenseExpires || '').slice(0, 20),
+            notes: String(sb.notes || '').slice(0, 2000), docs: prevDocs[id] || []
+          };
+        }).filter(sb => sb.name || sb.trade || sb.email || sb.phone) : [];
         writeCompany(me.companyId, prof);
         return sendJSON(res, 200, { subs: prof.subs });
+      }
+      // Upload a compliance doc (COI / W-9 / other) to a subcontractor. Streams to disk like receipts.
+      const subDocUp = pathname.match(/^\/api\/subs\/([a-zA-Z0-9_]+)\/docs$/);
+      if (subDocUp && req.method === 'POST') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Only the owner or an admin can manage subcontractors.' });
+        const prof = readCompany(me.companyId) || {};
+        const sub = (prof.subs || []).find(s => s.id === subDocUp[1]);
+        if (!sub) return sendJSON(res, 404, { error: 'Save the subcontractor first, then upload documents.' });
+        const did = 'd_' + crypto.randomBytes(8).toString('hex');
+        const dir = subDocDir(sub.id);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const tmp = subDocPath(sub.id, did) + '.tmp';
+        const ws = fs.createWriteStream(tmp);
+        let bytes = 0, failed = false;
+        const fail = (e, code) => { if (failed) return; failed = true; try { ws.destroy(); } catch (_) {} try { fs.unlinkSync(tmp); } catch (_) {} if (!res.headersSent) sendJSON(res, code || 500, { error: (e && e.message) || String(e) }); };
+        req.on('data', (c) => { bytes += c.length; if (bytes > MAX_RECEIPT_BYTES) { fail(new Error('File is too large (max 25 MB).'), 413); try { req.destroy(); } catch (_) {} } });
+        ws.on('error', fail); req.on('error', fail);
+        ws.on('finish', () => {
+          if (failed) return;
+          try { fs.renameSync(tmp, subDocPath(sub.id, did)); } catch (e) { return fail(e); }
+          let kind = String((parsed.query && parsed.query.kind) || 'other').toLowerCase();
+          if (['coi', 'w9', 'other'].indexOf(kind) < 0) kind = 'other';
+          const meta = { id: did, kind,
+            name: String((parsed.query && parsed.query.name) || (kind === 'coi' ? 'COI' : kind === 'w9' ? 'W-9' : 'Document')).slice(0, 200),
+            mime: String(req.headers['content-type'] || 'application/octet-stream').slice(0, 100),
+            size: bytes, uploadedAt: Date.now() };
+          sub.docs = sub.docs || [];
+          sub.docs.push(meta);
+          if (kind === 'w9') sub.w9 = true;   // a W-9 on file marks the checkbox
+          writeCompany(me.companyId, prof);
+          logAudit(me, 'sub.doc.add', (sub.name || 'sub') + ' — ' + kind);
+          sendJSON(res, 200, meta);
+        });
+        req.pipe(ws);
+        return;
+      }
+      // View (stream) or delete one subcontractor doc.
+      const subDocMatch = pathname.match(/^\/api\/subs\/([a-zA-Z0-9_]+)\/docs\/([a-zA-Z0-9_]+)$/);
+      if (subDocMatch) {
+        const prof = readCompany(me.companyId) || {};
+        const sub = (prof.subs || []).find(s => s.id === subDocMatch[1]);
+        if (!sub) return sendJSON(res, 404, { error: 'Subcontractor not found.' });
+        const meta = (sub.docs || []).find(d => d.id === subDocMatch[2]);
+        if (!meta) return sendJSON(res, 404, { error: 'Document not found.' });
+        if (req.method === 'GET') {
+          const f = subDocPath(sub.id, meta.id);
+          if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'File missing.' });
+          const stat = fs.statSync(f);
+          res.writeHead(200, { 'Content-Type': meta.mime || 'application/octet-stream', 'Content-Length': stat.size,
+            'Content-Disposition': 'inline; filename="' + encodeURIComponent(meta.name) + '"', 'Cache-Control': 'private, max-age=3600' });
+          const rs = fs.createReadStream(f);
+          rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the file.' }); else res.destroy(); });
+          rs.pipe(res);
+          return;
+        }
+        if (req.method === 'DELETE') {
+          if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Only the owner or an admin can manage subcontractors.' });
+          sub.docs = (sub.docs || []).filter(d => d.id !== meta.id);
+          try { fs.unlinkSync(subDocPath(sub.id, meta.id)); } catch (e) {}
+          writeCompany(me.companyId, prof);
+          logAudit(me, 'sub.doc.remove', (sub.name || 'sub') + ' — ' + meta.kind);
+          return sendJSON(res, 200, { deleted: true });
+        }
       }
 
       // ---- Security status + activity log (owner/admin) ----

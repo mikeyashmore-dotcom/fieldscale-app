@@ -27,7 +27,16 @@
   .empty{padding:26px;text-align:center;color:var(--steel);font-size:13px}
   .lines-scroll{overflow-x:auto}
   .alertbar{background:rgba(192,57,43,.08);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:13px;display:none}
-  @media (max-width:820px){ table{min-width:900px} }
+  .docs{display:flex;flex-direction:column;gap:5px;min-width:160px}
+  .docchip{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2);border:1px solid var(--paper-line);border-radius:20px;padding:2px 5px 2px 10px;font-size:11px;font-weight:600;max-width:100%}
+  .docchip a{text-decoration:none;color:var(--heading);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .docchip.coi{background:rgba(47,109,176,.10);border-color:rgba(47,109,176,.3)} .docchip.coi a{color:var(--accent)}
+  .docchip.w9{background:rgba(62,142,90,.12);border-color:rgba(62,142,90,.35)} .docchip.w9 a{color:var(--good)}
+  .docdel{background:none;border:none;color:var(--steel-light);cursor:pointer;font-size:12px;padding:0 2px;line-height:1}
+  .docdel:hover{color:var(--danger)}
+  .docup{display:flex;gap:4px;flex-wrap:wrap}
+  .btn.xs{padding:3px 8px;font-size:11px}
+  @media (max-width:820px){ table{min-width:1040px} }
 </style>
 <script src="/app-nav.js"></script>
 </head>
@@ -53,7 +62,7 @@
         <thead>
           <tr>
             <th>Name / company</th><th>Trade</th><th>Contact</th><th>Phone</th><th>Email</th>
-            <th class="chk">W-9</th><th>Insurance (COI) exp.</th><th>License exp.</th><th></th>
+            <th class="chk">W-9</th><th>Insurance (COI) exp.</th><th>License exp.</th><th>Documents (COI / W-9)</th><th></th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -68,6 +77,7 @@
   </div>
 </div>
 
+<input type="file" id="doc-file" accept="application/pdf,image/*" style="display:none" />
 <div class="toast" id="toast"></div>
 
 <script>
@@ -91,10 +101,23 @@ let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t
 function expStatus(d){ if(!d) return ''; const dt=new Date(d+'T00:00:00'); if(isNaN(dt)) return ''; const days=(dt-new Date())/86400000; if(days<0) return 'exp'; if(days<=30) return 'soon'; return ''; }
 function flagHtml(d){ const s=expStatus(d); if(s==='exp') return '<span class="flag exp">expired</span>'; if(s==='soon') return '<span class="flag soon">expiring</span>'; return ''; }
 
-let subs=[]; let canEdit=false;
+let subs=[]; let canEdit=false; let pendingUpload=null;
+function subById(id){ return subs.find(s=>s.id===id); }
+function docsCellHtml(s,i){
+  const docs=s.docs||[];
+  const chips=docs.map(d=>{
+    const label=d.kind==='coi'?'COI':d.kind==='w9'?'W-9':(d.name||'Doc');
+    return `<span class="docchip ${esc(d.kind||'other')}"><a href="#" data-docview="${s.id}|${d.id}" title="${esc(d.name)}">${esc(label)}</a>${canEdit?`<button class="docdel" data-docdel="${s.id}|${d.id}" title="Remove">✕</button>`:''}</span>`;
+  }).join('');
+  let html='<div class="docs">';
+  html += chips || '<span class="muted" style="font-size:12px">No documents</span>';
+  if(canEdit) html += `<div class="docup"><button class="btn ghost xs" data-docup="${i}|coi">＋ COI</button><button class="btn ghost xs" data-docup="${i}|w9">＋ W-9</button><button class="btn ghost xs" data-docup="${i}|other">＋ File</button></div>`;
+  html += '</div>';
+  return html;
+}
 function render(){
   const tb=document.getElementById('rows');
-  if(!subs.length){ tb.innerHTML=`<tr><td colspan="9" class="empty">No subcontractors yet.${canEdit?' Click <strong>＋ Add subcontractor</strong>.':''}</td></tr>`; renderAlerts(); return; }
+  if(!subs.length){ tb.innerHTML=`<tr><td colspan="10" class="empty">No subcontractors yet.${canEdit?' Click <strong>＋ Add subcontractor</strong>.':''}</td></tr>`; renderAlerts(); return; }
   const dis = canEdit ? '' : 'disabled';
   tb.innerHTML=subs.map((s,i)=>`<tr>
     <td><input data-i="${i}" data-f="name" value="${esc(s.name)}" placeholder="Company / name" ${dis} /></td>
@@ -105,6 +128,7 @@ function render(){
     <td class="chk"><input type="checkbox" data-i="${i}" data-f="w9" ${s.w9?'checked':''} ${dis} /></td>
     <td><input data-i="${i}" data-f="coiExpires" type="date" value="${esc(s.coiExpires)}" ${dis} /> ${flagHtml(s.coiExpires)}</td>
     <td><input data-i="${i}" data-f="licenseExpires" type="date" value="${esc(s.licenseExpires)}" ${dis} /> ${flagHtml(s.licenseExpires)}</td>
+    <td>${docsCellHtml(s,i)}</td>
     <td style="text-align:right">${canEdit?`<button class="rowdel" data-del="${i}" title="Remove">✕</button>`:''}</td>
   </tr>`).join('');
   renderAlerts();
@@ -132,9 +156,49 @@ document.getElementById('rows').addEventListener('change', e=>{
   if(f==='w9'){ subs[i].w9=e.target.checked; renderAlerts(); }
 });
 document.getElementById('rows').addEventListener('click', e=>{
-  const d=e.target.getAttribute && e.target.getAttribute('data-del');
+  const g=(a)=> e.target.getAttribute && e.target.getAttribute(a);
+  const dv=g('data-docview'); if(dv){ e.preventDefault(); const [sid,did]=dv.split('|'); viewDoc(sid,did); return; }
+  const ddel=g('data-docdel'); if(ddel){ const [sid,did]=ddel.split('|'); deleteDoc(sid,did); return; }
+  const up=g('data-docup'); if(up){ const [i,kind]=up.split('|'); beginUpload(Number(i),kind); return; }
+  const d=g('data-del');
   if(d!==null && d!==undefined){ subs.splice(Number(d),1); render(); }
 });
+
+// ---- Compliance documents (COI / W-9 / other) per subcontractor ----
+async function uploadDoc(subId, kind, file){
+  const url='/api/subs/'+encodeURIComponent(subId)+'/docs?kind='+kind+'&name='+encodeURIComponent(file.name.slice(0,120));
+  const res=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+getToken(),'Content-Type':file.type||'application/octet-stream'},body:file});
+  const d=await res.json().catch(()=>({})); if(!res.ok) throw new Error(d.error||'Upload failed'); return d;
+}
+async function beginUpload(i, kind){
+  const sub=subs[i]; if(!sub) return;
+  if(!(sub.name||sub.trade||sub.email||sub.phone)){ toast('Give the subcontractor a name first.', true); return; }
+  try{ await save(); }catch(err){ toast(err.message,true); return; }   // make sure the sub exists server-side
+  if(!subById(sub.id)){ toast('Save the subcontractor first.', true); return; }
+  pendingUpload={ subId: sub.id, kind };
+  const fi=document.getElementById('doc-file'); fi.value=''; fi.click();
+}
+document.getElementById('doc-file').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f||!pendingUpload){ return; }
+  const { subId, kind }=pendingUpload; pendingUpload=null; e.target.value='';
+  try{ const meta=await uploadDoc(subId,kind,f);
+    const sub=subById(subId); if(sub){ sub.docs=sub.docs||[]; sub.docs.push(meta); if(kind==='w9') sub.w9=true; }
+    render(); toast('Document uploaded.');
+  }catch(err){ toast(err.message,true); }
+});
+async function viewDoc(subId, docId){
+  try{ const res=await fetch('/api/subs/'+subId+'/docs/'+docId,{headers:{'Authorization':'Bearer '+getToken()}});
+    if(!res.ok) throw new Error('nope'); const blob=await res.blob(); const u=URL.createObjectURL(blob);
+    window.open(u,'_blank'); setTimeout(()=>URL.revokeObjectURL(u),60000);
+  }catch(err){ toast('Could not open document.', true); }
+}
+async function deleteDoc(subId, docId){
+  if(!confirm('Remove this document?')) return;
+  try{ await apiFetch('/api/subs/'+subId+'/docs/'+docId,{method:'DELETE'});
+    const sub=subById(subId); if(sub) sub.docs=(sub.docs||[]).filter(d=>d.id!==docId);
+    render(); toast('Document removed.');
+  }catch(err){ toast(err.message,true); }
+}
 document.getElementById('add-sub').addEventListener('click', ()=>{
   subs.push({ id:'sb_'+Math.random().toString(16).slice(2,8), name:'', trade:'', contact:'', phone:'', email:'', w9:false, coiExpires:'', licenseExpires:'' });
   render(); const inputs=document.querySelectorAll('#rows tr:last-child input'); if(inputs[0]) inputs[0].focus();

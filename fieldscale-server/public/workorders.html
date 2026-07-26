@@ -102,7 +102,7 @@ function render(list){
   }
   tb.innerHTML=list.map(w=>`
     <tr class="rowlink" data-open="${w.id}">
-      <td>${escapeHtml(w.title)}</td>
+      <td>${w.number?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel);margin-right:6px">${escapeHtml(w.number)}</span>`:''}${escapeHtml(w.title)}</td>
       <td class="muted">${escapeHtml(w.jobName)||'—'}</td>
       <td class="muted">${escapeHtml(w.assignee)||'—'}</td>
       <td><span class="pill ${pillClass(w.status)}">${escapeHtml(w.status||'open')}</span></td>

@@ -633,6 +633,26 @@ function assignInvoiceNo(company) {
   company.invoiceSeq = company.invoiceSeq + 1;
   return no;
 }
+// Company-wide auto-numbering for jobs ('job') and work orders ('wo'). Auto-starts at J-0001 / WO-0001;
+// the starting/next number is settable on the Company page (mirrors the invoice counter).
+const NUM_DEFAULT = { job: 'J-', wo: 'WO-' };
+function nextNumber(company, k) {
+  if (!company || company[k + 'Seq'] == null) return NUM_DEFAULT[k] + '0001';
+  return (company[k + 'Prefix'] || '') + String(company[k + 'Seq']).padStart(company[k + 'Pad'] || 0, '0');
+}
+function assignNumber(company, k) {
+  if (!company) return NUM_DEFAULT[k] + '0001';
+  if (company[k + 'Seq'] == null) { company[k + 'Prefix'] = NUM_DEFAULT[k]; company[k + 'Pad'] = 4; company[k + 'Seq'] = 1; }
+  const no = (company[k + 'Prefix'] || '') + String(company[k + 'Seq']).padStart(company[k + 'Pad'] || 0, '0');
+  company[k + 'Seq'] = company[k + 'Seq'] + 1;
+  return no;
+}
+function setNextNumber(company, k, str) {
+  if (!company) return;
+  if (String(str == null ? '' : str).trim() === '') { company[k + 'Seq'] = null; company[k + 'Prefix'] = ''; company[k + 'Pad'] = 0; return; }
+  const p = parseInvoiceNo(str); if (!p) return;
+  company[k + 'Prefix'] = p.prefix; company[k + 'Pad'] = p.pad; company[k + 'Seq'] = p.num;
+}
 // Purchase-order numbers auto-count from PO-0001 per company (simpler than invoices — no config UI).
 function assignPONo(company) {
   if (!company) return 'PO-0001';
@@ -1656,11 +1676,13 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Company profile: get / save (shared by everyone in the company) ----
       if (pathname === '/api/company' && req.method === 'GET') {
-        return sendJSON(res, 200, { profile: readCompany(me.companyId), invoiceNext: nextInvoiceNo(companyById(me.companyId)) });
+        const co = companyById(me.companyId);
+        return sendJSON(res, 200, { profile: readCompany(me.companyId), invoiceNext: nextInvoiceNo(co),
+          jobNext: nextNumber(co, 'job'), woNext: nextNumber(co, 'wo') });
       }
       if (pathname === '/api/company' && req.method === 'PUT') {
-        const { profile, invoiceNext } = await readBody(req);
-        // Let the company set/adjust the next invoice number directly (blank clears auto-numbering).
+        const { profile, invoiceNext, jobNext, woNext } = await readBody(req);
+        // Let the company set/adjust the next invoice / job / work-order number (blank = auto from 1).
         if (invoiceNext !== undefined) {
           const company = companyById(me.companyId);
           if (company) {
@@ -1669,6 +1691,8 @@ const server = http.createServer(async (req, res) => {
             else if (String(invoiceNext || '').trim() === '') { company.invoiceSeq = null; company.invoicePrefix = ''; company.invoicePad = 0; }
           }
         }
+        if (jobNext !== undefined) setNextNumber(companyById(me.companyId), 'job', jobNext);
+        if (woNext !== undefined) setNextNumber(companyById(me.companyId), 'wo', woNext);
         const p = profile || {};
         const existingProfile = readCompany(me.companyId) || {};
         // Re-shape server-side so the file only ever holds expected fields. The logo is a data
@@ -1731,8 +1755,9 @@ const server = http.createServer(async (req, res) => {
         const companyRec = companyById(me.companyId);
         if (companyRec && clean.name) companyRec.name = clean.name;
         logAudit(me, 'company.update', 'Updated company profile');
-        saveDB(db); // persist the name sync + any invoice-counter change on the company record
-        return sendJSON(res, 200, { profile: clean, invoiceNext: nextInvoiceNo(companyById(me.companyId)) });
+        saveDB(db); // persist the name sync + any invoice/job/WO-counter change on the company record
+        const coRec = companyById(me.companyId);
+        return sendJSON(res, 200, { profile: clean, invoiceNext: nextInvoiceNo(coRec), jobNext: nextNumber(coRec, 'job'), woNext: nextNumber(coRec, 'wo') });
       }
 
       // ---- Employee roster (name, rate, email, phone, payroll #) ----
@@ -2609,7 +2634,7 @@ const server = http.createServer(async (req, res) => {
             const contract = (Number(c.contract) || 0) + co.price;
             const profit = contract - ((Number(c.budget) || 0) + co.cost);
             const margin = contract > 0 ? Math.round(profit / contract * 1000) / 10 : null;
-            const base = { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
+            const base = { id: j.id, number: j.number || '', name: j.name, client: j.client || '', status: j.status || 'scheduled',
                      createdAt: j.createdAt, updatedAt: j.updatedAt };
             // People without financial access never see money — omit contract/margin from their list.
             return canSeeFinancials(me) ? Object.assign(base, { contract, margin }) : base;
@@ -2620,12 +2645,13 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/jobs' && req.method === 'POST') {
         const { name, client, doc } = await readBody(req);
         const job = { id: 'j_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          number: assignNumber(companyById(me.companyId), 'job'),
           name: name || 'Untitled Job', client: client || '', status: 'scheduled',
           createdAt: Date.now(), updatedAt: Date.now() };
         writeJobDoc(job.id, doc || {});
         db.jobs.push(job);
         saveDB(db);
-        return sendJSON(res, 200, { id: job.id });
+        return sendJSON(res, 200, { id: job.id, number: job.number });
       }
       // Turn a won estimate into a job (the scope of work to schedule and do).
       if (pathname === '/api/jobs/from-estimate' && req.method === 'POST') {
@@ -2650,6 +2676,7 @@ const server = http.createServer(async (req, res) => {
           costing: { budget: Math.round(budget * 100) / 100, contract, actualCost: 0 }
         };
         const job = { id: 'j_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          number: assignNumber(companyById(me.companyId), 'job'),
           name: est.name || 'Job', client: (edoc.client && edoc.client.name) || est.client || '',
           status: 'scheduled', fromEstimateId: est.id, createdAt: Date.now(), updatedAt: Date.now() };
         writeJobDoc(job.id, doc);
@@ -2812,7 +2839,7 @@ const server = http.createServer(async (req, res) => {
       // ---- Work orders: list / create / from-job / get / put / delete ----
       if (pathname === '/api/workorders' && req.method === 'GET') {
         const list = db.workOrders.filter(w => w.companyId === me.companyId)
-          .map(w => ({ id: w.id, title: w.title, jobName: w.jobName || '', assignee: w.assignee || '',
+          .map(w => ({ id: w.id, number: w.number || '', title: w.title, jobName: w.jobName || '', assignee: w.assignee || '',
                        status: w.status || 'open', scheduledDate: w.scheduledDate || '',
                        createdAt: w.createdAt, updatedAt: w.updatedAt }))
           .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -2821,12 +2848,13 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/workorders' && req.method === 'POST') {
         const { title, assignee, jobId, jobName, doc } = await readBody(req);
         const wo = { id: 'w_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          number: assignNumber(companyById(me.companyId), 'wo'),
           title: title || 'Untitled Work Order', assignee: assignee || '', jobId: jobId || '', jobName: jobName || '',
           status: 'open', scheduledDate: '', createdAt: Date.now(), updatedAt: Date.now() };
         writeWorkOrderDoc(wo.id, doc || {});
         db.workOrders.push(wo);
         saveDB(db);
-        return sendJSON(res, 200, { id: wo.id });
+        return sendJSON(res, 200, { id: wo.id, number: wo.number });
       }
       // Create a work order from a job — carry the job's scope items into the WO checklist.
       if (pathname === '/api/workorders/from-job' && req.method === 'POST') {
@@ -2840,12 +2868,13 @@ const server = http.createServer(async (req, res) => {
         const doc = { instructions: jdoc.notes || '', tasks, materials: '', equipment: '', notes: '',
           estHours: '', client: (jdoc.client && jdoc.client.name) || job.client || '' };
         const wo = { id: 'w_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          number: assignNumber(companyById(me.companyId), 'wo'),
           title: job.name || 'Work Order', assignee: '', jobId: job.id, jobName: job.name || '',
           status: 'open', scheduledDate: '', createdAt: Date.now(), updatedAt: Date.now() };
         writeWorkOrderDoc(wo.id, doc);
         db.workOrders.push(wo);
         saveDB(db);
-        return sendJSON(res, 200, { id: wo.id });
+        return sendJSON(res, 200, { id: wo.id, number: wo.number });
       }
       const woMatch = pathname.match(/^\/api\/workorders\/([a-zA-Z0-9_]+)$/);
       if (woMatch) {

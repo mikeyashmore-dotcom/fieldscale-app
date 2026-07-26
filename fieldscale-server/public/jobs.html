@@ -107,7 +107,7 @@ function render(list){
   }
   tb.innerHTML=list.map(j=>`
     <tr class="rowlink" data-open="${j.id}">
-      <td>${escapeHtml(j.name)}</td>
+      <td>${j.number?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel);margin-right:6px">${escapeHtml(j.number)}</span>`:''}${escapeHtml(j.name)}</td>
       <td class="muted">${escapeHtml(j.client)||'—'}</td>
       <td><span class="pill ${pillClass(j.status)}">${escapeHtml(j.status||'scheduled')}</span></td>
       ${window.__hideFin?'':`<td class="num">${j.contract?money(j.contract):'—'}</td>

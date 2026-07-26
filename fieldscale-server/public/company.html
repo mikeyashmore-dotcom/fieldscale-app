@@ -87,6 +87,17 @@
           New invoices auto-fill this and count up (any prefix like <b>INV-</b> and leading zeros are kept). Leave blank to turn auto-numbering off.
         </div>
       </div>
+      <div class="row2" style="margin-top:12px">
+        <div class="field">
+          <label>Next job number</label>
+          <input id="job-next" placeholder="e.g. J-0001" style="max-width:220px" />
+        </div>
+        <div class="field">
+          <label>Next work order number</label>
+          <input id="wo-next" placeholder="e.g. WO-0001" style="max-width:220px" />
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--steel);margin-top:2px">Jobs and work orders auto-number from here and count up company-wide. Set the starting number once; the prefix (e.g. <b>J-</b>) and leading zeros are kept.</div>
     </div>
 
     <div class="card" style="margin-top:18px">
@@ -291,11 +302,11 @@ document.getElementById('save-btn').addEventListener('click', async ()=>{
     license:val('license'), website:val('website'), address:val('address'), logo, team,
     markupRules: rules.filter(r=>r.code), contractTemplate: val('contract-template') };
   try{
-    const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile, invoiceNext: val('invoice-next') }) });
+    const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile, invoiceNext: val('invoice-next'), jobNext: val('job-next'), woNext: val('wo-next') }) });
     logo=r.profile.logo||''; showLogo();
     team=r.profile.team||[]; renderTeam();
     rules=r.profile.markupRules||[]; renderRules();
-    set('invoice-next', r.invoiceNext);
+    set('invoice-next', r.invoiceNext); set('job-next', r.jobNext); set('wo-next', r.woNext);
     if(window.fsRefreshBranding) window.fsRefreshBranding(); // update the header logo everywhere
     toast('Company profile saved.');
   }catch(err){ toast(err.message, true); }
@@ -312,7 +323,7 @@ async function init(){
     const p=r.profile||{};
     set('name',p.name); set('phone',p.phone); set('email',p.email);
     set('license',p.license); set('website',p.website); set('address',p.address);
-    set('invoice-next', r.invoiceNext);
+    set('invoice-next', r.invoiceNext); set('job-next', r.jobNext); set('wo-next', r.woNext);
     logo=p.logo||''; showLogo();
     team=p.team||[]; renderTeam();
     rules=p.markupRules||[]; renderRules();

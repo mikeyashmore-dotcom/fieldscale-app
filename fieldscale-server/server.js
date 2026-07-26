@@ -503,6 +503,19 @@ function isPlatformAdmin(u) {
 }
 // A "company admin" (owner or admin) can manage users within their own company.
 function isCompanyAdmin(u) { return !!u && (u.role === 'owner' || u.role === 'admin'); }
+// Field employees can only touch job work: their jobs, and the field data they enter (daily logs,
+// time, task check-offs, photos) plus their own account basics. Everything else is 403.
+function fieldAllowed(pathname, method) {
+  if (pathname === '/api/me' && method === 'GET') return true;
+  if (pathname === '/api/branding' && method === 'GET') return true;
+  if (pathname === '/api/password' && method === 'POST') return true;
+  if (pathname === '/api/jobs' && method === 'GET') return true;
+  if (pathname === '/api/schedule' && method === 'GET') return true;
+  if (/^\/api\/jobs\/[a-zA-Z0-9_]+$/.test(pathname) && (method === 'GET' || method === 'PUT')) return true;
+  if (/^\/api\/jobs\/[a-zA-Z0-9_]+\/receipts$/.test(pathname) && (method === 'GET' || method === 'POST')) return true;
+  if (/^\/api\/jobs\/[a-zA-Z0-9_]+\/receipts\/[a-zA-Z0-9_]+$/.test(pathname) && (method === 'GET' || method === 'DELETE')) return true;
+  return false;
+}
 function companyAdminCount(companyId) {
   return db.users.filter(u => u.companyId === companyId && (u.role === 'owner' || u.role === 'admin') && !u.disabled).length;
 }
@@ -795,6 +808,12 @@ const server = http.createServer(async (req, res) => {
       if (!me) return sendJSON(res, 401, { error: 'Not logged in (or session expired) — please log in again.' });
       const userId = me.id;
 
+      // Field employees are locked to job work only — the server (not just the UI) blocks everything
+      // else so estimates, pricing, invoices, reports and settings are never reachable by them.
+      if (me.role === 'field' && !fieldAllowed(pathname, req.method)) {
+        return sendJSON(res, 403, { error: 'Your field account doesn’t have access to that.' });
+      }
+
       // GET /api/me
       if (pathname === '/api/me' && req.method === 'GET') {
         const company = companyById(me.companyId);
@@ -876,7 +895,7 @@ const server = http.createServer(async (req, res) => {
             id: 'u_' + crypto.randomBytes(8).toString('hex'),
             username: nameCheck.uname, salt, hash,
             companyId: me.companyId,                 // always YOUR company — never another's
-            role: role === 'admin' ? 'admin' : 'member',
+            role: role === 'admin' ? 'admin' : (role === 'field' ? 'field' : 'member'),
             platformAdmin: false,
             disabled: false, tokenVersion: 1, aiCalls: 0,
             createdAt: Date.now(), lastLoginAt: null
@@ -901,10 +920,10 @@ const server = http.createServer(async (req, res) => {
             if (target.id === me.id && disabled === true) {
               return sendJSON(res, 400, { error: "You can't disable your own account." });
             }
-            if (target.role === 'admin' && (role === 'member' || disabled === true) && companyAdminCount(me.companyId) <= 1) {
+            if (target.role === 'admin' && (role === 'member' || role === 'field' || disabled === true) && companyAdminCount(me.companyId) <= 1) {
               return sendJSON(res, 400, { error: 'This is the only admin left. Promote someone else first.' });
             }
-            if (role === 'admin' || role === 'member') target.role = role; // never 'owner' via API
+            if (role === 'admin' || role === 'member' || role === 'field') target.role = role; // never 'owner' via API
             if (typeof disabled === 'boolean') {
               target.disabled = disabled;
               if (disabled) target.tokenVersion += 1;
@@ -1879,8 +1898,10 @@ const server = http.createServer(async (req, res) => {
             const contract = (Number(c.contract) || 0) + co.price;
             const profit = contract - ((Number(c.budget) || 0) + co.cost);
             const margin = contract > 0 ? Math.round(profit / contract * 1000) / 10 : null;
-            return { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
-                     contract, margin, createdAt: j.createdAt, updatedAt: j.updatedAt };
+            const base = { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
+                     createdAt: j.createdAt, updatedAt: j.updatedAt };
+            // Field employees never see money — omit contract/margin from their job list entirely.
+            return me.role === 'field' ? base : Object.assign(base, { contract, margin });
           })
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);
@@ -2033,6 +2054,20 @@ const server = http.createServer(async (req, res) => {
         }
         if (req.method === 'PUT') {
           const { name, client, status, doc } = await readBody(req);
+          // Field employees can ONLY add field data (daily logs, time, task check-offs). The server
+          // merges those onto the saved job and ignores everything else (name, client, status,
+          // budget, contract, costs, change orders) so they can never alter money or job settings.
+          if (me.role === 'field') {
+            const existing = readJobDoc(job.id) || {};
+            if (doc && typeof doc === 'object') {
+              const merged = Object.assign({}, existing);
+              ['dailyLogs', 'timeEntries', 'tasks'].forEach(k => { if (doc[k] !== undefined) merged[k] = doc[k]; });
+              writeJobDoc(job.id, merged);
+            }
+            job.updatedAt = Date.now();
+            saveDB(db);
+            return sendJSON(res, 200, { id: job.id, updatedAt: job.updatedAt, status: job.status });
+          }
           if (name !== undefined) job.name = String(name).slice(0, 200);
           if (client !== undefined) job.client = String(client).slice(0, 200);
           if (status !== undefined && JOB_STATUSES.includes(status)) job.status = status;

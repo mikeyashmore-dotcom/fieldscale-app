@@ -838,6 +838,17 @@
   .u-actions .btn.danger{background:transparent;border-color:var(--steel-light);color:var(--steel);}
   .u-actions .btn.danger:hover{background:var(--danger);border-color:var(--danger);color:#fff;}
   .admin-empty{font-size:12px;color:var(--steel);padding:10px 0;}
+  /* View-only (mobile): hide the takeoff editing controls; keep Projects (open), the sheet and Quantities. */
+  body.viewonly #rail,
+  body.viewonly #file-input,
+  body.viewonly #project-save-btn,
+  body.viewonly #ai-panel-tab,
+  body.viewonly .panel-tab[data-panel="ai"],
+  body.viewonly #empty-state .btn,
+  body.viewonly #export-csv{ display:none !important; }
+  .viewonly-banner{position:fixed;bottom:0;left:0;right:0;z-index:60;background:#0E2A47;color:#F6F3EA;
+    font-family:'IBM Plex Sans',sans-serif;font-size:12.5px;text-align:center;padding:8px 12px;line-height:1.4}
+  .viewonly-banner b{color:#E8722C}
 </style>
 <meta name="fs-module" content="takeoff">
 <script src="/app-nav.js"></script>
@@ -1195,6 +1206,7 @@
             <select id="admin-new-role">
               <option value="member">Member</option>
               <option value="admin">Administrator</option>
+              <option value="field">Field employee</option>
             </select>
           </div>
           <button class="btn primary" id="admin-create-user" style="flex:0 0 auto;">Create</button>
@@ -1264,6 +1276,14 @@
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ---------- View-only (mobile) ----------
+// On a phone/tablet you can open a saved plan and view the quantities taken off, but you can't do a
+// takeoff — the measuring tools are hidden and locked to Pan. Detected by a touch (coarse) pointer
+// on a small screen; desktops (and large tablets with a mouse) keep the full editor.
+let VIEW_ONLY = false;
+try { VIEW_ONLY = window.matchMedia('(pointer:coarse)').matches && window.matchMedia('(max-width:1024px)').matches; }
+catch(e){ VIEW_ONLY = window.innerWidth < 820; }
 
 // ---------- State ----------
 const state = {
@@ -1696,7 +1716,7 @@ async function refreshUserList(){
     const rows = data.users.map(u => {
       const isMe = u.id === adminMe.id;
       const tags = [
-        u.role === 'owner' ? '<span class="tag admin">Owner</span>' : (u.role === 'admin' ? '<span class="tag admin">Admin</span>' : ''),
+        u.role === 'owner' ? '<span class="tag admin">Owner</span>' : (u.role === 'admin' ? '<span class="tag admin">Admin</span>' : (u.role === 'field' ? '<span class="tag">Field</span>' : '')),
         u.disabled ? '<span class="tag off">Disabled</span>' : '',
         isMe ? '<span class="tag you">You</span>' : ''
       ].filter(Boolean).join(' ');
@@ -1704,7 +1724,11 @@ async function refreshUserList(){
       const actions = u.role === 'owner'
         ? '<span class="u-meta">Company owner</span>'
         : `<button class="btn" data-act="reset">Reset password</button>
-              <button class="btn" data-act="role">${u.role === 'admin' ? 'Make member' : 'Make admin'}</button>
+              <select class="btn" data-act="role-sel" title="Change this person's role">
+                <option value="member" ${u.role === 'member' ? 'selected' : ''}>Member</option>
+                <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Administrator</option>
+                <option value="field" ${u.role === 'field' ? 'selected' : ''}>Field employee</option>
+              </select>
               <button class="btn" data-act="toggle">${u.disabled ? 'Enable' : 'Disable'}</button>
               <button class="btn danger" data-act="delete">Delete</button>`;
       return `
@@ -1731,6 +1755,22 @@ async function refreshUserList(){
   }
 }
 
+// Role dropdown (Member / Administrator / Field employee).
+document.getElementById('admin-user-list').addEventListener('change', async (e)=>{
+  const sel = e.target.closest('select[data-act="role-sel"]');
+  if(!sel) return;
+  const row = sel.closest('tr');
+  const id = row.dataset.id, name = row.dataset.name, newRole = sel.value;
+  const labels = { member:'a member', admin:'an administrator', field:'a field employee' };
+  const warn = newRole==='admin' ? '\n\nAdministrators can add, disable, and delete any account — including yours.'
+    : (newRole==='field' ? '\n\nField employees only see their jobs — no estimates, pricing, invoices or reports.' : '');
+  if(!confirm(`Change ${name} to ${labels[newRole]}?${warn}`)){ refreshUserList(); return; }
+  try{
+    await apiFetch('/api/admin/users/'+id, {method:'PATCH', body: JSON.stringify({role: newRole})});
+    showAdminMsg(`${name} is now ${labels[newRole]}.`, 'ok');
+    refreshUserList();
+  }catch(err){ showAdminMsg(err.message, 'error'); refreshUserList(); }
+});
 document.getElementById('admin-user-list').addEventListener('click', async (e)=>{
   const btn = e.target.closest('button[data-act]');
   if(!btn) return;
@@ -3137,6 +3177,9 @@ document.getElementById('next-page').addEventListener('click', ()=> stepPage(1))
 // Pulled out of the rail click handler so other things (the AI panel, keyboard
 // shortcuts) can switch tools too, instead of the rail being the only way in.
 function activateTool(toolName){
+  // View-only (mobile): the drawing/measuring/editing tools are off — you can pan to look and view
+  // quantities, but not take off. Any other tool falls back to pan.
+  if(VIEW_ONLY && toolName!=='pan') toolName='pan';
   document.querySelectorAll('.tool').forEach(t=>t.classList.toggle('active', t.dataset.tool===toolName));
   state.tool = toolName;
   state.drawing = null;
@@ -5460,6 +5503,17 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
   });
   document.getElementById('hl-clear-btn').addEventListener('click', clearHighlightsOnPage);
   positionFloatingPanels();
+})();
+
+// Apply view-only mode on phones/tablets: lock to Pan, hide editing controls, show a banner.
+(function(){
+  if(!VIEW_ONLY) return;
+  document.body.classList.add('viewonly');
+  try{ activateTool('pan'); }catch(e){}
+  var bn=document.createElement('div');
+  bn.className='viewonly-banner';
+  bn.innerHTML='<b>View-only on mobile.</b> Open a saved plan under 📂 Projects to see its quantities. To do a takeoff, use Fieldscale on a computer.';
+  document.body.appendChild(bn);
 })();
 </script>
 </body>

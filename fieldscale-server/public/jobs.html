@@ -110,10 +110,10 @@ function render(list){
       <td>${escapeHtml(j.name)}</td>
       <td class="muted">${escapeHtml(j.client)||'—'}</td>
       <td><span class="pill ${pillClass(j.status)}">${escapeHtml(j.status||'scheduled')}</span></td>
-      <td class="num">${j.contract?money(j.contract):'—'}</td>
-      <td class="num ${marginCls(j.margin)}">${j.margin==null?'—':j.margin.toFixed(1)+'%'}</td>
+      ${isField?'':`<td class="num">${j.contract?money(j.contract):'—'}</td>
+      <td class="num ${marginCls(j.margin)}">${j.margin==null?'—':j.margin.toFixed(1)+'%'}</td>`}
       <td class="muted">${fmtDate(j.updatedAt)}</td>
-      <td class="num"><button class="act" data-del="${j.id}" title="Delete">✕</button></td>
+      ${isField?'':`<td class="num"><button class="act" data-del="${j.id}" title="Delete">✕</button></td>`}
     </tr>`).join('');
 }
 document.getElementById('rows').addEventListener('click', async (e) => {
@@ -134,8 +134,16 @@ async function load(){
   document.getElementById('list-card').style.display='block';
   render(list);
 }
+let isField=false;
 async function init(){
-  try{ const me = await apiFetch('/api/me'); document.getElementById('who').textContent = me.username; }catch(err){ return; }
+  try{ const me = await apiFetch('/api/me'); document.getElementById('who').textContent = me.username; isField=(me.role==='field'); }catch(err){ return; }
+  if(isField){
+    // Field employees can't create/delete jobs and don't see money. Trim the page to match.
+    const nb=document.getElementById('new-btn'); if(nb) nb.style.display='none';
+    document.querySelectorAll('thead th.num').forEach(th=>{ if(/Contract|Margin/i.test(th.textContent)) th.style.display='none'; });
+    const th=document.querySelector('thead tr'); // hide the trailing (delete) header cell
+    if(th && th.lastElementChild) th.lastElementChild.style.display='none';
+  }
   try{ await load(); }catch(err){ document.getElementById('loading').textContent='Could not load jobs: '+err.message; }
 }
 init();

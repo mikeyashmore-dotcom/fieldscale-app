@@ -179,7 +179,27 @@
     });
   }
 
+  // Field employees only get their jobs. Strip the nav to Jobs + Schedule, drop the account links,
+  // and bounce them out of any other page. (The server enforces this too — this is just the UI.)
+  function applyFieldRole() {
+    var FIELD_OK = { '/jobs.html': 1, '/job.html': 1, '/schedule.html': 1 };
+    var p = location.pathname;
+    var nav = document.querySelector('header nav') || document.querySelector('nav.topnav');
+    if (nav) {
+      nav.innerHTML =
+        '<a class="navtop navdirect' + (p === '/jobs.html' ? ' active' : '') + '" href="/jobs.html">Jobs</a>' +
+        '<a class="navtop navdirect' + (p === '/schedule.html' ? ' active' : '') + '" href="/schedule.html">Schedule</a>';
+    }
+    document.querySelectorAll('.nav-account').forEach(function (a) { a.remove(); });
+    document.querySelectorAll('header .brand, .topbar .brand').forEach(function (b) {
+      var c = b.cloneNode(true); if (b.parentNode) b.parentNode.replaceChild(c, b); // drop the home-click handler
+      c.style.cursor = 'pointer'; c.addEventListener('click', function () { location.href = '/jobs.html'; });
+    });
+    if (!FIELD_OK[p]) location.replace('/jobs.html');
+  }
+
   function gate(me) {
+    if (me && me.role === 'field') { applyFieldRole(); return; }
     var modules = me && me.modules;
     var enabled = null;
     if (Array.isArray(modules)) { enabled = {}; modules.forEach(function (m) { enabled[m] = true; }); }

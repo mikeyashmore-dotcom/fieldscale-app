@@ -96,7 +96,7 @@
       <button class="btn primary" id="save-btn">Save</button>
     </div>
 
-    <div class="block dash" id="dash"><div class="cost-out" id="dash-out"></div></div>
+    <div class="block dash fin-hide" id="dash"><div class="cost-out" id="dash-out"></div></div>
 
     <div class="grid2">
       <div class="block">
@@ -117,7 +117,7 @@
       </div>
     </div>
 
-    <div class="block costing">
+    <div class="block costing fin-hide">
       <h3>Job costing</h3>
       <div class="cost-grid">
         <div class="field"><label>Contract price</label><input id="c-contract" class="num" inputmode="decimal" placeholder="0.00" /></div>
@@ -128,7 +128,7 @@
       <p class="cost-hint">Contract and budget carry over from the estimate. Log real costs below and “actual cost to date” totals them automatically. Approved change orders adjust the contract and budget.</p>
     </div>
 
-    <div class="block costing" style="border-left:3px solid var(--cyan-dim)">
+    <div class="block costing fin-hide" style="border-left:3px solid var(--cyan-dim)">
       <h3>Budget vs actual &amp; cost-to-complete</h3>
       <div class="field" style="max-width:220px;margin-bottom:12px">
         <label style="font-size:12px;color:var(--steel)">% complete <span style="color:var(--steel-light)">(your estimate of how far along)</span></label>
@@ -138,7 +138,7 @@
       <p class="cost-hint">Cost-to-complete projects the final cost from what you’ve spent and how far along you are. Enter % complete to catch overruns early.</p>
     </div>
 
-    <div class="block" style="padding:0;overflow:hidden">
+    <div class="block fin-hide" style="padding:0;overflow:hidden">
       <div style="padding:14px 14px 0;display:flex;align-items:baseline;gap:10px">
         <h3 style="margin:0">Actual costs</h3>
         <span id="cost-breakdown" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel)"></span>
@@ -150,7 +150,7 @@
         </table>
       </div>
     </div>
-    <div style="margin:10px 0 18px"><button class="btn ghost" id="add-cost">＋ Add cost</button></div>
+    <div class="fin-hide" style="margin:10px 0 18px"><button class="btn ghost" id="add-cost">＋ Add cost</button></div>
     <datalist id="csi-list">
       <option value="01">01 · General Requirements</option><option value="02">02 · Existing Conditions</option>
       <option value="03">03 · Concrete</option><option value="04">04 · Masonry</option>
@@ -192,7 +192,7 @@
       <span id="receipt-status" style="font-size:12px;color:var(--steel);margin-left:10px"></span>
     </div>
 
-    <div class="block" style="padding:0;overflow:hidden">
+    <div class="block fin-hide" style="padding:0;overflow:hidden">
       <div style="padding:14px 14px 0"><h3 style="margin:0">Change orders</h3></div>
       <div class="lines-scroll">
         <table class="lines co-table">
@@ -201,7 +201,7 @@
         </table>
       </div>
     </div>
-    <div style="margin:10px 0 18px"><button class="btn ghost" id="add-co">＋ Add change order</button></div>
+    <div class="fin-hide" style="margin:10px 0 18px"><button class="btn ghost" id="add-co">＋ Add change order</button></div>
 
     <div class="block" style="padding:0;overflow:hidden">
       <div class="lines-scroll">
@@ -800,8 +800,10 @@ function fillForm(){
   renderCosting();
 }
 let statusVal='scheduled';
+let isField=false;
 async function init(){
-  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; isField=(me.role==='field'); }catch(e){ return; }
+  if(isField) document.body.classList.add('field-role');
   try{
     const j = await apiFetch('/api/jobs/'+jobId);
     jobName = j.name || 'Untitled Job';
@@ -817,12 +819,17 @@ async function init(){
     }
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
-    fillForm(); renderLines(); refreshDash();
+    fillForm(); renderLines();
+    // Field employees don't see money: hide costing/dashboard/change-order sections and skip the
+    // financial summary + company fetch (both blocked server-side for them anyway).
+    if(isField){ document.querySelectorAll('.fin-hide').forEach(el=>el.style.display='none'); }
+    else { refreshDash();
     // Team roster → crew datalist (and default time-entry rates).
     getCompany().then(co=>{
       const team=(co&&co.team)||[];
       document.getElementById('team-list').innerHTML = team.map(t=>`<option value="${escapeHtml(t.name)}">${escapeHtml(t.role||'')}</option>`).join('');
     });
+    }
   }catch(err){ document.getElementById('loading').textContent='Could not load job: '+err.message; }
 }
 init();

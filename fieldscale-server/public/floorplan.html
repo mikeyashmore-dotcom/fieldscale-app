@@ -46,6 +46,18 @@
   .fp-tip.show{display:block}
   .wallh-row{display:flex;align-items:center;gap:6px;margin:2px 0 4px;font-size:11px;color:var(--steel)}
   .wallh-row input{width:50px;padding:4px 6px;border:1px solid var(--paper-line);border-radius:3px;font-family:inherit}
+  .fp-totals{position:absolute;top:12px;right:12px;background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:7px 11px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--ink-navy);box-shadow:0 2px 8px rgba(14,42,71,.08);line-height:1.55;display:none}
+  .fp-totals.show{display:block}
+  .fp-totals b{color:var(--orange-dim);font-size:13px}
+  .fp-modal{position:absolute;inset:0;background:rgba(14,42,71,.35);display:none;align-items:center;justify-content:center;z-index:9}
+  .fp-modal.show{display:flex}
+  .fp-modal .card{background:#fff;border-radius:6px;padding:20px 22px;box-shadow:0 8px 30px rgba(14,42,71,.3);max-width:360px;text-align:center}
+  .fp-modal h3{font-family:'Oswald',sans-serif;margin:0 0 4px;color:var(--ink-navy);font-size:18px}
+  .fp-modal p{margin:0 0 15px;color:var(--steel);font-size:13px;line-height:1.4}
+  .fp-orient{display:flex;gap:12px;justify-content:center;margin-bottom:14px}
+  .fp-orient button{border:1px solid var(--steel-light);background:#fff;border-radius:5px;padding:14px 10px;cursor:pointer;width:120px;font-family:inherit;font-size:12.5px;font-weight:600;color:var(--charcoal)}
+  .fp-orient button:hover{border-color:var(--ink-navy);background:var(--paper)}
+  .fp-orient .glyph{display:block;margin:0 auto 8px;border:2px solid var(--ink-navy);border-radius:2px}
   .btn.tiny{padding:6px 10px;font-size:12px}
   @media (max-width:720px){ .fp-tools{width:150px} .fp-bar input.name{width:130px} }
 </style>
@@ -96,6 +108,18 @@
       </div>
       <div class="fp-hint" id="hint"></div>
       <div class="fp-tip" id="fp-tip"></div>
+      <div class="fp-totals" id="fp-totals"></div>
+      <div class="fp-modal" id="print-modal">
+        <div class="card">
+          <h3>Print / PDF layout</h3>
+          <p>Pick the page orientation — the plan fills the whole page. In the print box, choose “Save as PDF” to get a PDF.</p>
+          <div class="fp-orient">
+            <button id="po-port"><span class="glyph" style="width:28px;height:36px"></span>Portrait</button>
+            <button id="po-land"><span class="glyph" style="width:36px;height:28px"></span>Landscape</button>
+          </div>
+          <button class="btn tiny" id="po-cancel">Cancel</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -175,6 +199,9 @@ function W2S(p){ return { x:(p.x-panX)*zoom, y:(p.y-panY)*zoom }; }
 function S2W(x,y){ return { x:x/zoom+panX, y:y/zoom+panY }; }
 function snap(v){ return Math.round(v*2)/2; } // 6-inch grid
 function snapPt(p){ return { x:snap(p.x), y:snap(p.y) }; }
+let shiftHeld = false;   // hold Shift while drawing = freehand (no grid snap)
+// Snap to the 6-inch grid by default; hold Shift to place freely (rounded to ~1 inch so numbers stay sane).
+function snapMaybe(p){ return shiftHeld ? { x:Math.round(p.x*12)/12, y:Math.round(p.y*12)/12 } : snapPt(p); }
 function ftIn(f){ const s=f<0?'-':''; f=Math.abs(f); let ft=Math.floor(f+1e-6); let inch=Math.round((f-ft)*12); if(inch===12){ft++;inch=0;} return s+ft+"'"+(inch?(' '+inch+'"'):''); }
 function dist(ax,ay,bx,by){ return Math.hypot(ax-bx,ay-by); }
 
@@ -203,15 +230,24 @@ function draw(){
     ctx.lineCap='round'; ctx.beginPath();
     const p0=W2S(drawPts[0]); ctx.moveTo(p0.x,p0.y);
     for(let k=1;k<drawPts.length;k++){ const p=W2S(drawPts[k]); ctx.lineTo(p.x,p.y); }
-    if(cursor){ const c=W2S(cursor); ctx.lineTo(c.x,c.y); }
+    const tip = cursor ? snapMaybe(cursor) : null;
+    if(tip){ const c=W2S(tip); ctx.lineTo(c.x,c.y); }
     ctx.stroke(); ctx.lineCap='butt';
-    // live length of the current segment
+    // live length AND wall-face area of the current segment (area = length × wall height)
     const last=drawPts[drawPts.length-1];
-    if(cursor){ const mid=W2S({x:(last.x+cursor.x)/2,y:(last.y+cursor.y)/2}); label(ctx, ftIn(dist(last.x,last.y,cursor.x,cursor.y)), mid.x, mid.y-6); }
+    if(tip){ const len=dist(last.x,last.y,tip.x,tip.y); const mid=W2S({x:(last.x+tip.x)/2,y:(last.y+tip.y)/2}); label(ctx, ftIn(len)+'  ·  '+Math.round(len*wallHeight)+' sf', mid.x, mid.y-6); }
   }
-  if(cursor && (tool==='wall'||tool==='room'||placeType)){ const c=W2S(snapPt(cursor)); ctx.fillStyle='#E8722C'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
+  if(cursor && (tool==='wall'||tool==='room'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#E8722C'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
   // room drag preview
-  if(roomDrag){ const a=W2S(roomDrag.a), b=W2S(snapPt(cursor)); ctx.strokeStyle='#1B4B7A'; ctx.setLineDash([5,4]); ctx.strokeRect(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(b.x-a.x),Math.abs(b.y-a.y)); ctx.setLineDash([]); }
+  if(roomDrag){ const a=W2S(roomDrag.a), b=W2S(snapMaybe(cursor)); ctx.strokeStyle='#1B4B7A'; ctx.setLineDash([5,4]); ctx.strokeRect(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(b.x-a.x),Math.abs(b.y-a.y)); ctx.setLineDash([]); }
+  updateTotals();
+}
+function updateTotals(){ const el=document.getElementById('fp-totals'); if(!el) return;
+  const fa=doc.items.filter(i=>i.type==='room').reduce((s,i)=>s+i.w*i.h,0);
+  const wa=doc.walls.reduce((s,w)=>s+dist(w.x1,w.y1,w.x2,w.y2)*(w.height||8),0);
+  if(!fa && !wa){ el.className='fp-totals'; return; }
+  el.className='fp-totals show';
+  el.innerHTML=(fa?'Floor area <b>'+Math.round(fa).toLocaleString()+'</b> sq ft<br>':'')+(wa?'Wall face <b>'+Math.round(wa).toLocaleString()+'</b> sq ft':'');
 }
 function label(c,txt,x,y){ c.font='600 11px "IBM Plex Mono", monospace'; c.textAlign='center'; c.textBaseline='middle'; const wpx=c.measureText(txt).width+8; c.fillStyle='#fff'; c.fillRect(x-wpx/2,y-8,wpx,16); c.fillStyle='#0E2A47'; c.fillText(txt,x,y); }
 function drawWall(wl, selected){
@@ -285,10 +321,11 @@ function evPos(e){ const r=canvas.getBoundingClientRect(); return { sx:e.clientX
 canvas.addEventListener('pointerdown', e=>{
   canvas.setPointerCapture(e.pointerId);
   showTip('');
+  shiftHeld=e.shiftKey;
   const {sx,sy}=evPos(e); const wpt=S2W(sx,sy); cursor=wpt;
-  if(placeType){ placeFixture(placeType, snapPt(wpt)); return; }
-  if(tool==='wall'){ addWallPoint(snapPt(wpt)); return; }
-  if(tool==='room'){ roomDrag={a:snapPt(wpt)}; return; }
+  if(placeType){ placeFixture(placeType, snapMaybe(wpt)); return; }
+  if(tool==='wall'){ addWallPoint(snapMaybe(wpt)); return; }
+  if(tool==='room'){ roomDrag={a:snapMaybe(wpt)}; return; }
   if(tool==='text'){ const t=prompt('Label text:'); if(t){ doc.items.push({type:'text',x:snap(wpt.x),y:snap(wpt.y),w:2,h:0.6,rot:0,label:t}); markDirty(); } setTool('select'); draw(); return; }
   // select tool
   if(sel && sel.kind==='item'){ const it=doc.items[sel.i]; const hp=handlePts(it);
@@ -307,6 +344,7 @@ canvas.addEventListener('pointerdown', e=>{
   sel=null; showProps(); drag={mode:'pan', start:{sx,sy}, p0:{panX,panY}}; draw();
 });
 canvas.addEventListener('pointermove', e=>{
+  shiftHeld=e.shiftKey;
   const {sx,sy}=evPos(e); const wpt=S2W(sx,sy); cursor=wpt;
   if(drag){
     if(drag.mode==='pan'){ panX=drag.p0.panX-(sx-drag.start.sx)/zoom; panY=drag.p0.panY-(sy-drag.start.sy)/zoom; draw(); return; }
@@ -334,7 +372,7 @@ canvas.addEventListener('pointerleave', ()=> showTip(''));
 canvas.addEventListener('pointerup', e=>{
   if(drag){ if(['move','resize','rotate','wallpt','wallmove'].includes(drag.mode)) markDirty();
     if(drag.mode==='pan'){} drag=null; }
-  if(roomDrag){ const pos=evPos(e); const a=roomDrag.a, b=snapPt(S2W(pos.sx,pos.sy)); const x=(a.x+b.x)/2, y=(a.y+b.y)/2, w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y); roomDrag=null;
+  if(roomDrag){ const pos=evPos(e); shiftHeld=e.shiftKey; const a=roomDrag.a, b=snapMaybe(S2W(pos.sx,pos.sy)); const x=(a.x+b.x)/2, y=(a.y+b.y)/2, w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y); roomDrag=null;
     if(w>=1 && h>=1){ const nm=prompt('Room name:','Room')||'Room'; doc.items.push({type:'room',x,y,w,h,rot:0,label:nm}); sel={kind:'item',i:doc.items.length-1}; markDirty(); showProps(); } setTool('select'); draw(); }
 });
 canvas.addEventListener('dblclick', ()=>{ if(drawPts){ finishWall(); } });
@@ -363,7 +401,7 @@ function buildPalette(){ const groups={openings:'pal-openings',bath:'pal-bath',k
 }
 function setHint(){ const h=document.getElementById('hint');
   const m = placeType ? 'Click to drop the '+FIX[placeType].label.toLowerCase()+'. Then use Select to move, resize (corner), or rotate (top dot).'
-    : tool==='wall' ? 'Click to drop wall corners; each segment shows its length. Double-click or Esc to finish.'
+    : tool==='wall' ? 'Click to drop wall corners — snaps to a 6-inch grid; hold Shift to draw freehand. Each segment shows its length + wall area. Double-click or Esc to finish.'
     : tool==='room' ? 'Drag a box for the room; you’ll name it and it shows square footage.'
     : tool==='text' ? 'Click where you want a label.'
     : 'Drag empty space to pan · scroll to zoom · click an item to select · Delete to remove.';
@@ -399,7 +437,9 @@ function ftFeetStr(f){ return (Math.round(f*100)/100); }
 function escAttr(s){ return String(s).replace(/"/g,'&quot;'); }
 function deleteSel(){ if(!sel) return; if(sel.kind==='item') doc.items.splice(sel.i,1); else if(sel.kind==='wall') doc.walls.splice(sel.i,1); sel=null; showProps(); markDirty(); draw(); }
 
+document.addEventListener('keyup', e=>{ if(e.key==='Shift'){ shiftHeld=false; if(drawPts||roomDrag) draw(); } });
 document.addEventListener('keydown', e=>{
+  if(e.key==='Shift'){ shiftHeld=true; if(drawPts||roomDrag) draw(); }
   if(/input|textarea/i.test((e.target.tagName||''))) return;
   if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
   else if(e.key==='Escape'){ if(drawPts) finishWall(); else { setTool('select'); } }
@@ -431,33 +471,55 @@ clientInput.addEventListener('input',()=>{ client=clientInput.value; markDirty()
 
 // export — a full "sheet" with an architect-style title block (logo + project info) on the right.
 document.getElementById('btn-png').onclick=async ()=>{ await loadLogo(); exportImage(); };
-document.getElementById('btn-print').onclick=async ()=>{ await loadLogo(); const url=renderSheet(1800); const w=window.open(''); w.document.write('<title>'+escAttr(name||'Floor Plan')+'</title><img src="'+url+'" style="max-width:100%" onload="setTimeout(function(){print()},120)">'); w.document.close(); };
+// Print: ask for orientation, then render a sheet sized to fill a full Letter page.
+document.getElementById('btn-print').onclick=()=>{ document.getElementById('print-modal').classList.add('show'); };
+document.getElementById('po-cancel').onclick=hideModal;
+document.getElementById('print-modal').addEventListener('click', e=>{ if(e.target.id==='print-modal') hideModal(); });
+document.getElementById('po-port').onclick=()=>doPrint('portrait');
+document.getElementById('po-land').onclick=()=>doPrint('landscape');
+function hideModal(){ document.getElementById('print-modal').classList.remove('show'); }
+async function doPrint(orientation){ hideModal(); await loadLogo();
+  const land = orientation==='landscape';
+  const aspect = land ? (11/8.5) : (8.5/11);       // Letter page aspect (w/h)
+  const url = renderSheet(land ? 2200 : 1700, aspect);
+  const w = window.open('');
+  w.document.write('<title>'+escAttr(name||'Floor Plan')+'</title>'
+    +'<style>@page{size:Letter '+orientation+';margin:0} html,body{margin:0;height:100%} '
+    +'img{width:100%;height:100%;object-fit:fill;display:block}</style>'
+    +'<img src="'+url+'" onload="setTimeout(function(){print()},150)">');
+  w.document.close();
+}
 function loadLogo(){ return new Promise(res=>{ const url=companyProfile.logo; if(!url){ logoImg=null; return res(); } if(logoImg && logoImg.src===url){ return res(); } const im=new Image(); im.onload=()=>{ logoImg=im; res(); }; im.onerror=()=>{ logoImg=null; res(); }; im.src=url; }); }
 function planBounds(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2});});
   let minx=0,miny=0,maxx=20,maxy=15; if(pts.length){ minx=Math.min(...pts.map(p=>p.x));miny=Math.min(...pts.map(p=>p.y));maxx=Math.max(...pts.map(p=>p.x));maxy=Math.max(...pts.map(p=>p.y)); } return {minx,miny,maxx,maxy}; }
-function renderSheet(px){
+function renderSheet(px, aspect){
   const k=px/1800;                         // scale factor for fonts/margins
   const margin=Math.round(28*k), tbW=Math.max(Math.round(230*k), Math.round(px*0.2)), gap=Math.round(24*k);
-  const drawW=px - margin*2 - tbW - gap;
-  const b=planBounds(); const padFt=2, fw=(b.maxx-b.minx)+padFt*2, fh=(b.maxy-b.miny)+padFt*2;
-  const z=Math.max(2, drawW/fw), drawH=fh*z;
-  const sheetH=Math.max(Math.round(drawH)+margin*2, Math.round(560*k));
+  const drawW=px - margin*2 - tbW - gap;   // width of the drawing column (title block sits to its right)
+  const b=planBounds(); const padFt=1.5, fw=(b.maxx-b.minx)+padFt*2, fh=(b.maxy-b.miny)+padFt*2;
+  // Sheet height: fixed to the page aspect when printing; otherwise sized to the plan.
+  let sheetH;
+  if(aspect){ sheetH=Math.round(px/aspect); }
+  else { const z0=Math.max(2, drawW/fw); sheetH=Math.max(Math.round(fh*z0)+margin*2, Math.round(560*k)); }
+  const availH=sheetH-margin*2;
+  // Fit the plan inside the drawing column on both axes, then centre it (letterbox) so the page fills.
+  const z=Math.max(2, Math.min(drawW/fw, availH/fh));
+  const usedW=fw*z, usedH=fh*z;
+  const planX=margin + Math.max(0,(drawW-usedW)/2), planY=margin + Math.max(0,(availH-usedH)/2);
   const oc=document.createElement('canvas'); oc.width=px; oc.height=sheetH; const c=oc.getContext('2d');
   c.fillStyle='#fff'; c.fillRect(0,0,px,sheetH);
   // outer border (double line, like a drawing sheet)
   c.strokeStyle='#0E2A47'; c.lineWidth=2*k; c.strokeRect(margin*0.5,margin*0.5,px-margin,sheetH-margin);
   c.lineWidth=1*k; c.strokeRect(margin*0.5+4*k,margin*0.5+4*k,px-margin-8*k,sheetH-margin-8*k);
-  // plan region
-  const planX=margin, planY=margin + Math.max(0,(sheetH-margin*2-drawH)/2);
   const _z=zoom,_px=panX,_py=panY; zoom=z; panX=(b.minx-padFt) - planX/z; panY=(b.miny-padFt) - planY/z;
-  c.save(); c.beginPath(); c.rect(planX,planY,drawW,drawH); c.clip();
+  c.save(); c.beginPath(); c.rect(planX,planY,usedW,usedH); c.clip();
   // faint scale grid
-  for(let gx=Math.floor(b.minx-padFt); gx<=Math.ceil(b.maxx+padFt); gx++){ const s=W2S({x:gx,y:0}); c.strokeStyle=gx%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(s.x,planY); c.lineTo(s.x,planY+drawH); c.stroke(); }
-  for(let gy=Math.floor(b.miny-padFt); gy<=Math.ceil(b.maxy+padFt); gy++){ const s=W2S({x:0,y:gy}); c.strokeStyle=gy%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(planX,s.y); c.lineTo(planX+drawW,s.y); c.stroke(); }
+  for(let gx=Math.floor(b.minx-padFt); gx<=Math.ceil(b.maxx+padFt); gx++){ const s=W2S({x:gx,y:0}); c.strokeStyle=gx%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(s.x,planY); c.lineTo(s.x,planY+usedH); c.stroke(); }
+  for(let gy=Math.floor(b.miny-padFt); gy<=Math.ceil(b.maxy+padFt); gy++){ const s=W2S({x:0,y:gy}); c.strokeStyle=gy%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(planX,s.y); c.lineTo(planX+usedW,s.y); c.stroke(); }
   doc.items.forEach(it=>drawItemOn(c,it)); doc.walls.forEach(w=>drawWallOn(c,w));
-  drawScaleBar(c, planX+12*k, planY+drawH-16*k, z, k);
+  drawScaleBar(c, planX+12*k, planY+usedH-16*k, z, k);
   c.restore();
-  c.strokeStyle='#c9c2ae'; c.lineWidth=1*k; c.strokeRect(planX,planY,drawW,drawH);
+  c.strokeStyle='#c9c2ae'; c.lineWidth=1*k; c.strokeRect(planX,planY,usedW,usedH);
   zoom=_z; panX=_px; panY=_py;
   drawTitleBlock(c, px-margin-tbW, margin, tbW, sheetH-margin*2, k);
   return oc.toDataURL('image/png');
@@ -526,6 +588,8 @@ window.__model=()=>doc; window.__exportURL=()=>renderSheet(900); window.__dbg={w
 window.__co=()=>companyProfile;
 window.__select=(i)=>{ sel={kind:'item',i}; showProps(); draw(); return handlePts(doc.items[i]); };
 window.__handlesNow=()=>sel&&sel.kind==='item'?handlePts(doc.items[sel.i]):null;
+window.__snapTest=(x,y,shift)=>{ const prev=shiftHeld; shiftHeld=shift; const r=snapMaybe({x,y}); shiftHeld=prev; return r; };
+window.__sheet=(px,aspect)=>renderSheet(px,aspect);
 window.__selectWall=(i)=>{ sel={kind:'wall',i}; showProps(); draw(); };
 </script>
 </body>

@@ -20,7 +20,7 @@
   .pagebar input.title:focus{border-bottom-color:var(--cyan-dim)}
   .pagebar .spacer{flex:1}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
-  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
@@ -44,15 +44,15 @@
   .lineadd{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
   .lineadd select{width:auto;min-width:280px;max-width:420px}
   .bottom{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:20px;align-items:start}
-  .totals{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .totals{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
   .totals .tr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px}
   .totals .tr .v{font-family:'IBM Plex Mono',monospace}
   .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:6px;padding-top:10px;font-family:'Oswald',sans-serif;font-size:18px}
   .totals input.pct{width:64px;text-align:right;font-family:'IBM Plex Mono',monospace;padding:4px 6px}
-  .disc-type{margin-left:4px;border:1px solid var(--steel-light);background:#fff;border-radius:var(--radius);width:24px;height:24px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--charcoal);vertical-align:middle}
+  .disc-type{margin-left:4px;border:1px solid var(--steel-light);background:var(--surface);border-radius:var(--radius);width:24px;height:24px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--charcoal);vertical-align:middle}
   .disc-type:hover{border-color:var(--cyan-dim)}
   .ver-wrap{position:relative;display:inline-block}
-  .ver-popover{display:none;position:absolute;top:38px;right:0;width:300px;max-height:60vh;overflow-y:auto;background:#fff;border:1px solid var(--cyan-dim);border-radius:4px;box-shadow:0 8px 28px rgba(0,0,0,.28);z-index:80;padding:12px}
+  .ver-popover{display:none;position:absolute;top:38px;right:0;width:300px;max-height:60vh;overflow-y:auto;background:var(--surface);border:1px solid var(--cyan-dim);border-radius:4px;box-shadow:0 8px 28px rgba(0,0,0,.28);z-index:80;padding:12px}
   .ver-popover.open{display:block}
   .ver-list{margin-top:10px;display:flex;flex-direction:column;gap:2px}
   .ver-item{display:flex;align-items:center;gap:8px;padding:7px 6px;border-radius:3px;border-bottom:1px solid var(--paper-line)}
@@ -64,11 +64,11 @@
   .ver-empty{color:var(--steel);font-size:12.5px;padding:6px 2px}
   textarea{min-height:80px;resize:vertical}
   .note-blocks .block{margin-bottom:14px}
-  .pdopt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-navy);margin:6px 0;cursor:pointer}
+  .pdopt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--heading);margin:6px 0;cursor:pointer}
   .pdopt input{width:auto;margin:0}
   .pdhint{font-size:11px;color:var(--steel);margin-top:8px;line-height:1.5}
   .terms-opts{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px}
-  .terms-opts label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-navy)}
+  .terms-opts label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--heading)}
   .terms-opts input[type=number]{width:70px;padding:4px 6px}
   .terms-opts select{width:auto;padding:5px 6px}
   @media (max-width:760px){
@@ -635,9 +635,9 @@ document.getElementById('contract-btn').addEventListener('click', ()=>{
     .replace(/\{\{date\}\}/g, pdfDate(Date.now()))
     .replace(/\{\{license\}\}/g, co.license||'');
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contract — ${escapeHtml(cl.name||'')}</title>
-<style>body{font-family:Georgia,'Times New Roman',serif;color:#1c1e22;max-width:760px;margin:0 auto;padding:48px 40px;font-size:14px;line-height:1.7;white-space:pre-wrap}
-.bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
-.bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:sans-serif}
+<style>body{font-family:Georgia,'Times New Roman',serif;color:var(--charcoal);max-width:760px;margin:0 auto;padding:48px 40px;font-size:14px;line-height:1.7;white-space:pre-wrap}
+.bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}
+.bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:sans-serif}
 @media print{body{padding:0}.noprint{display:none}@page{margin:20mm}} .sp{height:50px}</style></head>
 <body><div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="sp noprint"></div>${escapeHtml(filled)}</body></html>`;
   const w=window.open('','_blank'); if(!w){ toast('Please allow pop-ups to generate the contract.', true); return; }
@@ -699,7 +699,7 @@ function proposalDocHTML(forDownload){
   const optSection = optLines.length ? `<div class="sec"><h4>Optional add-ons</h4>
     <table><thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUnit?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
     <tbody>${optRows}</tbody></table>
-    <div style="color:#7C8896;font-size:11px">These are optional — not included in the Total above. Let us know which you'd like to add.</div></div>` : '';
+    <div style="color:var(--steel);font-size:11px">These are optional — not included in the Total above. Let us know which you'd like to add.</div></div>` : '';
   // Deposit + balance-due + validity are structured terms; combine with the free-text terms.
   const termsExtra=[];
   const balPhrase=balanceDuePhrase(doc.balanceDue);
@@ -715,36 +715,36 @@ function proposalDocHTML(forDownload){
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(estName)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  *{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
-  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
-  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
-  .co .sub{color:#7C8896;font-size:12px}
+  *{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:var(--heading)}
+  .co .sub{color:var(--steel);font-size:12px}
   .doc{text-align:right}
-  .doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:#E8722C;letter-spacing:1px}
-  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+  .doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:var(--accent);letter-spacing:1px}
+  .doc .meta{color:var(--steel);font-size:12px;margin-top:6px;line-height:1.5}
   .parties{display:flex;gap:40px;margin-bottom:20px}
-  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 4px}
   .parties .val{font-size:13px;line-height:1.5}
   table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  th{background:var(--heading);color:var(--paper);text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   th.r,td.r{text-align:right} th.c,td.c{text-align:center}
-  td{padding:8px 10px;border-bottom:1px solid #E4DFCF;vertical-align:top}
-  td .code{color:#7C8896;font-size:11px;margin-top:2px}
+  td{padding:8px 10px;border-bottom:1px solid var(--paper-line);vertical-align:top}
+  td .code{color:var(--steel);font-size:11px;margin-top:2px}
   .totals{width:300px;margin-left:auto}
   .totals .tr{display:flex;justify-content:space-between;padding:5px 0}
-  .totals .tr.total{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47}
-  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:18px;color:var(--heading)}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 6px;border-bottom:1px solid var(--paper-line);padding-bottom:4px}
   .sec .body{white-space:pre-wrap;line-height:1.5}
-  .foot{margin-top:34px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  .foot{margin-top:34px;color:var(--steel);font-size:11px;text-align:center;border-top:1px solid var(--paper-line);padding-top:12px}
   @media print{ body{padding:0} .noprint{display:none} @page{margin:16mm} }
-  .bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
-  .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
+  .bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}
+  .bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
   .spacer40{height:52px}
 </style></head><body>
   ${forDownload?'':'<div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="spacer40 noprint"></div>'}
   <div class="head">
     <div class="co">${logoImg}<h1>${escapeHtml(co.name||'Your Company')}</h1><div class="sub">${coLines||''}</div></div>
-    <div class="doc"><div class="big">ESTIMATE</div>${doc.estType&&doc.estType!=='detailed'?`<div style="text-align:right;font-size:11px;color:#7C8896;text-transform:uppercase;letter-spacing:.05em;margin-top:2px">${doc.estType==='tm'?'Time &amp; Materials':'Flat rate'}</div>`:''}<div class="meta">
+    <div class="doc"><div class="big">ESTIMATE</div>${doc.estType&&doc.estType!=='detailed'?`<div style="text-align:right;font-size:11px;color:var(--steel);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">${doc.estType==='tm'?'Time &amp; Materials':'Flat rate'}</div>`:''}<div class="meta">
       ${doc.estimateNo?('No. '+escapeHtml(doc.estimateNo)+'<br>'):''}
       ${doc.date?('Date: '+escapeHtml(pdfDate(doc.date))+'<br>'):''}
       ${doc.validUntil?('Valid until: '+escapeHtml(pdfDate(doc.validUntil))):''}
@@ -756,7 +756,7 @@ function proposalDocHTML(forDownload){
   </div>
   <table>
     <thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUnit?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
-    <tbody>${rows||`<tr><td colspan="${2+(showQty?1:0)+(showUnit?1:0)+(showUnitPrice?1:0)+(showLineTotal?1:0)}" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>`}</tbody>
+    <tbody>${rows||`<tr><td colspan="${2+(showQty?1:0)+(showUnit?1:0)+(showUnitPrice?1:0)+(showLineTotal?1:0)}" style="text-align:center;color:var(--steel);padding:20px">No line items.</td></tr>`}</tbody>
   </table>
   <div class="totals">
     ${t.discount>0?`<div class="tr"><span>Subtotal</span><span>${money(t.price+t.tax)}</span></div>

@@ -15,7 +15,7 @@
   .pagebar .spacer{flex:1}
   .pagebar select{width:auto;padding:6px 8px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
-  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:18px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:18px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
@@ -185,23 +185,23 @@ document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ aw
 
 let _company=null;
 async function getCompany(){ if(_company) return _company; try{ const r=await apiFetch('/api/company'); _company=r.profile||{}; }catch(e){ _company={}; } return _company; }
-const PDF_CSS=`*{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
-  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
-  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
-  .co .sub{color:#7C8896;font-size:12px}
-  .doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:#E8722C;letter-spacing:1px}
-  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+const PDF_CSS=`*{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:var(--heading)}
+  .co .sub{color:var(--steel);font-size:12px}
+  .doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:var(--accent);letter-spacing:1px}
+  .doc .meta{color:var(--steel);font-size:12px;margin-top:6px;line-height:1.5}
   .parties{display:flex;gap:40px;margin-bottom:20px;flex-wrap:wrap}
-  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 4px}
   .parties .val{font-size:13px;line-height:1.5}
-  ul.tasks{list-style:none;padding:0;margin:0} ul.tasks li{padding:6px 0;border-bottom:1px solid #E4DFCF;font-size:13.5px}
-  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  ul.tasks{list-style:none;padding:0;margin:0} ul.tasks li{padding:6px 0;border-bottom:1px solid var(--paper-line);font-size:13.5px}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 6px;border-bottom:1px solid var(--paper-line);padding-bottom:4px}
   .sec .body{white-space:pre-wrap;line-height:1.5}
-  .sign{margin-top:40px;display:flex;gap:40px} .sign .line{flex:1;border-top:1px solid #1C1E22;padding-top:5px;color:#7C8896;font-size:11px}
-  .foot{margin-top:24px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  .sign{margin-top:40px;display:flex;gap:40px} .sign .line{flex:1;border-top:1px solid var(--charcoal);padding-top:5px;color:var(--steel);font-size:11px}
+  .foot{margin-top:24px;color:var(--steel);font-size:11px;text-align:center;border-top:1px solid var(--paper-line);padding-top:12px}
   @media print{ body{padding:0} .noprint{display:none} @page{margin:16mm} }
-  .bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
-  .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
+  .bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}
+  .bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
   .spacer40{height:52px}`;
 function printWindow(title, bodyHtml){
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
@@ -224,7 +224,7 @@ async function openWorkOrderPDF(){
       Status: ${escapeHtml(val('status')||'—')}<br>${val('sched-date')?('Scheduled: '+escapeHtml(pdfDate(val('sched-date')))):''}
       ${val('est-hours')?('<br>Est. hours: '+escapeHtml(val('est-hours'))):''}</div></div></div>`;
   const body=head
-    + `<div style="font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47;margin-bottom:12px">${escapeHtml(woTitle)}</div>`
+    + `<div style="font-family:'Oswald',sans-serif;font-size:18px;color:var(--heading);margin-bottom:12px">${escapeHtml(woTitle)}</div>`
     + `<div class="parties">
         <div><h4>Assigned to</h4><div class="val"><strong>${escapeHtml(val('assignee'))||'—'}</strong></div></div>
         <div><h4>Job</h4><div class="val">${escapeHtml(val('job-name'))||'—'}</div></div>

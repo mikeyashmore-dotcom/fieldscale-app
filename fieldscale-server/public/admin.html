@@ -9,10 +9,10 @@
 <style>
   /* Shared design system with the takeoff app (index.html) for a cohesive look. */
   :root{
-    --ink-navy:#0E2A47; --blueprint:#153A5B; --blueprint-2:#1B4B7A;
-    --cyan:#6FC3E4; --cyan-dim:#3E7A96; --orange:#E8722C; --orange-dim:#C25A1B;
-    --paper:#F6F3EA; --paper-line:#E4DFCF; --charcoal:#1C1E22;
-    --steel:#7C8896; --steel-light:#B9C2CB; --good:#4A9B6E; --danger:#C0392B;
+    --ink-navy:var(--heading); --blueprint:var(--blueprint); --blueprint-2:var(--blueprint-2);
+    --cyan:var(--cyan); --cyan-dim:var(--cyan-dim); --orange:var(--accent); --orange-dim:var(--accent-dim);
+    --paper:var(--paper); --paper-line:var(--paper-line); --charcoal:var(--charcoal);
+    --steel:var(--steel); --steel-light:var(--steel-light); --good:var(--good); --danger:var(--danger);
     --radius:3px;
   }
   *{box-sizing:border-box}
@@ -35,10 +35,10 @@
   h1{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px}
   .sub{color:var(--steel);margin:0 0 20px}
   .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
-  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px}
-  .tile .n{font-family:'Oswald',sans-serif;font-size:28px;font-weight:600;color:var(--ink-navy)}
+  .tile{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px}
+  .tile .n{font-family:'Oswald',sans-serif;font-size:28px;font-weight:600;color:var(--heading)}
   .tile .l{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-top:4px}
-  .card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
+  .card{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
   table{width:100%;border-collapse:collapse}
   th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--paper-line);white-space:nowrap}
   th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--paper)}
@@ -55,10 +55,10 @@
   .btn{background:var(--blueprint-2);color:var(--paper);border:1px solid var(--cyan-dim);border-radius:var(--radius);
        padding:8px 14px;font-size:13px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;margin-right:8px}
   .btn:hover{background:var(--cyan-dim)}
-  .backup{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;margin-bottom:22px}
+  .backup{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;margin-bottom:22px}
   .btn.danger{background:var(--danger);border-color:var(--danger)}
   .btn.danger:hover{background:#a83224}
-  input,select{font-family:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--steel-light);border-radius:var(--radius);background:#fff;color:var(--charcoal)}
+  input,select{font-family:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--steel-light);border-radius:var(--radius);background:var(--surface);color:var(--charcoal)}
   label.fld{display:block;font-size:11px;color:var(--steel);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
   .u-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
   .u-actions .btn{margin:0;padding:5px 9px}

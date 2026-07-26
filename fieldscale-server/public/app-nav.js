@@ -1,3 +1,34 @@
+// Apply the saved color theme + load the Inter UI font as early as possible (runs during <head>
+// parse, before the body paints, so there's no flash and no per-page edits needed).
+(function () {
+  try { if (localStorage.getItem('fs-theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) {}
+  if (!document.getElementById('fs-inter')) {
+    var pc = document.createElement('link'); pc.rel = 'preconnect'; pc.href = 'https://fonts.gstatic.com'; pc.crossOrigin = 'anonymous'; document.head.appendChild(pc);
+    var l = document.createElement('link'); l.id = 'fs-inter'; l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap';
+    document.head.appendChild(l);
+  }
+  // Theme tokens (mirror of fs-theme.css) — injected so the shared nav/menu chrome themes correctly
+  // even on pages that don't link fs-theme.css (e.g. the takeoff tool). Keep these in sync with fs-theme.css.
+  if (!document.getElementById('fs-tokens')) {
+    var tk = document.createElement('style'); tk.id = 'fs-tokens';
+    tk.textContent = ":root{--ink-navy:#15273A;--header-text:#EAF0F6;--paper:#F4F6F9;--surface:#FFFFFF;--surface-2:#EEF1F5;"
+      + "--paper-line:#E4E8EE;--heading:#17293D;--charcoal:#1E242C;--steel:#5C6672;--steel-light:#AEB8C4;"
+      + "--accent:#2F6DB0;--accent-dim:#255C97;--cyan:#6FB0DE;--cyan-dim:#3D7FB5;--good:#3E8E5A;--danger:#C0432F;--warn:#B7791F;"
+      + "--orange:var(--accent);--orange-dim:var(--accent-dim);--blueprint:#244E74;--blueprint-2:#3A6DA8;--radius:6px;--shadow:0 8px 26px rgba(20,40,70,.14)}"
+      + "[data-theme=dark]{--ink-navy:#111B27;--header-text:#E8EEF4;--paper:#14181E;--surface:#1C222B;--surface-2:#242B35;"
+      + "--paper-line:#2C333E;--heading:#E9ECF0;--charcoal:#DCE1E7;--steel:#95A0AC;--steel-light:#8A94A0;"
+      + "--accent:#5B9CE0;--accent-dim:#3D7FB5;--cyan:#6FB0DE;--cyan-dim:#4A88BE;--good:#61B180;--danger:#E27567;--warn:#D6A24A;"
+      + "--blueprint:#2A4E70;--blueprint-2:#3D6FA0;--shadow:0 10px 30px rgba(0,0,0,.5)}";
+    document.head.insertBefore(tk, document.head.firstChild);
+  }
+  // Force Inter for UI/body + keep Oswald for headings, overriding the pages' older per-page fonts.
+  var st = document.createElement('style'); st.id = 'fs-font-override';
+  st.textContent = "body,input,textarea,select,button,table,th,td,.btn,.navtop,.navmenu a,.acct-btn,.who,.tile,.pill,.card{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif !important}"
+    + "h1,h2,h3,h4,h5,.brand,.fs-coname,.v{font-family:'Oswald','Inter',sans-serif !important}";
+  document.head.appendChild(st);
+})();
+
 // Shared top navigation + à-la-carte gating. This renders the whole header menu (grouped into a
 // few dropdowns) so every page gets the same nav from one place — pages only need an empty
 // <nav></nav> in the header and a <meta name="fs-module" content="..."> for module gating.
@@ -60,47 +91,50 @@
     var css = ''
       + 'header nav{position:relative;align-items:center}'
       + '.navgroup{position:relative;display:inline-flex;align-items:center}'
-      + '.navtop{color:#B9C2CB;font-size:13px;padding:2px 0;cursor:pointer;white-space:nowrap;text-decoration:none;background:none;border:none;font-family:inherit;display:inline-flex;align-items:center;gap:3px}'
-      + '.navtop:hover{color:#F6F3EA}'
-      + '.navtop.active{color:#F6F3EA;border-bottom:2px solid #E8722C;padding-bottom:2px}'
+      + '.navtop{color:var(--steel-light);font-size:13px;padding:2px 0;cursor:pointer;white-space:nowrap;text-decoration:none;background:none;border:none;font-family:inherit;display:inline-flex;align-items:center;gap:3px}'
+      + '.navtop:hover{color:var(--header-text)}'
+      + '.navtop.active{color:var(--header-text);border-bottom:2px solid var(--accent);padding-bottom:2px}'
       + '.nav-caret{font-size:9px;opacity:.75}'
-      + '.navmenu{position:absolute;top:100%;left:0;margin-top:6px;min-width:190px;background:#fff;border:1px solid #E4DFCF;border-radius:4px;box-shadow:0 8px 26px rgba(0,0,0,.22);padding:6px;display:none;flex-direction:column;z-index:120}'
+      + '.navmenu{position:absolute;top:100%;left:0;margin-top:6px;min-width:190px;background:var(--surface);border:1px solid var(--paper-line);border-radius:6px;box-shadow:var(--shadow);padding:6px;display:none;flex-direction:column;z-index:120}'
       + '.navgroup:hover>.navmenu,.navgroup.open>.navmenu{display:flex}'
-      + '.navmenu a{display:block;color:#1C1E22;padding:8px 12px;font-size:13px;border-radius:3px;white-space:nowrap;text-decoration:none;border:none}'
-      + '.navmenu a:hover{background:#F6F3EA}'
-      + '.navmenu a.active{color:#C25A1B;font-weight:600}'
+      + '.navmenu a{display:block;color:var(--charcoal);padding:8px 12px;font-size:13px;border-radius:4px;white-space:nowrap;text-decoration:none;border:none}'
+      + '.navmenu a:hover{background:var(--surface-2)}'
+      + '.navmenu a.active{color:var(--accent);font-weight:600}'
       + '.nav-account{display:inline-flex;align-items:center;gap:16px;margin-left:14px}'
-      + '.nav-account a{color:#B9C2CB;font-size:13px;text-decoration:none;white-space:nowrap}'
-      + '.nav-account a:hover{color:#F6F3EA}'
-      + '.nav-account a.active{color:#F6F3EA;border-bottom:2px solid #E8722C;padding-bottom:2px}'
+      + '.nav-account a{color:var(--steel-light);font-size:13px;text-decoration:none;white-space:nowrap}'
+      + '.nav-account a:hover{color:var(--header-text)}'
+      + '.nav-account a.active{color:var(--header-text);border-bottom:2px solid var(--accent);padding-bottom:2px}'
       // Per-company co-branding: the customer's own logo/name next to the product mark.
       + '.fs-cobrand{display:none;align-items:center;gap:9px;margin-left:12px;padding-left:12px;border-left:1px solid rgba(255,255,255,.22)}'
       + '.fs-cobrand.on{display:inline-flex}'
       + '.fs-cobrand img{max-height:26px;max-width:130px;display:block;border-radius:2px}'
-      + '.fs-cobrand .fs-coname{color:#F6F3EA;font-family:"Oswald",sans-serif;font-weight:600;font-size:15px;white-space:nowrap}'
+      + '.fs-cobrand .fs-coname{color:var(--header-text);font-family:"Oswald","Inter",sans-serif;font-weight:600;font-size:15px;white-space:nowrap}'
       + '@media (max-width:760px){.fs-cobrand .fs-coname{display:none}.fs-cobrand{margin-left:8px;padding-left:8px}}'
       // Save action: bigger + green, and a matching bar for the bottom-of-page Save.
-      + '.btn.save{background:#4A9B6E;border-color:#4A9B6E;color:#fff;font-weight:600;padding:10px 22px;font-size:14px}'
-      + '.btn.save:hover{background:#3f8a60;border-color:#3f8a60}'
-      + '.save-bottom-bar{display:flex;justify-content:flex-end;margin:24px 0 6px;padding-top:16px;border-top:1px solid #E4DFCF}'
+      + '.btn.save{background:var(--good);border-color:var(--good);color:#fff;font-weight:600;padding:10px 22px;font-size:14px}'
+      + '.btn.save:hover{filter:brightness(.94)}'
+      + '.save-bottom-bar{display:flex;justify-content:flex-end;margin:24px 0 6px;padding-top:16px;border-top:1px solid var(--paper-line)}'
+      // Theme (light/dark) toggle button in the header.
+      + '.fs-theme-toggle{background:none;border:1px solid rgba(255,255,255,.28);color:var(--steel-light);border-radius:6px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}'
+      + '.fs-theme-toggle:hover{color:var(--header-text);border-color:rgba(255,255,255,.5)}'
       // Account dropdown (username → Manage Users / Change Password / Log Out) in the header.
       + '.nav-account .acctgroup{position:relative;display:inline-block}'
-      + '.nav-account .acct-btn{background:none;border:none;color:#B9C2CB;font-family:"IBM Plex Mono",monospace;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 0;white-space:nowrap}'
-      + '.nav-account .acct-btn:hover{color:#F6F3EA}'
-      + '.nav-account .acct-menu{position:absolute;top:100%;right:0;margin-top:8px;min-width:210px;background:#fff;border:1px solid #E4DFCF;border-radius:4px;box-shadow:0 8px 26px rgba(0,0,0,.22);padding:6px;display:none;flex-direction:column;z-index:130}'
+      + '.nav-account .acct-btn{background:none;border:none;color:var(--steel-light);font-family:"IBM Plex Mono",monospace;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 0;white-space:nowrap}'
+      + '.nav-account .acct-btn:hover{color:var(--header-text)}'
+      + '.nav-account .acct-menu{position:absolute;top:100%;right:0;margin-top:8px;min-width:210px;background:var(--surface);border:1px solid var(--paper-line);border-radius:6px;box-shadow:var(--shadow);padding:6px;display:none;flex-direction:column;z-index:130}'
       + '.nav-account .acctgroup.open .acct-menu{display:flex}'
-      + '.nav-account .acct-menu a{display:block;color:#1C1E22;padding:8px 12px;font-size:13px;border-radius:3px;text-decoration:none;white-space:nowrap;border:none;background:none;text-align:left;cursor:pointer;font-family:inherit}'
-      + '.nav-account .acct-menu a:hover{background:#F6F3EA}'
-      + '.nav-account .acct-hdr{font-size:11px;color:#7C8896;padding:4px 12px 8px;border-bottom:1px solid #E4DFCF;margin-bottom:4px;white-space:nowrap}'
-      + '.fs-modal{position:fixed;inset:0;background:rgba(14,42,71,.55);display:none;align-items:center;justify-content:center;z-index:200}'
+      + '.nav-account .acct-menu a{display:block;color:var(--charcoal);padding:8px 12px;font-size:13px;border-radius:4px;text-decoration:none;white-space:nowrap;border:none;background:none;text-align:left;cursor:pointer;font-family:inherit}'
+      + '.nav-account .acct-menu a:hover{background:var(--surface-2)}'
+      + '.nav-account .acct-hdr{font-size:11px;color:var(--steel);padding:4px 12px 8px;border-bottom:1px solid var(--paper-line);margin-bottom:4px;white-space:nowrap}'
+      + '.fs-modal{position:fixed;inset:0;background:rgba(10,20,35,.55);display:none;align-items:center;justify-content:center;z-index:200}'
       + '.fs-modal.open{display:flex}'
-      + '.fs-modal .box{background:#fff;border-radius:6px;padding:22px;width:340px;max-width:92vw;box-shadow:0 20px 50px rgba(0,0,0,.3)}'
-      + '.fs-modal h3{font-family:"Oswald",sans-serif;margin:0 0 6px;color:#0E2A47;font-size:18px}'
-      + '.fs-modal label{display:block;font-size:12px;color:#7C8896;margin:10px 0 3px}'
-      + '.fs-modal input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #B9C2CB;border-radius:3px;font-size:14px;font-family:inherit}'
+      + '.fs-modal .box{background:var(--surface);border-radius:8px;padding:22px;width:340px;max-width:92vw;box-shadow:var(--shadow)}'
+      + '.fs-modal h3{font-family:"Oswald","Inter",sans-serif;margin:0 0 6px;color:var(--heading);font-size:18px}'
+      + '.fs-modal label{display:block;font-size:12px;color:var(--steel);margin:10px 0 3px}'
+      + '.fs-modal input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--paper-line);border-radius:6px;font-size:14px;font-family:inherit;background:var(--surface);color:var(--charcoal)}'
       + '.fs-modal .frow{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}'
       + '.fs-modal .fmsg{font-size:12.5px;margin-top:8px;min-height:16px}'
-      + '.fs-modal .fmsg.err{color:#C0392B}.fs-modal .fmsg.ok{color:#4A9B6E}'
+      + '.fs-modal .fmsg.err{color:var(--danger)}.fs-modal .fmsg.ok{color:var(--good)}'
       // Let the header wrap instead of pushing the account items (Employees/Company/Team/username)
       // off the right edge on medium-width windows. They drop to a second row and stay reachable.
       + 'header{flex-wrap:wrap;height:auto;min-height:52px;row-gap:4px;padding-top:6px;padding-bottom:6px}'
@@ -214,6 +248,7 @@
     document.addEventListener('click', function () {
       nav.querySelectorAll('.navgroup.open').forEach(function (o) { o.classList.remove('open'); });
     });
+    addThemeToggle();
   }
 
   // Field employees only get their jobs. Strip the nav to Jobs + Schedule, drop the account links,
@@ -231,12 +266,33 @@
       var c = b.cloneNode(true); if (b.parentNode) b.parentNode.replaceChild(c, b); // drop the home-click handler
       c.style.cursor = 'pointer'; c.addEventListener('click', function () { location.href = '/jobs.html'; });
     });
+    addThemeToggle();
     if (!FIELD_OK[p]) location.replace('/jobs.html');
   }
 
   function logout() {
     try { localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); } catch (e) {}
     location.href = '/';
+  }
+
+  // ---- Light / dark theme toggle (top-right of the header) ----
+  function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+  function applyTheme(m) {
+    if (m === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('fs-theme', m); } catch (e) {}
+    var b = document.getElementById('fs-theme-toggle');
+    if (b) b.textContent = m === 'dark' ? '☀︎ Light' : '☾ Dark';
+  }
+  function addThemeToggle() {
+    if (document.getElementById('fs-theme-toggle')) return;
+    var btn = document.createElement('button');
+    btn.id = 'fs-theme-toggle'; btn.className = 'fs-theme-toggle'; btn.type = 'button';
+    btn.textContent = currentTheme() === 'dark' ? '☀︎ Light' : '☾ Dark';
+    btn.addEventListener('click', function () { applyTheme(currentTheme() === 'dark' ? 'light' : 'dark'); });
+    var logout = document.getElementById('logout-link') || document.getElementById('fs-logout');
+    if (logout && logout.parentNode) { logout.parentNode.insertBefore(btn, logout); btn.style.marginLeft = '14px'; }
+    else { var h = document.querySelector('header') || document.querySelector('.topbar'); if (h) h.appendChild(btn); }
   }
   function gate(me) {
     if (me && me.role === 'field') { applyFieldRole(); return; }

@@ -1,51 +1,80 @@
-/* Fieldscale shared design system — matches the takeoff app (index.html).
-   Change tokens/components here to restyle the estimating pages in one place. */
+/* Fieldscale shared design system — "Blueprint Blue" theme with light (default) + dark modes.
+   All colors are tokens so light/dark is a variable swap. The header is a dark navy in BOTH
+   modes (its text uses --header-text, decoupled from the page background). Toggle dark mode by
+   setting data-theme="dark" on <html> (app-nav.js handles this + persistence). */
 :root{
-  --ink-navy:#0E2A47; --blueprint:#153A5B; --blueprint-2:#1B4B7A;
-  --cyan:#6FC3E4; --cyan-dim:#3E7A96; --orange:#E8722C; --orange-dim:#C25A1B;
-  --paper:#F6F3EA; --paper-line:#E4DFCF; --charcoal:#1C1E22;
-  --steel:#7C8896; --steel-light:#B9C2CB; --good:#4A9B6E; --danger:#C0392B;
-  --radius:3px;
+  /* Chrome that stays dark in both modes */
+  --ink-navy:#15273A; --header-text:#EAF0F6;
+  /* Body surfaces + text */
+  --paper:#F4F6F9;        /* page background */
+  --surface:#FFFFFF;      /* cards, menus, inputs */
+  --surface-2:#EEF1F5;    /* subtle raised/zebra */
+  --paper-line:#E4E8EE;   /* borders */
+  --heading:#17293D;      /* headings in the body */
+  --charcoal:#1E242C;     /* primary text */
+  --steel:#5C6672;        /* secondary text */
+  --steel-light:#AEB8C4;  /* nav text on the dark header + muted */
+  /* Accent + semantics */
+  --accent:#2F6DB0; --accent-dim:#255C97;
+  --cyan:#6FB0DE; --cyan-dim:#3D7FB5;
+  --good:#3E8E5A; --danger:#C0432F; --warn:#B7791F;
+  /* Aliases kept so existing "orange/blueprint" usages become the blue accent */
+  --orange:var(--accent); --orange-dim:var(--accent-dim);
+  --blueprint:#244E74; --blueprint-2:#3A6DA8;
+  --radius:6px;
+  --shadow:0 8px 26px rgba(20,40,70,.14);
+}
+[data-theme="dark"]{
+  --ink-navy:#111B27; --header-text:#E8EEF4;
+  --paper:#14181E; --surface:#1C222B; --surface-2:#242B35; --paper-line:#2C333E;
+  --heading:#E9ECF0; --charcoal:#DCE1E7; --steel:#95A0AC; --steel-light:#8A94A0;
+  --accent:#5B9CE0; --accent-dim:#3D7FB5; --cyan:#6FB0DE; --cyan-dim:#4A88BE;
+  --good:#61B180; --danger:#E27567; --warn:#D6A24A;
+  --blueprint:#2A4E70; --blueprint-2:#3D6FA0;
+  --shadow:0 10px 30px rgba(0,0,0,.5);
 }
 *{box-sizing:border-box}
-body{margin:0;font-family:'IBM Plex Sans',sans-serif;background:var(--paper);color:var(--charcoal);font-size:14px}
-a{color:var(--blueprint-2);text-decoration:none}
+body{margin:0;font-family:'Inter','IBM Plex Sans',system-ui,sans-serif;background:var(--paper);color:var(--charcoal);font-size:14px;
+     transition:background-color .2s ease,color .2s ease}
+.num,td.num,th.num,input.num{font-variant-numeric:tabular-nums slashed-zero}
+a{color:var(--accent);text-decoration:none}
 header{display:flex;align-items:center;gap:20px;padding:0 16px;height:52px;background:var(--ink-navy);
-       border-bottom:2px solid var(--cyan-dim);color:var(--paper);position:sticky;top:0;z-index:5}
-header .brand{font-family:'Oswald',sans-serif;font-weight:600;font-size:19px;letter-spacing:.5px;
-              color:var(--paper);display:flex;align-items:center;gap:8px;white-space:nowrap}
-header .brand .mark{width:22px;height:22px;border:2px solid var(--cyan);border-radius:2px;position:relative;flex:none}
+       border-bottom:2px solid var(--cyan-dim);color:var(--header-text);position:sticky;top:0;z-index:5}
+header .brand{font-family:'Oswald','Inter',sans-serif;font-weight:600;font-size:19px;letter-spacing:.5px;
+              color:var(--header-text);display:flex;align-items:center;gap:8px;white-space:nowrap}
+header .brand .mark{width:22px;height:22px;border:2px solid var(--cyan);border-radius:3px;position:relative;flex:none}
 header .brand .mark::before,header .brand .mark::after{content:'';position:absolute;background:var(--cyan)}
 header .brand .mark::before{width:2px;height:14px;top:2px;left:8px}
 header .brand .mark::after{width:14px;height:2px;left:2px;top:8px}
 header nav{display:flex;gap:16px}
 header nav a{color:var(--steel-light);font-size:13px;padding:2px 0}
-header nav a.active{color:var(--paper);border-bottom:2px solid var(--orange);padding-bottom:2px}
+header nav a.active{color:var(--header-text);border-bottom:2px solid var(--accent);padding-bottom:2px}
 header .spacer{flex:1}
 header .who{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel-light)}
 .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 80px}
-h1{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px}
+h1{font-family:'Oswald','Inter',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px;color:var(--heading)}
+h2,h3{color:var(--heading)}
 .sub{color:var(--steel);margin:0 0 20px}
-.card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
+.card{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--paper-line)}
-th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--paper)}
+th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--surface-2)}
 td.num,th.num{text-align:right}
 tr:last-child td{border-bottom:none}
-input,textarea,select{background:#fff;border:1px solid var(--steel-light);color:var(--charcoal);border-radius:var(--radius);
-      padding:7px 8px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;width:100%}
-input:focus,textarea:focus,select:focus{outline:none;border-color:var(--cyan-dim)}
-input.num{text-align:right;font-family:'IBM Plex Mono',monospace}
-.btn{background:var(--blueprint-2);color:var(--paper);border:1px solid var(--cyan-dim);border-radius:var(--radius);
-     padding:7px 13px;font-size:12px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;transition:background .12s}
-.btn:hover{background:var(--cyan-dim)}
-.btn.primary{background:var(--orange);border-color:var(--orange-dim)}
-.btn.primary:hover{background:var(--orange-dim)}
-.btn.ghost{background:#fff;color:var(--charcoal);border-color:var(--steel-light)}
-.btn.ghost:hover{background:var(--paper);border-color:var(--steel)}
+input,textarea,select{background:var(--surface);border:1px solid var(--paper-line);color:var(--charcoal);border-radius:var(--radius);
+      padding:7px 8px;font-size:14px;font-family:inherit;width:100%}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
+input.num{text-align:right}
+.btn{background:var(--blueprint-2);color:#fff;border:1px solid var(--blueprint-2);border-radius:var(--radius);
+     padding:7px 13px;font-size:12px;cursor:pointer;font-weight:500;font-family:inherit;transition:background .12s,border-color .12s}
+.btn:hover{background:var(--accent-dim);border-color:var(--accent-dim)}
+.btn.primary{background:var(--accent);border-color:var(--accent)}
+.btn.primary:hover{background:var(--accent-dim);border-color:var(--accent-dim)}
+.btn.ghost{background:var(--surface);color:var(--charcoal);border-color:var(--paper-line)}
+.btn.ghost:hover{background:var(--surface-2);border-color:var(--steel-light)}
 /* Save action: bigger + green so it stands out on every page. */
 .btn.save{background:var(--good);border-color:var(--good);color:#fff;font-weight:600;padding:10px 22px;font-size:14px}
-.btn.save:hover{background:#3f8a60;border-color:#3f8a60}
+.btn.save:hover{filter:brightness(.94)}
 .save-bottom-bar{display:flex;justify-content:flex-end;margin:24px 0 6px;padding-top:16px;border-top:1px solid var(--paper-line)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--good);color:#fff;
@@ -64,7 +93,6 @@ input.num{text-align:right;font-family:'IBM Plex Mono',monospace}
   header .who{order:2}
   .wrap{padding:16px 12px 72px}
   h1{font-size:19px}
-  /* let wide tables scroll instead of overflowing the screen */
   .card{overflow-x:auto}
   th,td{padding:9px 10px;font-size:13px}
 }

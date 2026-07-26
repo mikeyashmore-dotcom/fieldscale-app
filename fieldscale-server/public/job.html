@@ -15,7 +15,7 @@
   .pagebar .spacer{flex:1}
   .pagebar select{width:auto;padding:6px 8px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
-  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
@@ -44,7 +44,7 @@
   .cost-out{display:flex;flex-wrap:wrap;gap:10px}
   .stat{flex:1;min-width:120px;background:var(--paper);border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 12px}
   .stat .lab{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-bottom:3px}
-  .stat .num{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--ink-navy)}
+  .stat .num{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--heading)}
   .stat.good .num{color:var(--good)}
   .stat.bad .num{color:var(--danger)}
   .cost-hint{font-size:12px;color:var(--steel);margin:10px 0 0}
@@ -974,27 +974,27 @@ document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ aw
 
 let _company=null;
 async function getCompany(){ if(_company) return _company; try{ const r=await apiFetch('/api/company'); _company=r.profile||{}; }catch(e){ _company={}; } return _company; }
-const PDF_CSS=`*{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
-  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
-  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
-  .co .sub{color:#7C8896;font-size:12px}
-  .doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:#E8722C;letter-spacing:1px}
-  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+const PDF_CSS=`*{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:var(--heading)}
+  .co .sub{color:var(--steel);font-size:12px}
+  .doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:var(--accent);letter-spacing:1px}
+  .doc .meta{color:var(--steel);font-size:12px;margin-top:6px;line-height:1.5}
   .parties{display:flex;gap:40px;margin-bottom:20px;flex-wrap:wrap}
-  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 4px}
   .parties .val{font-size:13px;line-height:1.5}
   table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  th{background:var(--heading);color:var(--paper);text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   th.r,td.r{text-align:right} th.c,td.c{text-align:center}
-  td{padding:8px 10px;border-bottom:1px solid #E4DFCF;vertical-align:top}
+  td{padding:8px 10px;border-bottom:1px solid var(--paper-line);vertical-align:top}
   .totals{width:320px;margin-left:auto}.totals .tr{display:flex;justify-content:space-between;padding:5px 0}
-  .totals .tr.total{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:#0E2A47}
-  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:var(--heading)}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 6px;border-bottom:1px solid var(--paper-line);padding-bottom:4px}
   .sec .body{white-space:pre-wrap;line-height:1.5}
-  .foot{margin-top:34px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  .foot{margin-top:34px;color:var(--steel);font-size:11px;text-align:center;border-top:1px solid var(--paper-line);padding-top:12px}
   @media print{ body{padding:0} .noprint{display:none} @page{margin:16mm} }
-  .bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
-  .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
+  .bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}
+  .bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
   .spacer40{height:52px}`;
 function printWindow(title, bodyHtml){
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
@@ -1020,18 +1020,18 @@ async function openJobPDF(){
   const contract=(Number(cost.contract)||0)+coAdj.price, budget=(Number(cost.budget)||0)+coAdj.cost, actual=costsTotal();
   const estProfit=contract-budget, margin=contract>0?(estProfit/contract*100):0;
   const rows=(doc.lines||[]).map((l,i)=>`<tr>
-      <td class="c">${l.done?'☑':'☐'}</td><td>${escapeHtml(l.name)}${l.code?`<div style="color:#7C8896;font-size:11px">${escapeHtml(l.code)}</div>`:''}</td>
+      <td class="c">${l.done?'☑':'☐'}</td><td>${escapeHtml(l.name)}${l.code?`<div style="color:var(--steel);font-size:11px">${escapeHtml(l.code)}</div>`:''}</td>
       <td class="r">${Number(l.qty)||0}</td><td>${escapeHtml(l.unit)}</td></tr>`).join('');
   const cos=(doc.changeOrders||[]).map(c=>`<tr><td>${escapeHtml(c.description)||'—'}</td><td class="c">${escapeHtml(c.status)}</td>
       <td class="r">${money(c.priceDelta)}</td><td class="r">${money(c.costDelta)}</td></tr>`).join('');
   const cl=doc.client||{};
   const body=pdfHeader(co,'JOB',[ 'Status: '+(val('status')||'—'),
       doc.startDate?('Start: '+escapeHtml(pdfDate(doc.startDate))):'', doc.dueDate?('Due: '+escapeHtml(pdfDate(doc.dueDate))):'' ])
-    + `<div style="font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47;margin-bottom:12px">${escapeHtml(jobName)}</div>`
+    + `<div style="font-family:'Oswald',sans-serif;font-size:18px;color:var(--heading);margin-bottom:12px">${escapeHtml(jobName)}</div>`
     + `<div class="parties"><div><h4>Client</h4><div class="val"><strong>${escapeHtml(cl.name||'—')}</strong></div></div>
         ${doc.project?`<div><h4>Project</h4><div class="val">${escapeHtml(doc.project)}</div></div>`:''}</div>`
     + `<table><thead><tr><th class="c">Done</th><th>Scope of work</th><th class="r">Qty</th><th>Unit</th></tr></thead>
-        <tbody>${rows||'<tr><td colspan="4" style="text-align:center;color:#7C8896;padding:16px">No scope items.</td></tr>'}</tbody></table>`
+        <tbody>${rows||'<tr><td colspan="4" style="text-align:center;color:var(--steel);padding:16px">No scope items.</td></tr>'}</tbody></table>`
     + `<div class="totals">
         <div class="tr"><span>Contract</span><span>${money(contract)}</span></div>
         <div class="tr"><span>Budget (est. cost)</span><span>${money(budget)}</span></div>

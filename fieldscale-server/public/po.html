@@ -19,7 +19,7 @@
   .statuspill.ordered{background:rgba(111,195,228,.2);color:var(--cyan-dim)}
   .statuspill.received{background:rgba(74,155,110,.15);color:var(--good)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
-  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
@@ -36,7 +36,7 @@
   .lineadd{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
   .lineadd select{width:auto;min-width:280px;max-width:420px}
   .bottom{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:20px;align-items:start}
-  .totals{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .totals{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
   .totals .tr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px}
   .totals .tr .v{font-family:'IBM Plex Mono',monospace}
   .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:6px;padding-top:10px;font-family:'Oswald',sans-serif;font-size:18px}
@@ -266,30 +266,30 @@ function openPOPDF(){
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(poName)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  *{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
-  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
-  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
-  .co .sub{color:#7C8896;font-size:12px}
+  *{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:var(--heading)}
+  .co .sub{color:var(--steel);font-size:12px}
   .doc{text-align:right}
-  .doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:#E8722C;letter-spacing:1px}
-  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+  .doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:var(--accent);letter-spacing:1px}
+  .doc .meta{color:var(--steel);font-size:12px;margin-top:6px;line-height:1.5}
   .parties{display:flex;gap:40px;margin-bottom:20px}
-  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 4px}
   .parties .val{font-size:13px;line-height:1.5}
   table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  th{background:var(--heading);color:var(--paper);text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   th.r,td.r{text-align:right} th.c,td.c{text-align:center}
-  td{padding:8px 10px;border-bottom:1px solid #E4DFCF;vertical-align:top}
-  td .code{color:#7C8896;font-size:11px;margin-top:2px}
+  td{padding:8px 10px;border-bottom:1px solid var(--paper-line);vertical-align:top}
+  td .code{color:var(--steel);font-size:11px;margin-top:2px}
   .totals{width:300px;margin-left:auto}
   .totals .tr{display:flex;justify-content:space-between;padding:5px 0}
-  .totals .tr.total{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:#0E2A47}
-  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:var(--heading)}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 6px;border-bottom:1px solid var(--paper-line);padding-bottom:4px}
   .sec .body{white-space:pre-wrap;line-height:1.5}
-  .foot{margin-top:34px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  .foot{margin-top:34px;color:var(--steel);font-size:11px;text-align:center;border-top:1px solid var(--paper-line);padding-top:12px}
   @media print{ body{padding:0} .noprint{display:none} @page{margin:16mm} }
-  .bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
-  .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
+  .bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}
+  .bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
   .spacer40{height:52px}
 </style></head><body>
   <div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div>
@@ -308,7 +308,7 @@ function openPOPDF(){
   </div>
   <table>
     <thead><tr><th class="c">#</th><th>Item / material</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit cost</th><th class="r">Amount</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No items.</td></tr>'}</tbody>
+    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:var(--steel);padding:20px">No items.</td></tr>'}</tbody>
   </table>
   <div class="totals">
     <div class="tr total"><span>Order total</span><span>${money(total())}</span></div>

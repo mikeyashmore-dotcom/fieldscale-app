@@ -17,7 +17,7 @@
   .pagebar .spacer{flex:1}
   .pagebar select{width:auto;padding:6px 8px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
-  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:18px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:18px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
@@ -107,7 +107,7 @@
       <div class="field"><label>Scope / observations</label><textarea id="sv-scope" placeholder="What the job involves, conditions, measurements, materials…"></textarea></div>
       <div class="field"><label>Risks / concerns</label><input id="sv-risks" placeholder="Access, hazards, unknowns…" /></div>
       <div class="field"><label>Customer sign-off (they sign below)</label>
-        <div style="border:1px solid var(--paper-line);border-radius:var(--radius);background:#fff;display:inline-block">
+        <div style="border:1px solid var(--paper-line);border-radius:var(--radius);background:var(--surface);display:inline-block">
           <canvas id="sv-sig" width="360" height="110" style="touch-action:none;display:block;max-width:100%"></canvas>
         </div>
         <div style="margin-top:6px;display:flex;gap:8px;align-items:center"><button type="button" class="btn ghost" id="sv-sig-clear" style="font-size:12px;padding:4px 10px">Clear</button><span id="sv-sig-note" style="font-size:12px;color:var(--steel)"></span></div>
@@ -142,7 +142,7 @@ let doc={};
 // ---- Signature pad ----
 const sigCanvas=document.getElementById('sv-sig'), sctx=sigCanvas.getContext('2d');
 let sigDrawing=false, sigDirty=false;
-sctx.lineWidth=2; sctx.lineCap='round'; sctx.strokeStyle='#1C1E22';
+sctx.lineWidth=2; sctx.lineCap='round'; sctx.strokeStyle='var(--charcoal)';
 function sigPos(e){ const r=sigCanvas.getBoundingClientRect(); const p=e.touches?e.touches[0]:e; return { x:(p.clientX-r.left)*(sigCanvas.width/r.width), y:(p.clientY-r.top)*(sigCanvas.height/r.height) }; }
 function sigStart(e){ e.preventDefault(); sigDrawing=true; sigDirty=true; const p=sigPos(e); sctx.beginPath(); sctx.moveTo(p.x,p.y); }
 function sigMove(e){ if(!sigDrawing) return; e.preventDefault(); const p=sigPos(e); sctx.lineTo(p.x,p.y); sctx.stroke(); }

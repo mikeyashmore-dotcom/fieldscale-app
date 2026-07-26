@@ -18,7 +18,7 @@
   .statuspill.partial{background:rgba(232,114,44,.15);color:var(--orange-dim)}
   .statuspill.paid{background:rgba(74,155,110,.15);color:var(--good)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
-  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
@@ -34,7 +34,7 @@
   .lineadd{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
   .lineadd select{width:auto;min-width:280px;max-width:420px}
   .bottom{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:20px;align-items:start}
-  .totals{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .totals{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
   .totals .tr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px}
   .totals .tr .v{font-family:'IBM Plex Mono',monospace}
   .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:6px;padding-top:10px;font-family:'Oswald',sans-serif;font-size:18px}
@@ -42,7 +42,7 @@
   .totals .tr.balance.clear{color:var(--good)}
   .totals input.pct,.totals input.pay{width:90px;text-align:right;font-family:'IBM Plex Mono',monospace;padding:4px 6px}
   .totals input.pct{width:64px}
-  .disc-type{margin-left:4px;border:1px solid var(--steel-light);background:#fff;border-radius:var(--radius);width:24px;height:24px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--charcoal);vertical-align:middle}
+  .disc-type{margin-left:4px;border:1px solid var(--steel-light);background:var(--surface);border-radius:var(--radius);width:24px;height:24px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--charcoal);vertical-align:middle}
   .disc-type:hover{border-color:var(--cyan-dim)}
   textarea{min-height:80px;resize:vertical}
   .note-blocks .block{margin-bottom:14px}
@@ -370,31 +370,31 @@ function openInvoicePDF(){
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(invName)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  *{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
-  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
-  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
-  .co .sub{color:#7C8896;font-size:12px}
+  *{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:var(--heading)}
+  .co .sub{color:var(--steel);font-size:12px}
   .doc{text-align:right}
-  .doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:#E8722C;letter-spacing:1px}
-  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+  .doc .big{font-family:'Oswald',sans-serif;font-size:26px;color:var(--accent);letter-spacing:1px}
+  .doc .meta{color:var(--steel);font-size:12px;margin-top:6px;line-height:1.5}
   .parties{display:flex;gap:40px;margin-bottom:20px}
-  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 4px}
   .parties .val{font-size:13px;line-height:1.5}
   table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  th{background:var(--heading);color:var(--paper);text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   th.r,td.r{text-align:right} th.c,td.c{text-align:center}
-  td{padding:8px 10px;border-bottom:1px solid #E4DFCF;vertical-align:top}
-  td .code{color:#7C8896;font-size:11px;margin-top:2px}
+  td{padding:8px 10px;border-bottom:1px solid var(--paper-line);vertical-align:top}
+  td .code{color:var(--steel);font-size:11px;margin-top:2px}
   .totals{width:320px;margin-left:auto}
   .totals .tr{display:flex;justify-content:space-between;padding:5px 0}
-  .totals .tr.total{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:#0E2A47}
-  .totals .tr.balance{border-top:1px solid #E4DFCF;margin-top:4px;padding-top:8px;font-weight:700;font-size:16px;color:#C0392B}
-  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:var(--heading)}
+  .totals .tr.balance{border-top:1px solid var(--paper-line);margin-top:4px;padding-top:8px;font-weight:700;font-size:16px;color:var(--danger)}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 6px;border-bottom:1px solid var(--paper-line);padding-bottom:4px}
   .sec .body{white-space:pre-wrap;line-height:1.5}
-  .foot{margin-top:34px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  .foot{margin-top:34px;color:var(--steel);font-size:11px;text-align:center;border-top:1px solid var(--paper-line);padding-top:12px}
   @media print{ body{padding:0} .noprint{display:none} @page{margin:16mm} }
-  .bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}
-  .bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
+  .bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}
+  .bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:inherit}
   .spacer40{height:52px}
 </style></head><body>
   <div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div>
@@ -413,7 +413,7 @@ function openInvoicePDF(){
   </div>
   <table>
     <thead><tr><th class="c">#</th><th>Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>'}</tbody>
+    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:var(--steel);padding:20px">No line items.</td></tr>'}</tbody>
   </table>
   <div class="totals">
     <div class="tr"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
@@ -425,7 +425,7 @@ function openInvoicePDF(){
     ${t.paid>0?`<div class="tr"><span>Amount paid</span><span>-${money(t.paid)}</span></div>`:''}
     <div class="tr balance"><span>${t.balance<=0.005?'Paid in full':'Balance due'}</span><span>${money(Math.max(0,t.balance))}</span></div>
   </div>
-  ${(doc.payLink && /^https?:\/\//i.test(doc.payLink) && t.balance>0.005)?`<div style="text-align:right;margin-top:12px"><a href="${escapeHtml(doc.payLink)}" style="display:inline-block;background:#4A9B6E;color:#fff;text-decoration:none;padding:10px 24px;border-radius:4px;font-weight:600;font-family:'Oswald',sans-serif">Pay Now — ${money(Math.max(0,t.balance))}</a></div>`:''}
+  ${(doc.payLink && /^https?:\/\//i.test(doc.payLink) && t.balance>0.005)?`<div style="text-align:right;margin-top:12px"><a href="${escapeHtml(doc.payLink)}" style="display:inline-block;background:var(--good);color:#fff;text-decoration:none;padding:10px 24px;border-radius:4px;font-weight:600;font-family:'Oswald',sans-serif">Pay Now — ${money(Math.max(0,t.balance))}</a></div>`:''}
   ${doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:''}
   ${doc.terms?`<div class="sec"><h4>Payment terms</h4><div class="body">${escapeHtml(doc.terms)}</div></div>`:''}
   <div class="foot">Thank you for your business. ${escapeHtml(co.name||'')}</div>
@@ -453,13 +453,13 @@ function openLienWaiver(type){
   const dateStr = pdfDate(doc.date) || pdfDate(Date.now());
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lien Waiver</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box}body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:44px;font-size:13.5px;line-height:1.6}
-h1{font-family:'Oswald',sans-serif;color:#0E2A47;font-size:20px;margin:0 0 4px} .meta{color:#7C8896;font-size:12px;margin-bottom:18px}
-.row{margin:6px 0} .row b{display:inline-block;min-width:150px;color:#0E2A47}
-.box{border:1px solid #E4DFCF;border-radius:4px;padding:14px 16px;margin:16px 0;background:#F6F3EA}
-.sign{margin-top:36px;display:flex;gap:40px} .sign .line{flex:1;border-top:1px solid #1C1E22;padding-top:6px;color:#7C8896;font-size:12px}
-.note{margin-top:26px;color:#7C8896;font-size:11px;border-top:1px solid #E4DFCF;padding-top:10px}
-.bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}.bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;cursor:pointer;font-family:inherit}
+<style>*{box-sizing:border-box}body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:44px;font-size:13.5px;line-height:1.6}
+h1{font-family:'Oswald',sans-serif;color:var(--heading);font-size:20px;margin:0 0 4px} .meta{color:var(--steel);font-size:12px;margin-bottom:18px}
+.row{margin:6px 0} .row b{display:inline-block;min-width:150px;color:var(--heading)}
+.box{border:1px solid var(--paper-line);border-radius:4px;padding:14px 16px;margin:16px 0;background:var(--paper)}
+.sign{margin-top:36px;display:flex;gap:40px} .sign .line{flex:1;border-top:1px solid var(--charcoal);padding-top:6px;color:var(--steel);font-size:12px}
+.note{margin-top:26px;color:var(--steel);font-size:11px;border-top:1px solid var(--paper-line);padding-top:10px}
+.bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}.bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;cursor:pointer;font-family:inherit}
 @media print{.bar,.spacer40{display:none}body{padding:0}@page{margin:16mm}}.spacer40{height:52px}</style></head><body>
 <div class="bar"><button onclick="window.print()">Save as PDF / Print</button></div><div class="spacer40"></div>
 <h1>${title}</h1>

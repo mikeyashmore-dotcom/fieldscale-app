@@ -8,36 +8,36 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box}
-  body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;background:#F6F3EA;font-size:14px}
-  .sheet{max-width:820px;margin:24px auto;background:#fff;border:1px solid #E4DFCF;border-radius:4px;padding:36px 40px;box-shadow:0 6px 24px rgba(0,0,0,.06)}
-  .head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px;flex-wrap:wrap;gap:12px}
-  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:#0E2A47}
-  .co .sub{color:#7C8896;font-size:12px}
-  .doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:24px;color:#E8722C;letter-spacing:1px}
-  .doc .meta{color:#7C8896;font-size:12px;margin-top:6px;line-height:1.5}
+  body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;background:var(--paper);font-size:14px}
+  .sheet{max-width:820px;margin:24px auto;background:var(--surface);border:1px solid var(--paper-line);border-radius:4px;padding:36px 40px;box-shadow:0 6px 24px rgba(0,0,0,.06)}
+  .head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:var(--heading)}
+  .co .sub{color:var(--steel);font-size:12px}
+  .doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:24px;color:var(--accent);letter-spacing:1px}
+  .doc .meta{color:var(--steel);font-size:12px;margin-top:6px;line-height:1.5}
   .parties{display:flex;gap:40px;margin-bottom:18px;flex-wrap:wrap}
-  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 4px}
+  .parties h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 4px}
   table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  th{background:var(--heading);color:var(--paper);text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   th.r,td.r{text-align:right} th.c,td.c{text-align:center}
-  td{padding:8px 10px;border-bottom:1px solid #E4DFCF;vertical-align:top}
-  td .code{color:#7C8896;font-size:11px;margin-top:2px}
+  td{padding:8px 10px;border-bottom:1px solid var(--paper-line);vertical-align:top}
+  td .code{color:var(--steel);font-size:11px;margin-top:2px}
   .totals{width:300px;margin-left:auto}
   .totals .tr{display:flex;justify-content:space-between;padding:5px 0}
-  .totals .tr.total{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:18px;color:#0E2A47}
-  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7C8896;margin:0 0 6px;border-bottom:1px solid #E4DFCF;padding-bottom:4px}
+  .totals .tr.total{border-top:2px solid var(--charcoal);margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:18px;color:var(--heading)}
+  .sec{margin-top:22px} .sec h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 6px;border-bottom:1px solid var(--paper-line);padding-bottom:4px}
   .sec .body{white-space:pre-wrap;line-height:1.5}
-  .approve{margin-top:30px;border-top:2px dashed #E4DFCF;padding-top:22px}
+  .approve{margin-top:30px;border-top:2px dashed var(--paper-line);padding-top:22px}
   .approve h3{font-family:'Oswald',sans-serif;font-size:18px;margin:0 0 6px}
-  .approve p{color:#7C8896;margin:0 0 14px}
+  .approve p{color:var(--steel);margin:0 0 14px}
   .approve .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .approve input{border:1px solid #B9C2CB;border-radius:3px;padding:10px 12px;font-size:15px;font-family:inherit;min-width:240px}
-  .approve button{background:#4A9B6E;color:#fff;border:none;border-radius:3px;padding:11px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit}
-  .approve button:hover{background:#3f8a60}
+  .approve input{border:1px solid var(--steel-light);border-radius:3px;padding:10px 12px;font-size:15px;font-family:inherit;min-width:240px}
+  .approve button{background:var(--good);color:#fff;border:none;border-radius:3px;padding:11px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit}
+  .approve button:hover{background:var(--good)}
   .approve button:disabled{opacity:.5;cursor:default}
   .accepted{margin-top:30px;background:rgba(74,155,110,.12);border:1px solid rgba(74,155,110,.5);border-radius:4px;padding:18px 20px;color:#2f6b4a}
   .accepted strong{font-size:16px}
-  .msg{padding:60px 20px;text-align:center;color:#7C8896}
+  .msg{padding:60px 20px;text-align:center;color:var(--steel)}
   @media (max-width:640px){ .sheet{margin:0;border-radius:0;padding:22px 18px} }
 </style>
 </head>
@@ -97,7 +97,7 @@ function render(d){
     ${showUnitPrice?`<td class="r">${money(lineUnit(l)*(1+effMk(l,d)/100))}</td>`:''}${showLineTotal?`<td class="r">${money(lineAmount(l)*(1+effMk(l,d)/100))}</td>`:''}</tr>`).join('');
   const optSection = optLines.length ? `<div class="sec"><h4>Optional add-ons</h4>
     <table><thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUom?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
-    <tbody>${optRows}</tbody></table><div style="color:#7C8896;font-size:11px">Optional — not included in the Total above.</div></div>` : '';
+    <tbody>${optRows}</tbody></table><div style="color:var(--steel);font-size:11px">Optional — not included in the Total above.</div></div>` : '';
   // Deposit + balance-due + validity terms, combined with any free-text terms (same as the PDF).
   const termsExtra=[];
   const balPhrase=({completion:'upon completion',receipt:'upon receipt of the final invoice',net7:'within 7 days of completion',net15:'within 15 days of completion',net30:'within 30 days of completion'})[d.balanceDue]||'';
@@ -125,7 +125,7 @@ function render(d){
       ${d.project?`<div><h4>Project</h4><div>${esc(d.project)}</div></div>`:''}
     </div>
     <table><thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUom?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
-      <tbody>${rows||`<tr><td colspan="${2+(showQty?1:0)+(showUom?1:0)+(showUnitPrice?1:0)+(showLineTotal?1:0)}" style="text-align:center;color:#7C8896;padding:20px">No line items.</td></tr>`}</tbody></table>
+      <tbody>${rows||`<tr><td colspan="${2+(showQty?1:0)+(showUom?1:0)+(showUnitPrice?1:0)+(showLineTotal?1:0)}" style="text-align:center;color:var(--steel);padding:20px">No line items.</td></tr>`}</tbody></table>
     <div class="totals">
       ${t.discount>0?`<div class="tr"><span>Subtotal</span><span>${money(t.price+t.tax)}</span></div>
       <div class="tr"><span>Discount</span><span>-${money(t.discount)}</span></div>`:''}

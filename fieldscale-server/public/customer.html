@@ -13,16 +13,16 @@
   .pagebar h1{margin:0}
   .pagebar .spacer{flex:1}
   .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
-  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:12px 14px}
+  .tile{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:12px 14px}
   .tile .lab{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel)}
-  .tile .v{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;color:var(--ink-navy);margin-top:3px}
+  .tile .v{font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;color:var(--heading);margin-top:3px}
   .tile .v.neg{color:var(--danger)}
   .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .block{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:16px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:16px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px;display:flex;justify-content:space-between}
   .itemrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--paper-line);cursor:pointer}
   .itemrow:last-child{border-bottom:none}
-  .itemrow:hover{background:#FbF9F3}
+  .itemrow:hover{background:var(--surface-2)}
   .itemrow .nm{flex:1;font-size:13px}
   .itemrow .pill{padding:1px 7px;border-radius:20px;font-size:10.5px;font-weight:600;text-transform:capitalize;background:var(--paper);color:var(--steel)}
   .itemrow .amt{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel)}
@@ -188,21 +188,21 @@ document.getElementById('stmt-btn').addEventListener('click', ()=>{
   }).join('');
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ${esc(data.name)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box}body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:40px;font-size:13px}
-.head{display:flex;justify-content:space-between;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:20px}
-.co h1{font-family:'Oswald',sans-serif;font-size:22px;margin:0 0 4px;color:#0E2A47}.co .sub{color:#7C8896;font-size:12px}
-.doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:24px;color:#E8722C}.doc .meta{color:#7C8896;font-size:12px;margin-top:6px}
-table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#0E2A47;color:#F6F3EA;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase}
-th.r,td.r{text-align:right}td{padding:8px 10px;border-bottom:1px solid #E4DFCF}td.s{text-transform:capitalize;color:#7C8896}
+<style>*{box-sizing:border-box}body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
+.head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px}
+.co h1{font-family:'Oswald',sans-serif;font-size:22px;margin:0 0 4px;color:var(--heading)}.co .sub{color:var(--steel);font-size:12px}
+.doc{text-align:right}.doc .big{font-family:'Oswald',sans-serif;font-size:24px;color:var(--accent)}.doc .meta{color:var(--steel);font-size:12px;margin-top:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:var(--heading);color:var(--paper);text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase}
+th.r,td.r{text-align:right}td{padding:8px 10px;border-bottom:1px solid var(--paper-line)}td.s{text-transform:capitalize;color:var(--steel)}
 .tot{width:280px;margin-left:auto}.tot .tr{display:flex;justify-content:space-between;padding:5px 0}
-.tot .tr.bal{border-top:2px solid #1C1E22;margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:#C0392B}
+.tot .tr.bal{border-top:2px solid var(--charcoal);margin-top:4px;padding-top:8px;font-family:'Oswald',sans-serif;font-size:17px;color:var(--danger)}
 @media print{body{padding:0}.noprint{display:none}@page{margin:16mm}}
-.bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}.bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;cursor:pointer}.sp{height:52px}</style></head><body>
+.bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}.bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;cursor:pointer}.sp{height:52px}</style></head><body>
 <div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="sp noprint"></div>
 <div class="head"><div class="co">${co.logo?`<img src="${esc(co.logo)}" style="max-height:50px;margin-bottom:8px">`:''}<h1>${esc(co.name||'Statement')}</h1><div class="sub">${coLines}</div></div>
 <div class="doc"><div class="big">STATEMENT</div><div class="meta">For: <strong>${esc(data.name)}</strong><br>${fmtDate(Date.now())}</div></div></div>
 <table><thead><tr><th>Invoice</th><th>Date</th><th>Status</th><th class="r">Amount</th><th class="r">Paid</th><th class="r">Balance</th></tr></thead>
-<tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#7C8896;padding:20px">No invoices.</td></tr>'}</tbody></table>
+<tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:var(--steel);padding:20px">No invoices.</td></tr>'}</tbody></table>
 <div class="tot"><div class="tr"><span>Total invoiced</span><span>${money(t.invoiced)}</span></div>
 <div class="tr"><span>Total paid</span><span>${money(t.paid)}</span></div>
 <div class="tr bal"><span>Balance due</span><span>${money(t.outstanding)}</span></div></div></body></html>`;

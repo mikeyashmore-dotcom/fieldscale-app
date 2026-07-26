@@ -1283,13 +1283,17 @@ const server = http.createServer(async (req, res) => {
           website: String(p.website || '').slice(0, 160),
           address: String(p.address || '').slice(0, 300),
           logo: logoOk ? p.logo : '',
-          // Team / labor rates — a small roster the app reuses for time entries and crew dispatch.
-          team: Array.isArray(p.team) ? p.team.slice(0, 100).map(t => ({
+          // Employee roster — name, charged hourly rate, contact + payroll employee #. Reused for
+          // time entries and crew dispatch. Preserve it if this save didn't include it.
+          team: Array.isArray(p.team) ? p.team.slice(0, 200).map(t => ({
             id: String(t.id || ('tm_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
             name: String(t.name || '').slice(0, 80),
             role: String(t.role || '').slice(0, 80),
-            rate: Number(t.rate) || 0
-          })).filter(t => t.name || t.role) : [],
+            rate: Number(t.rate) || 0,
+            email: String(t.email || '').slice(0, 120),
+            phone: String(t.phone || '').slice(0, 60),
+            empNo: String(t.empNo || '').slice(0, 60)
+          })).filter(t => t.name || t.role || t.email || t.phone || t.empNo) : (existingProfile.team || []),
           // Markup-by-category & tax rules: per-category markup % and taxable flag, matched by line Code.
           markupRules: Array.isArray(p.markupRules) ? p.markupRules.slice(0, 60).map(r => ({
             code: String(r.code || '').slice(0, 80),
@@ -1306,6 +1310,27 @@ const server = http.createServer(async (req, res) => {
         if (companyRec && clean.name) companyRec.name = clean.name;
         saveDB(db); // persist the name sync + any invoice-counter change on the company record
         return sendJSON(res, 200, { profile: clean, invoiceNext: nextInvoiceNo(companyById(me.companyId)) });
+      }
+
+      // ---- Employee roster (name, rate, email, phone, payroll #) ----
+      if (pathname === '/api/team' && req.method === 'GET') {
+        return sendJSON(res, 200, { team: (readCompany(me.companyId) || {}).team || [] });
+      }
+      if (pathname === '/api/team' && req.method === 'PUT') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Only the owner or an admin can manage employees.' });
+        const { team } = await readBody(req);
+        const prof = readCompany(me.companyId) || {};
+        prof.team = Array.isArray(team) ? team.slice(0, 200).map(t => ({
+          id: String(t.id || ('tm_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
+          name: String(t.name || '').slice(0, 80),
+          role: String(t.role || '').slice(0, 80),
+          rate: Number(t.rate) || 0,
+          email: String(t.email || '').slice(0, 120),
+          phone: String(t.phone || '').slice(0, 60),
+          empNo: String(t.empNo || '').slice(0, 60)
+        })).filter(t => t.name || t.role || t.email || t.phone || t.empNo) : [];
+        writeCompany(me.companyId, prof);
+        return sendJSON(res, 200, { team: prof.team });
       }
 
       // ---- Estimating: list / create estimates ----

@@ -30,6 +30,7 @@
     ] }
   ];
   var ACCOUNT = [
+    { label: 'Employees', href: '/employees.html' },
     { label: 'Company', href: '/company.html' },
     { label: 'Team', href: '/admin.html', admin: true, id: 'owner-nav' }
   ];

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Employees</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<style>
+  .wrap{max-width:1100px}
+  .sub{color:var(--steel);margin:0 0 18px}
+  .card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--paper-line);vertical-align:middle}
+  th{font-family:'IBM Plex Mono',monospace;color:var(--steel);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--paper);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  td input{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--paper-line);border-radius:var(--radius)}
+  td input:focus{border-color:var(--cyan-dim);outline:none}
+  td.rate input{text-align:right;font-family:'IBM Plex Mono',monospace}
+  .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:16px;padding:2px 6px;border-radius:var(--radius)}
+  .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  .toolbar{display:flex;gap:8px;align-items:center;margin:16px 0 0;flex-wrap:wrap}
+  .empty{padding:26px;text-align:center;color:var(--steel);font-size:13px}
+  .lines-scroll{overflow-x:auto}
+  @media (max-width:760px){ table{min-width:820px} }
+</style>
+<script src="/app-nav.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav></nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <div id="loading" class="loading" style="padding:40px;text-align:center;color:var(--steel)">Loading…</div>
+  <div id="content" style="display:none">
+    <h1 style="font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px">Employees</h1>
+    <p class="sub">Your crew and their details — the charged hourly rate, contact info, and the employee number from your payroll app. Rates here fill in automatically when you log time on a job and let you assign crew.</p>
+
+    <div class="card lines-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Role / trade</th><th class="num">Rate&nbsp;$/hr</th>
+            <th>Email</th><th>Phone</th><th>Employee&nbsp;#&nbsp;(payroll)</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="toolbar" id="toolbar">
+      <button class="btn ghost" id="add-emp">＋ Add employee</button>
+      <button class="btn" id="save-btn">Save</button>
+    </div>
+    <p id="readonly-note" class="sub" style="display:none;margin-top:14px">You can view the roster, but only the owner or an admin can make changes.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+
+let team=[]; let canEdit=false;
+function render(){
+  const tb=document.getElementById('rows');
+  if(!team.length){ tb.innerHTML=`<tr><td colspan="7" class="empty">No employees yet.${canEdit?' Click <strong>＋ Add employee</strong> to add your crew.':''}</td></tr>`; return; }
+  const dis = canEdit ? '' : 'disabled';
+  tb.innerHTML=team.map((t,i)=>`<tr>
+    <td><input data-i="${i}" data-f="name" value="${esc(t.name)}" placeholder="Full name" ${dis} /></td>
+    <td><input data-i="${i}" data-f="role" value="${esc(t.role)}" placeholder="e.g. Lead carpenter" ${dis} /></td>
+    <td class="rate"><input data-i="${i}" data-f="rate" value="${t.rate||0}" inputmode="decimal" ${dis} /></td>
+    <td><input data-i="${i}" data-f="email" type="email" value="${esc(t.email)}" placeholder="name@email.com" ${dis} /></td>
+    <td><input data-i="${i}" data-f="phone" value="${esc(t.phone)}" placeholder="(555) 555-5555" ${dis} /></td>
+    <td><input data-i="${i}" data-f="empNo" value="${esc(t.empNo)}" placeholder="payroll ID" ${dis} /></td>
+    <td style="text-align:right">${canEdit?`<button class="rowdel" data-del="${i}" title="Remove">✕</button>`:''}</td>
+  </tr>`).join('');
+}
+document.getElementById('rows').addEventListener('input', e=>{
+  const i=e.target.getAttribute('data-i'), f=e.target.getAttribute('data-f'); if(i===null) return;
+  team[i][f] = f==='rate' ? (parseFloat(e.target.value)||0) : e.target.value;
+});
+document.getElementById('rows').addEventListener('click', e=>{
+  const d=e.target.getAttribute && e.target.getAttribute('data-del');
+  if(d!==null && d!==undefined){ team.splice(Number(d),1); render(); }
+});
+document.getElementById('add-emp').addEventListener('click', ()=>{
+  team.push({ id:'tm_'+Math.random().toString(16).slice(2,8), name:'', role:'', rate:0, email:'', phone:'', empNo:'' });
+  render();
+  // focus the new row's name field
+  const inputs=document.querySelectorAll('#rows tr:last-child input'); if(inputs[0]) inputs[0].focus();
+});
+async function save(){
+  const clean=team.filter(t=>t.name||t.role||t.email||t.phone||t.empNo);
+  const r=await apiFetch('/api/team', { method:'PUT', body: JSON.stringify({ team: clean }) });
+  team=r.team||[]; render();
+}
+document.getElementById('save-btn').addEventListener('click', async ()=>{
+  try{ await save(); toast('Employees saved.'); }catch(err){ toast(err.message, true); }
+});
+async function init(){
+  let me;
+  try{ me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  canEdit = (me.role==='owner' || me.role==='admin');
+  try{
+    const r=await apiFetch('/api/team');
+    team = r.team || [];
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+    if(!canEdit){
+      document.getElementById('toolbar').style.display='none';
+      document.getElementById('readonly-note').style.display='block';
+    }
+    render();
+  }catch(err){ document.getElementById('loading').textContent='Could not load employees: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

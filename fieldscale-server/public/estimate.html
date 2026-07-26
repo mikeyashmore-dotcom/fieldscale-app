@@ -230,11 +230,11 @@
         </div>
         <div class="block">
           <h3>Proposal columns — what the customer sees</h3>
-          <label class="pdopt"><input type="checkbox" id="opt-qty" checked /> Show quantity</label>
-          <label class="pdopt"><input type="checkbox" id="opt-uom" checked /> Show unit</label>
-          <label class="pdopt"><input type="checkbox" id="opt-unit" checked /> Show per-unit price</label>
-          <label class="pdopt"><input type="checkbox" id="opt-line" checked /> Show line total</label>
-          <div class="pdhint">Overhead, profit &amp; tax are always folded into whichever prices you show. Turn any column off to simplify the proposal — the Total stays the same.</div>
+          <label class="pdopt"><input type="checkbox" id="opt-qty" /> Show quantity</label>
+          <label class="pdopt"><input type="checkbox" id="opt-uom" /> Show unit</label>
+          <label class="pdopt"><input type="checkbox" id="opt-unit" /> Show per-unit price</label>
+          <label class="pdopt"><input type="checkbox" id="opt-line" /> Show line total</label>
+          <div class="pdhint">These are <strong>off by default</strong> — the proposal shows just the item descriptions. Tick a box to add that column. Overhead, profit &amp; tax are always folded into whichever prices you show; the Total stays the same.</div>
         </div>
       </div>
       <div class="totals">
@@ -667,8 +667,8 @@ function proposalDocHTML(forDownload){
   const custUnit = l => lineUnitPrice(l)*(1+effMarkup(l)/100)*ft;
   const custAmt  = l => lineAmount(l)*(1+effMarkup(l)/100)*ft;
   // Which columns the customer sees (overhead/profit/tax already folded into these prices).
-  const showQty = doc.showQty!==false, showUnit = doc.showUnit!==false,
-        showUnitPrice = doc.showUnitPrice!==false, showLineTotal = doc.showLineTotal!==false,
+  const showQty = doc.showQty===true, showUnit = doc.showUnit===true,
+        showUnitPrice = doc.showUnitPrice===true, showLineTotal = doc.showLineTotal===true,
         showCode = doc.estimateClass!=='none';
   // Optional add-ons/alternates are listed in their own section, not the main priced table.
   const baseLines = doc.lines.filter(l=>!l.optional);
@@ -825,14 +825,14 @@ function fillForm(){
   document.getElementById('t-disc-type').textContent = doc.discountType==='amt' ? '$' : '%';
   document.getElementById('est-class').value = doc.estimateClass || 'residential';
   document.getElementById('est-type').value = doc.estType || 'detailed';
-  // Default all on for older estimates that predate these options.
-  document.getElementById('opt-qty').checked = doc.showQty!==false;
-  document.getElementById('opt-uom').checked = doc.showUnit!==false;
+  // Proposal columns are OFF by default — the contractor opts into each one.
+  document.getElementById('opt-qty').checked = doc.showQty===true;
+  document.getElementById('opt-uom').checked = doc.showUnit===true;
   document.getElementById('valid-days').value = doc.validDays || '';
   document.getElementById('deposit-pct').value = String(doc.depositPct || 0);
   document.getElementById('balance-due').value = doc.balanceDue || '';
-  document.getElementById('opt-unit').checked = doc.showUnitPrice!==false;
-  document.getElementById('opt-line').checked = doc.showLineTotal!==false;
+  document.getElementById('opt-unit').checked = doc.showUnitPrice===true;
+  document.getElementById('opt-line').checked = doc.showLineTotal===true;
 }
 function set(id,v){ document.getElementById(id).value = (v==null?'':v); }
 

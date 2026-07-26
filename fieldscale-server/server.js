@@ -1899,7 +1899,8 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/estimates' && req.method === 'GET') {
         const list = db.estimates.filter(e => e.companyId === me.companyId)
           .map(e => ({ id: e.id, name: e.name, client: e.client || '', total: e.total || 0,
-                       status: e.status || 'draft', createdAt: e.createdAt, updatedAt: e.updatedAt }))
+                       status: e.jobId ? 'job' : (e.status || 'draft'), jobId: e.jobId || '',
+                       createdAt: e.createdAt, updatedAt: e.updatedAt }))
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);
       }
@@ -2653,6 +2654,7 @@ const server = http.createServer(async (req, res) => {
           status: 'scheduled', fromEstimateId: est.id, createdAt: Date.now(), updatedAt: Date.now() };
         writeJobDoc(job.id, doc);
         db.jobs.push(job);
+        est.jobId = job.id; est.updatedAt = Date.now();   // so the estimate list shows "Job"
         saveDB(db);
         return sendJSON(res, 200, { id: job.id });
       }

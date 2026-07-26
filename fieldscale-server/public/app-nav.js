@@ -22,7 +22,8 @@
       { label: 'Jobs', href: '/jobs.html', module: 'jobs' },
       { label: 'Schedule', href: '/schedule.html', module: 'jobs' },
       { label: 'Work Orders', href: '/workorders.html', module: 'jobs' },
-      { label: 'Purchase Orders', href: '/purchase-orders.html', module: 'jobs' }
+      { label: 'Purchase Orders', href: '/purchase-orders.html', module: 'jobs' },
+      { label: 'Subcontractors', href: '/subs.html', module: 'jobs' }
     ] },
     { label: 'Invoice', items: [
       { label: 'Invoices', href: '/invoices.html', module: 'invoicing' },

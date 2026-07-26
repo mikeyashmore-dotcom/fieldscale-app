@@ -86,6 +86,14 @@
       <tbody id="prod-rows"></tbody>
     </table></div>
 
+    <h2>Work in progress (WIP)</h2>
+    <p class="section-sub">For active jobs: revenue earned (contract × % complete) vs. what you've actually billed. Over-billed = you're ahead; under-billed = money you've earned but haven't invoiced yet.</p>
+    <div class="tiles" id="wip-tiles"></div>
+    <div class="card"><table>
+      <thead><tr><th>Job</th><th class="num">Contract</th><th class="num">% done</th><th class="num">Earned</th><th class="num">Billed</th><th class="num">Over / (under) billed</th></tr></thead>
+      <tbody id="wip-rows"></tbody>
+    </table></div>
+
     <h2>Accounts receivable <button class="btn ghost" id="invcsv-btn" style="font-size:12px;padding:4px 12px;margin-left:8px" title="Download every invoice as a CSV you can import into QuickBooks, Xero or a spreadsheet">⬇ Export invoices (QuickBooks CSV)</button></h2>
     <p class="section-sub">Money customers still owe you — and how overdue it is (based on each invoice's due date).</p>
     <div class="tiles" id="ar-tiles"></div>
@@ -245,6 +253,24 @@ function renderSources(list){
     <td class="num">${s.wonValue?money(s.wonValue):'—'}</td></tr>`).join('');
 }
 
+function renderWip(w){
+  const t=w.totals||{contract:0,earned:0,billed:0,variance:0};
+  document.getElementById('wip-tiles').innerHTML =
+    tile('Active contract', money(t.contract)) +
+    tile('Earned to date', money(t.earned)) +
+    tile('Billed to date', money(t.billed)) +
+    tile('Over / (under) billed', money(t.variance), t.variance<-0.005?'neg':(t.variance>0.005?'pos':''));
+  const tb=document.getElementById('wip-rows');
+  if(!w.rows.length){ tb.innerHTML='<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--steel)">No active jobs.</td></tr>'; return; }
+  tb.innerHTML=w.rows.map(r=>`<tr>
+    <td>${esc(r.name)}${r.client?`<div style="font-size:11px;color:var(--steel)">${esc(r.client)}</div>`:''}</td>
+    <td class="num">${money(r.contract)}</td>
+    <td class="num">${r.pct}%</td>
+    <td class="num">${money(r.earned)}</td>
+    <td class="num">${money(r.billed)}</td>
+    <td class="num ${r.variance<-0.005?'neg':(r.variance>0.005?'pos':'')}">${r.variance<0?'('+money(-r.variance)+')':money(r.variance)}</td>
+  </tr>`).join('');
+}
 function renderDashboard(a){
   document.getElementById('dash-tiles').innerHTML =
     tile('Invoiced (all time)', money(a.totalInvoiced)) +
@@ -281,6 +307,7 @@ async function init(){
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     try{ renderDashboard(await apiFetch('/api/reports/analytics')); }catch(e){}
+    try{ renderWip(await apiFetch('/api/reports/wip')); }catch(e){}
   }catch(err){ document.getElementById('loading').textContent='Could not load reports: '+err.message; }
 }
 init();

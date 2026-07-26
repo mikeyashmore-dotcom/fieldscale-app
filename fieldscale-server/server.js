@@ -1403,6 +1403,19 @@ const server = http.createServer(async (req, res) => {
             phone: String(t.phone || '').slice(0, 60),
             empNo: String(t.empNo || '').slice(0, 60)
           })).filter(t => t.name || t.role || t.email || t.phone || t.empNo) : (existingProfile.team || []),
+          // Subcontractor roster + compliance (W-9 on file, insurance/license expiry). Preserved if omitted.
+          subs: Array.isArray(p.subs) ? p.subs.slice(0, 300).map(sb => ({
+            id: String(sb.id || ('sb_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
+            name: String(sb.name || '').slice(0, 120),
+            trade: String(sb.trade || '').slice(0, 80),
+            contact: String(sb.contact || '').slice(0, 80),
+            phone: String(sb.phone || '').slice(0, 60),
+            email: String(sb.email || '').slice(0, 120),
+            w9: !!sb.w9,
+            coiExpires: String(sb.coiExpires || '').slice(0, 20),
+            licenseExpires: String(sb.licenseExpires || '').slice(0, 20),
+            notes: String(sb.notes || '').slice(0, 2000)
+          })).filter(sb => sb.name || sb.trade || sb.email || sb.phone) : (existingProfile.subs || []),
           // Markup-by-category & tax rules: per-category markup % and taxable flag, matched by line Code.
           markupRules: Array.isArray(p.markupRules) ? p.markupRules.slice(0, 60).map(r => ({
             code: String(r.code || '').slice(0, 80),
@@ -1441,6 +1454,26 @@ const server = http.createServer(async (req, res) => {
         })).filter(t => t.name || t.role || t.email || t.phone || t.empNo) : [];
         writeCompany(me.companyId, prof);
         return sendJSON(res, 200, { team: prof.team });
+      }
+
+      // ---- Subcontractors (roster + compliance) ----
+      if (pathname === '/api/subs' && req.method === 'GET') {
+        return sendJSON(res, 200, { subs: (readCompany(me.companyId) || {}).subs || [] });
+      }
+      if (pathname === '/api/subs' && req.method === 'PUT') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Only the owner or an admin can manage subcontractors.' });
+        const { subs } = await readBody(req);
+        const prof = readCompany(me.companyId) || {};
+        prof.subs = Array.isArray(subs) ? subs.slice(0, 300).map(sb => ({
+          id: String(sb.id || ('sb_' + crypto.randomBytes(4).toString('hex'))).slice(0, 40),
+          name: String(sb.name || '').slice(0, 120), trade: String(sb.trade || '').slice(0, 80),
+          contact: String(sb.contact || '').slice(0, 80), phone: String(sb.phone || '').slice(0, 60),
+          email: String(sb.email || '').slice(0, 120), w9: !!sb.w9,
+          coiExpires: String(sb.coiExpires || '').slice(0, 20), licenseExpires: String(sb.licenseExpires || '').slice(0, 20),
+          notes: String(sb.notes || '').slice(0, 2000)
+        })).filter(sb => sb.name || sb.trade || sb.email || sb.phone) : [];
+        writeCompany(me.companyId, prof);
+        return sendJSON(res, 200, { subs: prof.subs });
       }
 
       // ---- Security status + activity log (owner/admin) ----
@@ -2027,6 +2060,27 @@ const server = http.createServer(async (req, res) => {
           outstanding: Math.round((totalInvoiced - totalCollected) * 100) / 100,
           activeJobs: (jobsByStatus['in progress'] || 0) + (jobsByStatus['scheduled'] || 0)
         });
+      }
+
+      // ---- Work-in-progress (WIP): earned revenue vs billed for active jobs ----
+      if (pathname === '/api/reports/wip' && req.method === 'GET') {
+        const myInvoices = db.invoices.filter(i => i.companyId === me.companyId);
+        const rows = db.jobs.filter(j => j.companyId === me.companyId && j.status !== 'complete' && j.status !== 'cancelled').map(j => {
+          const jd = readJobDoc(j.id) || {}; const c = jd.costing || {};
+          const co = (jd.changeOrders || []).reduce((a, x) => { if (x.status === 'approved') a += Number(x.priceDelta) || 0; return a; }, 0);
+          const contract = (Number(c.contract) || 0) + co;
+          const pct = Math.max(0, Math.min(100, Number(jd.percentComplete) || 0));
+          const earned = Math.round(contract * pct / 100 * 100) / 100;
+          // Billed = invoices raised off the same estimate as this job.
+          const billed = j.fromEstimateId ? myInvoices.filter(i => i.fromEstimateId === j.fromEstimateId).reduce((s, i) => s + (Number(i.total) || 0), 0) : 0;
+          const variance = Math.round((billed - earned) * 100) / 100; // + = over-billed, - = under-billed
+          return { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
+            contract: Math.round(contract * 100) / 100, pct, earned, billed: Math.round(billed * 100) / 100, variance };
+        }).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+        const totals = rows.reduce((t, r) => { t.contract += r.contract; t.earned += r.earned; t.billed += r.billed; return t; }, { contract: 0, earned: 0, billed: 0 });
+        totals.contract = Math.round(totals.contract * 100) / 100; totals.earned = Math.round(totals.earned * 100) / 100;
+        totals.billed = Math.round(totals.billed * 100) / 100; totals.variance = Math.round((totals.billed - totals.earned) * 100) / 100;
+        return sendJSON(res, 200, { rows, totals });
       }
 
       // ---- Schedule: jobs with their start/due dates for the calendar ----

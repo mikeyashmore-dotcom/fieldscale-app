@@ -3895,6 +3895,20 @@ async function renderPageBase64(maxLong){
   await page.render({ canvasContext: cx, viewport: vp }).promise;
   return c.toDataURL('image/png').split(',')[1];
 }
+// Robustly pull tag objects out of the AI reply. A very dense sheet can list more callouts than
+// fit in one response, which truncates the JSON — so if a clean parse fails, salvage every
+// complete {…"sheet":"…"} object we can find (only the final cut-off one is lost).
+function parseTagResponse(textOut){
+  let t = String(textOut||'').replace(/```json|```/gi,'').trim();
+  const s = t.indexOf('{'), e = t.lastIndexOf('}');
+  const looksComplete = /\]\s*\}\s*$/.test(t);
+  if(s>=0 && e>s){
+    try{ const o = JSON.parse(t.slice(s, e+1)); if(Array.isArray(o.tags)) return { tags:o.tags, truncated:false }; }catch(_){}
+  }
+  const tags = []; const re = /\{[^{}]*?"sheet"\s*:\s*"[^"]*"[^{}]*?\}/g; let m;
+  while((m = re.exec(t))){ try{ tags.push(JSON.parse(m[0])); }catch(_){} }
+  return { tags, truncated: tags.length>0 && !looksComplete };
+}
 async function autoTagReferences(){
   if(!state.pdfDoc) return;
   const btn = document.getElementById('autotag-btn');
@@ -3912,10 +3926,8 @@ Do NOT include: room name/number boxes (e.g. "QQ1-L" over "205"), plain grid bub
 Respond ONLY with valid JSON, no markdown, in this shape:
 {"tags":[{"x":0.62,"y":0.31,"detail":"16","sheet":"A3.25"}]}
 If there are no reference callouts, return {"tags":[]}.`;
-    const textOut = await callClaudeVision(base64, prompt, 2000);
-    const cleaned = textOut.replace(/```json|```/g,'').trim();
-    let parsed; try{ parsed = JSON.parse(cleaned); }catch(e){ throw new Error('the AI response was not readable. Try again.'); }
-    const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+    const textOut = await callClaudeVision(base64, prompt, 8000);
+    const { tags, truncated } = parseTagResponse(textOut);
     const W = els.pdfCanvas.width, H = els.pdfCanvas.height;
     let added = 0, unresolved = 0, dup = 0;
     tags.forEach(t=>{
@@ -3935,6 +3947,8 @@ If there are no reference callouts, return {"tags":[]}.`;
     let msg = added ? `Added ${added} reference tag${added===1?'':'s'} on this sheet — click one to open that sheet.` : 'No new reference tags found on this sheet.';
     if(dup) msg += ` (${dup} were already tagged.)`;
     if(unresolved) msg += ` ${unresolved} callout${unresolved===1?'':'s'} pointed to a sheet that isn't in this uploaded set, so ${unresolved===1?'it was':'they were'} skipped.`;
+    if(truncated) msg += ' This sheet is very dense, so some callouts may have been cut off — run Auto-tag again to catch the rest.';
+    if(!tags.length) msg = 'No reference callouts were detected on this sheet.';
     alert(msg);
   }catch(err){
     alert('Auto-tag failed: ' + err.message);

@@ -946,7 +946,7 @@
       <button class="btn" id="account-toggle-btn">👤 <span id="account-username">Account</span></button>
       <div class="scale-popover" id="account-popover" style="width:220px;">
         <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Signed in as <b id="account-username-2"></b><span id="account-role-tag"></span></div>
-        <button class="btn" id="manage-users-btn" style="width:100%;margin-bottom:6px;display:none;">👥 Manage Users</button>
+        <a class="btn" id="manage-users-link" href="/admin.html" style="width:100%;margin-bottom:6px;display:none;text-align:center;text-decoration:none;box-sizing:border-box">👥 Manage Users (Team page)</a>
         <button class="btn" id="change-password-btn" style="width:100%;margin-bottom:6px;">🔑 Change Password</button>
         <button class="btn" id="logout-btn" style="width:100%;">Log Out</button>
       </div>
@@ -1630,8 +1630,8 @@ function onLoggedIn(username, role){
   const isCompanyAdmin = currentUserRole === 'admin' || currentUserRole === 'owner';
   document.getElementById('account-role-tag').innerHTML =
     isCompanyAdmin ? ` <span class="tag admin">${currentUserRole === 'owner' ? 'Owner' : 'Admin'}</span>` : '';
-  document.getElementById('manage-users-btn').style.display =
-    isCompanyAdmin ? 'block' : 'none';
+  var mul = document.getElementById('manage-users-link');
+  if(mul) mul.style.display = isCompanyAdmin ? 'block' : 'none';
   hideAuthGate();
   refreshProjectList();
   maybeOpenFromLink();
@@ -1835,12 +1835,8 @@ document.getElementById('admin-allow-signups').addEventListener('change', async 
   }
 });
 
-document.getElementById('manage-users-btn').addEventListener('click', ()=>{
-  accountPopover.classList.remove('open');
-  document.getElementById('admin-msg').className = 'admin-msg';
-  adminOverlay.classList.add('open');
-  refreshUserList();
-});
+// Manage Users now lives on the Team page (header → Team). The account-menu entry is a plain link
+// to /admin.html; the old in-takeoff modal below is retained but no longer opened from here.
 document.getElementById('admin-modal-close').addEventListener('click', ()=> adminOverlay.classList.remove('open'));
 adminOverlay.addEventListener('click', (e)=>{ if(e.target === adminOverlay) adminOverlay.classList.remove('open'); });
 const accountToggleBtn = document.getElementById('account-toggle-btn');

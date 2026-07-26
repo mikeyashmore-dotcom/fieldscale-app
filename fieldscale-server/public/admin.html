@@ -56,6 +56,15 @@
        padding:8px 14px;font-size:13px;cursor:pointer;font-weight:500;font-family:'IBM Plex Sans',sans-serif;margin-right:8px}
   .btn:hover{background:var(--cyan-dim)}
   .backup{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;margin-bottom:22px}
+  .btn.danger{background:var(--danger);border-color:var(--danger)}
+  .btn.danger:hover{background:#a83224}
+  input,select{font-family:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--steel-light);border-radius:var(--radius);background:#fff;color:var(--charcoal)}
+  label.fld{display:block;font-size:11px;color:var(--steel);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+  .u-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .u-actions .btn{margin:0;padding:5px 9px}
+  .u-actions select{padding:5px 6px}
+  .msg{font-size:13px;margin-top:10px}.msg.ok{color:var(--good)}.msg.err{color:var(--danger)}
+  .tag{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10.5px;font-weight:600;background:var(--paper);color:var(--steel);margin-left:6px}
   td.mods{white-space:normal;min-width:220px}
   .modtog{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;margin:2px 8px 2px 0;color:var(--charcoal);cursor:pointer}
   .modtog input{margin:0}
@@ -111,6 +120,25 @@
       <input type="file" id="restore-input" accept=".json,application/json" style="display:none">
     </div>
     <div class="tiles" id="tiles"></div>
+
+    <div class="backup" id="add-user-card" style="display:none">
+      <strong>Add a team member</strong>
+      <p class="muted" style="margin:5px 0 12px;font-size:13px">Create their account here, then give them the username and temporary password directly — Fieldscale doesn't email it. They can change the password after logging in. Pick <strong>Field employee</strong> for crew who should only see their jobs (no pricing, invoices or reports).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div><label class="fld">Username</label><input id="nu-name" autocomplete="off" placeholder="e.g. dave" /></div>
+        <div><label class="fld">Temporary password</label><input id="nu-pass" type="text" autocomplete="off" placeholder="at least 8 characters" /></div>
+        <div><label class="fld">Role</label>
+          <select id="nu-role">
+            <option value="member">Member</option>
+            <option value="admin">Administrator</option>
+            <option value="field">Field employee</option>
+          </select>
+        </div>
+        <button class="btn" id="nu-create">Create account</button>
+      </div>
+      <div id="nu-msg" class="msg"></div>
+    </div>
+
     <div class="card">
       <table>
         <thead>
@@ -121,16 +149,15 @@
             <th>Joined</th>
             <th>Last active</th>
             <th class="num">Projects</th>
-            <th class="num">Estimates</th>
             <th class="num">AI calls</th>
+            <th id="th-manage" style="display:none">Manage</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
-    <p class="note">
-      This is a read-only overview. To add, disable, or reset a team member, use
-      <strong>Manage Users</strong> in the takeoff app's account menu.
+    <p class="note" id="team-note">
+      Members and administrators see the whole app; field employees only see their jobs.
     </p>
 
     <div id="platform" style="display:none;margin-top:34px">
@@ -177,10 +204,10 @@ function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':
 
 function tile(n,l){ return `<div class="tile"><div class="n">${n}</div><div class="l">${l}</div></div>`; }
 
+let canManage = false;   // owner/admin can add/change/remove team members
 function render(users){
   const total = users.length;
   const active7 = users.filter(u => daysAgo(u.lastLoginAt) <= 7).length;
-  const admins = users.filter(u => u.role==='admin').length;
   const projects = users.reduce((s,u)=> s + (u.projectCount||0), 0);
   const estimates = users.reduce((s,u)=> s + (u.estimateCount||0), 0);
   const aiCalls = users.reduce((s,u)=> s + (u.aiCalls||0), 0);
@@ -188,17 +215,35 @@ function render(users){
     tile(total,'Team members') + tile(active7,'Active (7 days)') +
     tile(projects,'Total projects') + tile(estimates,'Total estimates') + tile(aiCalls,'AI calls');
 
-  const rows = users.slice().sort((a,b)=> (b.lastLoginAt||0)-(a.lastLoginAt||0)).map(u => `
-    <tr>
-      <td>${escapeHtml(u.username)}</td>
+  const rows = users.slice().sort((a,b)=> (b.lastLoginAt||0)-(a.lastLoginAt||0)).map(u => {
+    const isMe = adminMe && u.id === adminMe.id;
+    const roleTag = u.role==='field' ? '<span class="tag">Field</span>' : '';
+    let manage = '';
+    if(canManage){
+      manage = u.role==='owner'
+        ? '<td class="muted">Company owner</td>'
+        : `<td><div class="u-actions" data-id="${u.id}" data-name="${escapeHtml(u.username)}" data-disabled="${u.disabled}">
+            <select data-act="role" title="Change role">
+              <option value="member" ${u.role==='member'?'selected':''}>Member</option>
+              <option value="admin" ${u.role==='admin'?'selected':''}>Administrator</option>
+              <option value="field" ${u.role==='field'?'selected':''}>Field employee</option>
+            </select>
+            <button class="btn" data-act="reset">Reset password</button>
+            <button class="btn" data-act="toggle">${u.disabled?'Enable':'Disable'}</button>
+            <button class="btn danger" data-act="delete">Delete</button>
+          </div></td>`;
+    }
+    return `<tr>
+      <td>${escapeHtml(u.username)}${roleTag}${isMe?'<span class="tag">You</span>':''}</td>
       <td><span class="pill ${(u.role==='owner'||u.role==='admin')?'admin':'member'}">${u.role}</span></td>
       <td><span class="pill ${u.disabled?'disabled':'active'}">${u.disabled?'disabled':'active'}</span></td>
       <td class="muted">${fmtDate(u.createdAt)}</td>
       <td class="muted">${fmtDate(u.lastLoginAt)}</td>
       <td class="num">${u.projectCount||0}</td>
-      <td class="num">${u.estimateCount||0}</td>
       <td class="num">${u.aiCalls||0}</td>
-    </tr>`).join('');
+      ${manage}
+    </tr>`;
+  }).join('');
   document.getElementById('rows').innerHTML = rows;
 }
 
@@ -250,21 +295,31 @@ function renderPlatformUsers(users){
     </tr>`).join('');
 }
 
+let adminMe = null;
+async function loadTeam(){
+  const data = await apiFetch('/api/admin/users');
+  render(data.users || []);
+}
 async function init(){
   let me;
   try{ me = await apiFetch('/api/me'); }catch(e){ return; }
+  adminMe = me;
   document.getElementById('who').textContent = me.username;
   if(me.role!=='owner' && me.role!=='admin'){
     document.getElementById('loading').innerHTML =
       'This page is for company owners and admins only. <a href="/estimates.html">Back to Estimating</a>';
     return;
   }
+  canManage = (me.role==='owner' || me.role==='admin');
+  if(canManage){
+    document.getElementById('add-user-card').style.display='';
+    document.getElementById('th-manage').style.display='';
+  }
   if(me.companyName) document.getElementById('page-title').textContent = me.companyName + ' — Team';
   try{
-    const data = await apiFetch('/api/admin/users');
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
-    render(data.users || []);
+    await loadTeam();
     if(me.platformAdmin){
       try{ const pc = await apiFetch('/api/platform/companies'); if(Array.isArray(pc.allModules)) ALL_MODULES=pc.allModules; renderPlatform(pc.companies || []); }catch(e){}
       try{ const pu = await apiFetch('/api/platform/users'); renderPlatformUsers(pu.users || []); }catch(e){}
@@ -300,6 +355,59 @@ document.getElementById('restore-input').addEventListener('change', (e)=>{
   };
   reader.readAsText(file);
   e.target.value='';
+});
+
+// ---- Manage Users (owners/admins) ----
+async function apiSend(path, method, body){
+  const res = await fetch(path, { method, headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+getToken() }, body: body?JSON.stringify(body):undefined });
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+function nuMsg(t, cls){ const m=document.getElementById('nu-msg'); m.textContent=t; m.className='msg '+(cls||''); }
+document.getElementById('nu-create').addEventListener('click', async ()=>{
+  const username=document.getElementById('nu-name').value.trim();
+  const password=document.getElementById('nu-pass').value;
+  const role=document.getElementById('nu-role').value;
+  if(!username || !password){ nuMsg('Enter a username and a temporary password.','err'); return; }
+  try{
+    await apiSend('/api/admin/users','POST',{ username, password, role });
+    nuMsg(`Created ${username}. Give them that username and temporary password to log in.`,'ok');
+    document.getElementById('nu-name').value=''; document.getElementById('nu-pass').value='';
+    await loadTeam();
+  }catch(err){ nuMsg(err.message,'err'); }
+});
+// Role dropdown per user.
+document.getElementById('rows').addEventListener('change', async (e)=>{
+  const sel=e.target.closest('select[data-act="role"]'); if(!sel) return;
+  const wrap=sel.closest('.u-actions'); const id=wrap.dataset.id, name=wrap.dataset.name, role=sel.value;
+  const labels={ member:'a member', admin:'an administrator', field:'a field employee' };
+  const warn= role==='admin' ? '\n\nAdministrators can add, disable and delete any account — including yours.'
+    : role==='field' ? '\n\nField employees only see their jobs — no estimates, pricing, invoices or reports.' : '';
+  if(!confirm(`Change ${name} to ${labels[role]}?${warn}`)){ loadTeam(); return; }
+  try{ await apiSend('/api/admin/users/'+id,'PATCH',{ role }); await loadTeam(); }
+  catch(err){ alert(err.message); loadTeam(); }
+});
+// Reset / disable / delete buttons per user.
+document.getElementById('rows').addEventListener('click', async (e)=>{
+  const btn=e.target.closest('button[data-act]'); if(!btn) return;
+  const wrap=btn.closest('.u-actions'); const id=wrap.dataset.id, name=wrap.dataset.name, disabled=wrap.dataset.disabled==='true';
+  const act=btn.dataset.act;
+  try{
+    if(act==='reset'){
+      const pw=prompt(`New temporary password for "${name}" (at least 8 characters). Give it to them directly — they can change it after logging in.`);
+      if(!pw) return;
+      await apiSend('/api/admin/users/'+id,'PATCH',{ password: pw });
+      alert(`Password reset for ${name}. They've been signed out of any open sessions.`);
+    } else if(act==='toggle'){
+      await apiSend('/api/admin/users/'+id,'PATCH',{ disabled: !disabled });
+    } else if(act==='delete'){
+      if(!confirm(`Delete "${name}" permanently?\n\nEverything they saved is deleted too. This cannot be undone.`)) return;
+      await apiSend('/api/admin/users/'+id,'DELETE');
+    }
+    await loadTeam();
+  }catch(err){ alert(err.message); loadTeam(); }
 });
 init();
 </script>

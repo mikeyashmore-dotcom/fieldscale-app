@@ -31,7 +31,7 @@
   ];
   var ACCOUNT = [
     { label: 'Company', href: '/company.html' },
-    { label: 'Owner', href: '/admin.html', admin: true, id: 'owner-nav' }
+    { label: 'Team', href: '/admin.html', admin: true, id: 'owner-nav' }
   ];
 
   // Detail/editor pages light up their list page's group.

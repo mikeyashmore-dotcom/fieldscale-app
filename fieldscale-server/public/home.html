@@ -8,26 +8,27 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/fs-theme.css">
 <style>
-  .hi{font-family:'Oswald',sans-serif;font-size:24px;font-weight:600;margin:0 0 2px}
+  .wrap{padding-top:16px}
+  .hi{font-family:'Oswald',sans-serif;font-size:23px;font-weight:600;margin:0 0 2px}
   .hi .co{color:var(--cyan-dim)}
-  .sub{color:var(--steel);margin:0 0 22px}
-  h2{font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:26px 0 10px}
-  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px 16px;text-decoration:none;display:block;transition:border-color .12s}
+  .sub{color:var(--steel);margin:0 0 14px}
+  h2{font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:16px 0 7px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .tile{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 14px;text-decoration:none;display:block;transition:border-color .12s}
   a.tile:hover{border-color:var(--cyan-dim)}
   .tile .lab{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel)}
-  .tile .v{font-family:'Oswald',sans-serif;font-size:26px;font-weight:600;color:var(--ink-navy);margin-top:4px}
+  .tile .v{font-family:'Oswald',sans-serif;font-size:23px;font-weight:600;color:var(--ink-navy);margin-top:2px}
   .tile .v.pos{color:var(--good)} .tile .v.neg{color:var(--danger)} .tile .v.warn{color:var(--orange-dim)}
-  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
-  .cards-group{font-family:'Oswald',sans-serif;font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--cyan-dim);margin:20px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--paper-line)}
-  .cards-group:first-child{margin-top:4px}
-  a.card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;text-decoration:none;color:var(--ink-navy);display:flex;align-items:center;gap:12px;transition:border-color .12s,transform .12s}
-  a.card:hover{border-color:var(--cyan-dim);transform:translateY(-1px)}
-  a.card .ic{font-size:22px;flex:none}
-  a.card .t{font-family:'Oswald',sans-serif;font-weight:600;font-size:15px}
-  a.card .d{color:var(--steel);font-size:12px;margin-top:1px}
-  .attn{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:6px 16px}
-  .attn a{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--paper-line);text-decoration:none;color:var(--ink-navy);font-size:14px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+  .cards-group{font-family:'Oswald',sans-serif;font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--cyan-dim);margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--paper-line)}
+  .cards-group:first-child{margin-top:2px}
+  .card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:11px 14px;text-decoration:none;color:var(--ink-navy);display:flex;align-items:center;gap:11px;transition:border-color .12s,transform .12s;width:100%;text-align:left;font:inherit;cursor:pointer}
+  .card:hover{border-color:var(--cyan-dim);transform:translateY(-1px)}
+  .card .ic{font-size:20px;flex:none}
+  .card .t{font-family:'Oswald',sans-serif;font-weight:600;font-size:14.5px}
+  .card .d{color:var(--steel);font-size:12px;margin-top:1px}
+  .attn{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:4px 16px}
+  .attn a{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--paper-line);text-decoration:none;color:var(--ink-navy);font-size:14px}
   .attn a:last-child{border-bottom:none}
   .attn a:hover{color:var(--cyan-dim)}
   .attn .pill{font-family:'IBM Plex Mono',monospace;font-size:12px}
@@ -51,7 +52,7 @@
     <h1 class="hi">Welcome back<span id="co-wrap">, <span class="co" id="co-name"></span></span></h1>
     <p class="sub">Here's where your business stands today.</p>
 
-    <div id="ai-ask" style="display:none;background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:12px 14px;margin-bottom:22px">
+    <div id="ai-ask" style="display:none;background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-family:'Oswald',sans-serif;font-weight:600;color:var(--ink-navy)">✨ Ask Fieldscale</span>
         <span id="ai-on" style="font-size:11px;color:var(--good);background:rgba(74,155,110,.12);padding:1px 8px;border-radius:20px">AI on</span>
@@ -62,7 +63,7 @@
       </div>
     </div>
 
-    <div id="onboard" style="display:none;background:#fff;border:1px solid var(--paper-line);border-left:3px solid var(--cyan-dim);border-radius:var(--radius);padding:16px 18px;margin-bottom:22px">
+    <div id="onboard" style="display:none;background:#fff;border:1px solid var(--paper-line);border-left:3px solid var(--cyan-dim);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
         <h2 style="margin:0 0 2px">Get set up <span id="ob-count" style="font-size:12px;color:var(--steel);font-weight:400"></span></h2>
         <a href="#" id="ob-dismiss" style="font-size:12px;color:var(--steel)">Dismiss</a>

@@ -97,7 +97,12 @@
       + '.fs-modal input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #B9C2CB;border-radius:3px;font-size:14px;font-family:inherit}'
       + '.fs-modal .frow{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}'
       + '.fs-modal .fmsg{font-size:12.5px;margin-top:8px;min-height:16px}'
-      + '.fs-modal .fmsg.err{color:#C0392B}.fs-modal .fmsg.ok{color:#4A9B6E}';
+      + '.fs-modal .fmsg.err{color:#C0392B}.fs-modal .fmsg.ok{color:#4A9B6E}'
+      // Let the header wrap instead of pushing the account items (Employees/Company/Team/username)
+      // off the right edge on medium-width windows. They drop to a second row and stay reachable.
+      + 'header{flex-wrap:wrap;height:auto;min-height:52px;row-gap:4px;padding-top:6px;padding-bottom:6px}'
+      + 'header nav{flex-wrap:wrap;row-gap:4px}'
+      + '.nav-account{flex-wrap:wrap;row-gap:4px}';
     var st = document.createElement('style'); st.id = 'fs-nav-css'; st.textContent = css;
     document.head.appendChild(st);
   }

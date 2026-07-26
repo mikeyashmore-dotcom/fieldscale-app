@@ -129,8 +129,8 @@
         </div>
       </div>
       <button class="btn ghost" id="save-tpl-btn" title="Save these line items, markup, tax, notes & terms as a reusable template">Save as Template</button>
-      <button class="btn ghost" id="share-btn" title="Get a link the client can open to review and approve this estimate online">🔗 Share for approval</button>
-      <button class="btn ghost" id="email-btn" title="Open your email app with the proposal link ready to send">✉ Email proposal</button>
+      <button class="btn primary" id="share-btn" title="Email the customer their proposal with an online approve button">✉ Email for approval</button>
+      <button class="btn ghost" id="email-btn" title="Open your own email app with the proposal link ready to send">Open in email app</button>
       <button class="btn ghost" id="contract-btn" title="Generate a contract from this estimate using your company contract template">📄 Contract</button>
       <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">Convert to Job</button>
       <button class="btn ghost" id="download-pdf-btn" title="Download a PDF file">⬇ Download PDF</button>
@@ -575,11 +575,16 @@ document.getElementById('download-pdf-btn').addEventListener('click', async (e)=
 document.getElementById('share-btn').addEventListener('click', async ()=>{
   try{
     await save();
-    const r = await apiFetch('/api/estimates/'+estId+'/share', { method:'POST' });
-    const url = location.origin + '/accept.html?token=' + r.token;
-    try{ await navigator.clipboard.writeText(url); toast('Approval link copied to clipboard.'); }
-    catch(e){ toast('Approval link ready.'); }
-    prompt('Send this link to your client — they can review and approve it online:', url);
+    const r = await apiFetch('/api/estimates/'+estId+'/send-approval', { method:'POST', body: JSON.stringify({}) });
+    if(r.sent){ toast('Proposal emailed to '+r.to+' for approval.'); return; }
+    if(r.reason==='not_configured'){
+      // Email provider not connected yet — fall back to the contractor's own mail app with the link.
+      const co=(doc.company&&doc.company.name)||'our company', cl=(doc.client&&doc.client.name)||'there';
+      const subj=`Your proposal from ${co}`+(doc.project?` — ${doc.project}`:'');
+      const bodyTxt=`Hi ${cl},\n\nYour proposal is ready to review and approve online:\n\n${r.link}\n\nThank you,\n${co}`;
+      toast('Auto-send isn’t set up yet — opening your email app with the link.', true);
+      location.href = `mailto:${encodeURIComponent(r.to||'')}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(bodyTxt)}`;
+    }
   }catch(err){ toast(err.message, true); }
 });
 // Open the contractor's own email app (no email service needed) with the proposal link ready to send.

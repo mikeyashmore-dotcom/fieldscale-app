@@ -709,6 +709,41 @@ function parseJSONLoose(text) {
   if (end < 0) return null;
   try { return JSON.parse(t.slice(start, end + 1)); } catch (e) { return null; }
 }
+// ---------- Outbound email (provider-agnostic, over HTTP so no extra deps) ----------
+// Configure via env: EMAIL_PROVIDER (resend|sendgrid|postmark), EMAIL_API_KEY, EMAIL_FROM
+// (e.g. "Acme Builders <no-reply@acme.com>" — must be a verified sender on the provider).
+// Until those are set, emailConfigured() is false and callers fall back gracefully.
+const EMAIL_PROVIDER = (process.env.EMAIL_PROVIDER || '').toLowerCase();
+const EMAIL_API_KEY = process.env.EMAIL_API_KEY || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || '';
+function emailConfigured() { return !!(EMAIL_PROVIDER && EMAIL_API_KEY && EMAIL_FROM); }
+async function sendEmail({ to, subject, html, text, replyTo }) {
+  if (!emailConfigured()) throw new Error('not_configured');
+  if (!to) throw new Error('No recipient email.');
+  let url, headers = { 'Content-Type': 'application/json' }, body;
+  if (EMAIL_PROVIDER === 'resend') {
+    url = 'https://api.resend.com/emails'; headers.Authorization = 'Bearer ' + EMAIL_API_KEY;
+    body = { from: EMAIL_FROM, to: [to], subject, html, text }; if (replyTo) body.reply_to = replyTo;
+  } else if (EMAIL_PROVIDER === 'sendgrid') {
+    url = 'https://api.sendgrid.com/v3/mail/send'; headers.Authorization = 'Bearer ' + EMAIL_API_KEY;
+    const fromEmail = (EMAIL_FROM.match(/<([^>]+)>/) || [null, EMAIL_FROM])[1];
+    const fromName = (EMAIL_FROM.match(/^([^<]+)</) || [null, ''])[1].trim();
+    body = { personalizations: [{ to: [{ email: to }] }], from: { email: fromEmail, name: fromName || undefined },
+      subject, content: [{ type: 'text/plain', value: text || '' }, { type: 'text/html', value: html || '' }] };
+    if (replyTo) body.reply_to = { email: replyTo };
+  } else if (EMAIL_PROVIDER === 'postmark') {
+    url = 'https://api.postmarkapp.com/email'; headers['X-Postmark-Server-Token'] = EMAIL_API_KEY; headers.Accept = 'application/json';
+    body = { From: EMAIL_FROM, To: to, Subject: subject, HtmlBody: html, TextBody: text }; if (replyTo) body.ReplyTo = replyTo;
+  } else {
+    throw new Error('Unknown EMAIL_PROVIDER "' + EMAIL_PROVIDER + '" (use resend, sendgrid, or postmark).');
+  }
+  if (process.env.EMAIL_API_URL) url = process.env.EMAIL_API_URL;  // override (self-hosted proxy / testing)
+  const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error('Email provider error (' + r.status + '): ' + t.slice(0, 200)); }
+  return { ok: true };
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
 // A data-URL or raw base64 → { mime, data } for the vision endpoints. Caps size to protect the bill.
 function parseImageInput(image) {
   if (!image || typeof image !== 'string') return null;
@@ -1995,6 +2030,39 @@ const server = http.createServer(async (req, res) => {
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         if (!est.shareToken) { est.shareToken = crypto.randomBytes(16).toString('hex'); est.updatedAt = Date.now(); saveDB(db); }
         return sendJSON(res, 200, { token: est.shareToken });
+      }
+      // Email the customer the proposal + its online-approval link, straight from the app.
+      const estSendMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)\/send-approval$/);
+      if (estSendMatch && req.method === 'POST') {
+        const est = db.estimates.find(e => e.id === estSendMatch[1] && e.companyId === me.companyId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        const body = await readBody(req);
+        const edoc = readEstimateDoc(est.id) || {};
+        const to = (body.to && String(body.to).trim()) || (edoc.client && edoc.client.email) || '';
+        if (!to) return sendJSON(res, 400, { error: "Add the customer's email on the estimate first, then send." });
+        if (!est.shareToken) { est.shareToken = crypto.randomBytes(16).toString('hex'); est.updatedAt = Date.now(); saveDB(db); }
+        const proto = (req.headers['x-forwarded-proto'] || 'https');
+        const link = proto + '://' + (req.headers['host'] || '') + '/accept.html?token=' + est.shareToken;
+        const company = (edoc.company && edoc.company.name) || (companyById(me.companyId) || {}).name || 'Our company';
+        const clientName = (edoc.client && edoc.client.name) || 'there';
+        const subject = (body.subject && String(body.subject).slice(0, 200)) || ('Your proposal from ' + company + (edoc.project ? (' — ' + edoc.project) : ''));
+        const intro = (body.message && String(body.message)) || ('Thank you for the opportunity. Your proposal' + (edoc.project ? (' for ' + edoc.project) : '') + ' is ready to review and approve online.');
+        const replyTo = (edoc.company && edoc.company.email) || undefined;
+        const html = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e242c;line-height:1.55">'
+          + '<p>Hi ' + esc(clientName) + ',</p><p>' + esc(intro) + '</p>'
+          + '<p style="margin:20px 0"><a href="' + esc(link) + '" style="display:inline-block;background:#2F6DB0;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-weight:600">Review &amp; approve your proposal</a></p>'
+          + '<p style="color:#5c6672;font-size:12px">Or paste this link into your browser:<br>' + esc(link) + '</p>'
+          + '<p>Thank you,<br>' + esc(company) + '</p></div>';
+        const text = 'Hi ' + clientName + ',\n\n' + intro + '\n\nReview & approve your proposal:\n' + link + '\n\nThank you,\n' + company;
+        if (!emailConfigured()) return sendJSON(res, 200, { sent: false, reason: 'not_configured', link, to });
+        try {
+          await sendEmail({ to, subject, html, text, replyTo });
+          logAudit(me, 'estimate.email-approval', est.name + ' → ' + to);
+          return sendJSON(res, 200, { sent: true, to });
+        } catch (e) {
+          if (e.message === 'not_configured') return sendJSON(res, 200, { sent: false, reason: 'not_configured', link, to });
+          return sendJSON(res, 502, { error: 'Could not send the email: ' + e.message, link });
+        }
       }
 
       // ---- Invoicing: list / create / convert-from-estimate ----

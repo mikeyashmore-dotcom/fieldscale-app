@@ -200,7 +200,7 @@
     <div class="bottom">
       <div class="note-blocks">
         <div class="block">
-          <h3>Scope / Notes (shown on the proposal)</h3>
+          <h3>Scope / Notes (shown on the proposal) <button class="btn ghost" id="ai-scope-btn" style="display:none;font-size:12px;padding:3px 9px;margin-left:6px" title="Turn your notes into a polished scope of work">✨ Write scope</button></h3>
           <textarea id="notes" placeholder="Describe the work, inclusions, exclusions…"></textarea>
         </div>
         <div class="block">
@@ -882,7 +882,22 @@ async function init(){
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     fillForm(); renderLines();
+    setupAiScope();
   }catch(err){ document.getElementById('loading').textContent='Could not load estimate: '+err.message; }
+}
+// Show the "Write scope" button only when AI is switched on; turn the notes into a polished scope.
+function setupAiScope(){
+  const btn=document.getElementById('ai-scope-btn');
+  fsAI.status().then(s=>{ if(s.enabled) btn.style.display=''; });
+  btn.addEventListener('click', ()=>{
+    const notes=document.getElementById('notes').value.trim();
+    if(!notes){ toast('Type a few rough notes first, then let AI polish them.', true); return; }
+    fsAiRun({ title:'✨ AI scope of work', loading:'Writing your scope of work…',
+      run:()=>fsAI.post('/api/ai/scope',{ notes, project: val('project') }),
+      insertLabel:'Use this scope',
+      onInsert:(text)=>{ document.getElementById('notes').value=text; doc.notes=text; toast('Scope added to notes.'); }
+    });
+  });
 }
 init();
 </script>

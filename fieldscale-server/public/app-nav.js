@@ -376,3 +376,55 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
+
+// ---- Shared AI helper + result modal (used by the estimate/job/reports/home pages) ----
+(function () {
+  var css = '.fsai-ov{position:fixed;inset:0;background:rgba(14,42,71,.42);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px}'
+    + '.fsai-card{background:#fff;border-radius:8px;max-width:580px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 14px 44px rgba(14,42,71,.35)}'
+    + '.fsai-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #E4DFCF;font-family:Oswald,sans-serif;font-weight:600;color:#0E2A47;font-size:17px}'
+    + '.fsai-x{background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:#7C8896}'
+    + '.fsai-bd{padding:16px 18px;font-size:14px;line-height:1.55;color:#1C1E22;white-space:pre-wrap;overflow:auto}'
+    + '.fsai-in{width:100%;box-sizing:border-box;border:1px solid #B9C2CB;border-radius:5px;padding:9px 11px;font:14px inherit;margin-bottom:10px;resize:vertical}'
+    + '.fsai-ft{display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid #E4DFCF;flex-wrap:wrap}'
+    + '.fsai-btn{border:1px solid #B9C2CB;background:#fff;border-radius:5px;padding:8px 14px;font:600 13px inherit;cursor:pointer;color:#1C1E22}'
+    + '.fsai-btn.primary{background:#E8722C;border-color:#E8722C;color:#fff}.fsai-btn:disabled{opacity:.5;cursor:default}'
+    + '.fsai-spin{display:inline-block;width:15px;height:15px;border:2px solid #E4DFCF;border-top-color:#E8722C;border-radius:50%;animation:fsaispin .7s linear infinite;vertical-align:-2px}'
+    + '@keyframes fsaispin{to{transform:rotate(360deg)}} .fsai-err{color:#C0392B}';
+  var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+
+  window.fsAI = {
+    async post(path, body) {
+      var t = localStorage.getItem('fieldscale_token');
+      var r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t }, body: JSON.stringify(body || {}) });
+      var d; try { d = await r.json(); } catch (e) { d = {}; }
+      if (!r.ok) throw new Error(d.error || 'AI request failed.');
+      return d;
+    },
+    status() { return fetch('/api/ai/status').then(function (r) { return r.json(); }).catch(function () { return { enabled: false }; }); }
+  };
+
+  // Opens a modal, runs an async task, shows the text with Copy + an optional Insert button.
+  window.fsAiRun = function (opts) {
+    var ov = document.createElement('div'); ov.className = 'fsai-ov';
+    ov.innerHTML = '<div class="fsai-card"><div class="fsai-hd"><span>' + (opts.title || 'AI') + '</span><button class="fsai-x" aria-label="Close">×</button></div>'
+      + '<div class="fsai-bd" id="fsai-bd"><span class="fsai-spin"></span> ' + (opts.loading || 'Thinking…') + '</div>'
+      + '<div class="fsai-ft" id="fsai-ft"></div></div>';
+    document.body.appendChild(ov);
+    function close() { ov.remove(); }
+    ov.querySelector('.fsai-x').onclick = close;
+    ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+    var bd = ov.querySelector('#fsai-bd'), ft = ov.querySelector('#fsai-ft');
+    Promise.resolve().then(opts.run).then(function (result) {
+      var text = opts.render ? opts.render(result) : (result.text || '');
+      bd.textContent = text;
+      ft.innerHTML = '';
+      function addBtn(label, primary, fn) { var b = document.createElement('button'); b.className = 'fsai-btn' + (primary ? ' primary' : ''); b.textContent = label; b.onclick = fn; ft.appendChild(b); return b; }
+      addBtn('Copy', false, function () { try { navigator.clipboard.writeText(text); } catch (e) {} });
+      if (opts.onInsert) addBtn(opts.insertLabel || 'Insert', true, function () { opts.onInsert(text, result); close(); });
+      addBtn('Close', false, close);
+    }).catch(function (err) {
+      bd.innerHTML = '<span class="fsai-err">' + (err.message || 'Something went wrong.') + '</span>';
+      ft.innerHTML = ''; var b = document.createElement('button'); b.className = 'fsai-btn'; b.textContent = 'Close'; b.onclick = close; ft.appendChild(b);
+    });
+  };
+})();

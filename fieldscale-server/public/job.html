@@ -210,6 +210,8 @@
       <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" />
       <button class="btn ghost" id="add-photo" title="Take a photo (uses your camera on a phone)">📷 Take photo</button>
       <button class="btn ghost" id="add-receipt">＋ Add receipt / file</button>
+      <button class="btn ghost fin-hide" id="ai-receipt-btn" style="display:none" title="Read a receipt photo and pull out the vendor, amount and category">✨ Read receipt</button>
+      <input type="file" id="ai-receipt-input" accept="image/*" style="display:none" />
       <span id="receipt-status" style="font-size:12px;color:var(--steel);margin-left:10px"></span>
     </div>
 
@@ -222,7 +224,7 @@
         </table>
       </div>
     </div>
-    <div class="fin-hide" style="margin:10px 0 18px"><button class="btn ghost" id="add-co">＋ Add change order</button></div>
+    <div class="fin-hide" style="margin:10px 0 18px"><button class="btn ghost" id="add-co">＋ Add change order</button> <button class="btn ghost" id="ai-co-btn" style="display:none" title="Describe the change in plain words; AI drafts it">✨ Draft with AI</button></div>
 
     <div class="block fin-hide" style="padding:0;overflow:hidden">
       <div style="padding:14px 14px 0"><h3 style="margin:0">Progress billing (draws)</h3>
@@ -279,6 +281,7 @@
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">A quick record of each day on site — weather, who was there, and what got done. Attach site photos in Receipts above.</p>
       <div id="logs"></div>
       <button class="btn ghost" id="add-log" style="margin-top:6px">＋ Add day</button>
+      <button class="btn ghost" id="ai-log-btn" style="display:none;margin-top:6px" title="Turn these logs into a friendly update for the homeowner">✨ Summarize for customer</button>
     </div>
 
     <div class="block" style="padding:0;overflow:hidden">
@@ -1112,6 +1115,7 @@ async function init(){
     if(isField){ const tr=document.getElementById('tmpl-row'); if(tr) tr.style.display='none'; }
     else {
       if(!hideFin) refreshDash();
+      setupAiJob();
       loadTemplates();
       // Team roster → crew datalist (and default time-entry rates).
       getCompany().then(co=>{
@@ -1120,6 +1124,52 @@ async function init(){
       });
     }
   }catch(err){ document.getElementById('loading').textContent='Could not load job: '+err.message; }
+}
+// Wire the AI buttons (only when AI is switched on server-side; hidden for field/no-financial users).
+function setupAiJob(){
+  fsAI.status().then(s=>{ if(!s.enabled) return;
+    const co=document.getElementById('ai-co-btn'); if(co && !hideFin) co.style.display='';
+    const lg=document.getElementById('ai-log-btn'); if(lg) lg.style.display='';
+    const rc=document.getElementById('ai-receipt-btn'); if(rc && !hideFin) rc.style.display='';
+  });
+  const coBtn=document.getElementById('ai-co-btn');
+  if(coBtn) coBtn.addEventListener('click', ()=>{
+    const request=prompt('Describe the change in plain words (what the customer wants added or changed):');
+    if(!request || !request.trim()) return;
+    fsAiRun({ title:'✨ Draft change order', loading:'Drafting the change order…',
+      run:()=>fsAI.post('/api/ai/changeorder',{request}),
+      render:(r)=>{ const c=r.changeOrder||{}; return (c.title?c.title+'\n\n':'')+(c.scope||'')+(c.reason?('\n\nReason: '+c.reason):'')+(c.priceNote?('\n\nPricing: '+c.priceNote):''); },
+      insertLabel:'Add as change order',
+      onInsert:(text,r)=>{ const c=r.changeOrder||{}; doc.changeOrders=doc.changeOrders||[];
+        doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), description:((c.title?c.title+' — ':'')+(c.scope||'')).slice(0,500), priceDelta:0, costDelta:0, status:'pending' });
+        renderChangeOrders(); toast('Change order added — set the price.'); }
+    });
+  });
+  const logBtn=document.getElementById('ai-log-btn');
+  if(logBtn) logBtn.addEventListener('click', ()=>{
+    if(!(doc.dailyLogs||[]).length){ toast('Add a daily log or two first.', true); return; }
+    fsAiRun({ title:'✨ Customer update', loading:'Writing a friendly update…',
+      run:()=>fsAI.post('/api/ai/logsummary',{jobId}),
+      insertLabel:'Save to client message',
+      onInsert:(text)=>{ const el=document.getElementById('client-message'); if(el){ el.value=text; doc.clientMessage=text; } toast('Saved to the client message.'); }
+    });
+  });
+  const rcBtn=document.getElementById('ai-receipt-btn'), rcIn=document.getElementById('ai-receipt-input');
+  if(rcBtn && rcIn){
+    rcBtn.addEventListener('click', ()=>rcIn.click());
+    rcIn.addEventListener('change', ()=>{ const f=rcIn.files[0]; if(!f) return; const rd=new FileReader();
+      rd.onload=()=>{ const image=rd.result;
+        fsAiRun({ title:'✨ Read receipt', loading:'Reading the receipt…',
+          run:()=>fsAI.post('/api/ai/receipt',{image}),
+          render:(r)=>{ const x=r.receipt||{}; return 'Vendor: '+(x.vendor||'—')+'\nDate: '+(x.date||'—')+'\nTotal: $'+(x.total||0)+'\nCategory: '+(x.category||'—')+(x.summary?('\n\n'+x.summary):''); },
+          insertLabel:'Add as cost',
+          onInsert:(text,r)=>{ const x=r.receipt||{}; doc.costs=doc.costs||[];
+            doc.costs.push({ id:'x_'+Math.random().toString(16).slice(2,8), category:(x.category||'Materials'), description:((x.vendor||'')+(x.summary?(' — '+x.summary):'')).slice(0,200), amount:Number(x.total)||0, date:x.date||'' });
+            renderCosts(); renderCosting(); toast('Cost added from receipt.'); }
+        });
+        rcIn.value=''; };
+      rd.readAsDataURL(f); });
+  }
 }
 init();
 </script>

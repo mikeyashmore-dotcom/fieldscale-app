@@ -49,6 +49,17 @@
     <h1 class="hi">Welcome back<span id="co-wrap">, <span class="co" id="co-name"></span></span></h1>
     <p class="sub">Here's where your business stands today.</p>
 
+    <div id="ai-ask" style="display:none;background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:12px 14px;margin-bottom:22px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-family:'Oswald',sans-serif;font-weight:600;color:var(--ink-navy)">✨ Ask Fieldscale</span>
+        <span id="ai-on" style="font-size:11px;color:var(--good);background:rgba(74,155,110,.12);padding:1px 8px;border-radius:20px">AI on</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input id="ai-q" placeholder="e.g. which invoices are unpaid?  ·  what did we quote the Smiths?" style="flex:1;padding:9px 11px;border:1px solid var(--steel-light);border-radius:var(--radius);font:14px inherit">
+        <button class="btn primary" id="ai-ask-btn" style="white-space:nowrap">Ask</button>
+      </div>
+    </div>
+
     <div id="onboard" style="display:none;background:#fff;border:1px solid var(--paper-line);border-left:3px solid var(--cyan-dim);border-radius:var(--radius);padding:16px 18px;margin-bottom:22px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
         <h2 style="margin:0 0 2px">Get set up <span id="ob-count" style="font-size:12px;color:var(--steel);font-weight:400"></span></h2>
@@ -185,6 +196,17 @@ async function init(){
 
   document.getElementById('loading').style.display='none';
   document.getElementById('content').style.display='block';
+  setupAiAsk();
+}
+
+// ---- Conversational search across the company's records (shown only when AI is on) ----
+function setupAiAsk(){
+  fsAI.status().then(s=>{ if(s.enabled) document.getElementById('ai-ask').style.display=''; });
+  const ask=()=>{ const q=document.getElementById('ai-q').value.trim(); if(!q) return;
+    fsAiRun({ title:'✨ '+q, loading:'Searching your records…', run:()=>fsAI.post('/api/ai/search',{query:q}) });
+  };
+  document.getElementById('ai-ask-btn').addEventListener('click', ask);
+  document.getElementById('ai-q').addEventListener('keydown', e=>{ if(e.key==='Enter') ask(); });
 }
 
 // ---- Guided onboarding checklist (new accounts) ----

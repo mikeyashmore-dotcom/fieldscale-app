@@ -655,6 +655,58 @@ function checkAiRateLimit(userId) {
   return null;
 }
 
+// ---------- AI features (Claude) ----------
+// One shared path so every AI feature is billed, rate-limited and error-handled the same way.
+// AI_MOCK lets the test suite exercise the full request→parse→UI flow without a real key.
+const AI_MOCK = process.env.AI_MOCK === '1';
+const AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-4-6';
+function aiEnabled() { return AI_MOCK || !!ANTHROPIC_API_KEY; }
+const AI_OFF_MSG = 'AI features are off — no ANTHROPIC_API_KEY is set on the server yet.';
+function aiErr(e) { return e && e.message ? ('AI error: ' + e.message) : 'AI request failed.'; }
+async function aiCall({ system, messages, max_tokens, model }) {
+  const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: model || AI_MODEL, max_tokens: Math.min(max_tokens || 1024, MAX_AI_TOKENS), system, messages })
+  });
+  const data = await anthropicRes.json();
+  if (data.error) throw new Error(data.error.message || 'Anthropic API error');
+  return (data.content || []).map(b => b.text || '').join('\n').trim();
+}
+// Build one user message (optional images first, then the prompt) and return the model's text.
+// In AI_MOCK mode it returns the supplied canned response so the pipeline is testable offline.
+async function aiText({ system, user, images, max_tokens, model, mock }) {
+  if (AI_MOCK) return typeof mock === 'function' ? mock() : (mock || '');
+  const content = [];
+  (images || []).forEach(img => content.push({ type: 'image', source: { type: 'base64', media_type: img.mime || 'image/png', data: img.data } }));
+  content.push({ type: 'text', text: user });
+  return aiCall({ system, messages: [{ role: 'user', content }], max_tokens, model });
+}
+// Pull the first JSON object/array out of a reply (models sometimes wrap it in prose or ```json fences).
+function parseJSONLoose(text) {
+  if (!text) return null;
+  let t = String(text);
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i); if (fence) t = fence[1];
+  const start = t.search(/[\[{]/); if (start < 0) return null;
+  const open = t[start], close = open === '{' ? '}' : ']';
+  let depth = 0, end = -1, inStr = false, esc = false;
+  for (let i = start; i < t.length; i++) { const c = t[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; }
+    else if (c === '"') inStr = true; else if (c === open) depth++; else if (c === close) { if (--depth === 0) { end = i; break; } }
+  }
+  if (end < 0) return null;
+  try { return JSON.parse(t.slice(start, end + 1)); } catch (e) { return null; }
+}
+// A data-URL or raw base64 → { mime, data } for the vision endpoints. Caps size to protect the bill.
+function parseImageInput(image) {
+  if (!image || typeof image !== 'string') return null;
+  let mime = 'image/png', data = image;
+  const m = image.match(/^data:(image\/[a-z+]+);base64,(.*)$/i);
+  if (m) { mime = m[1]; data = m[2]; }
+  if (data.length > 8 * 1024 * 1024) return null; // ~6MB image
+  return { mime, data };
+}
+
 // ---------- Login throttling (slows down password guessing) ----------
 const loginFails = new Map(); // username -> { count, until }
 function loginBlocked(uname) {
@@ -784,6 +836,11 @@ const server = http.createServer(async (req, res) => {
     // ---- Health check (hosting platforms ping this) ----
     if (pathname === '/api/health') {
       return sendJSON(res, 200, { ok: true, users: db.users.length });
+    }
+
+    // ---- Is AI turned on? (safe to be public — reports only whether a key is set, never the key) ----
+    if (pathname === '/api/ai/status') {
+      return sendJSON(res, 200, { enabled: aiEnabled(), model: aiEnabled() ? AI_MODEL : null });
     }
 
     // ---- Public config: tells the login screen whether to show "Create one" ----
@@ -1393,6 +1450,117 @@ const server = http.createServer(async (req, res) => {
         const textOut = (data.content || []).map(b => b.text || '').join('\n');
         return sendJSON(res, 200, { text: textOut });
       }
+
+      // ===================== AI ASSISTANT FEATURES =====================
+      // Each one: check the key is set, rate-limit the caller, do the work, count the call.
+      const aiBlocked = () => { if (!aiEnabled()) { sendJSON(res, 503, { error: AI_OFF_MSG }); return true; }
+        const lim = checkAiRateLimit(userId); if (lim) { sendJSON(res, 429, { error: lim }); return true; } return false; };
+      const aiDone = () => { me.aiCalls = (me.aiCalls || 0) + 1; saveDB(db); };
+
+      // ---- Scope of work from rough notes (also drives the estimate "Write scope" button) ----
+      if (pathname === '/api/ai/scope' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { notes, trade, projectType } = await readBody(req);
+        if (!notes || !String(notes).trim()) return sendJSON(res, 400, { error: 'Add a few notes for the AI to work from.' });
+        const system = 'You are a professional construction estimator. Turn the contractor\'s rough notes into a clear, well-organized Scope of Work for a customer proposal. Use short paragraphs or bullet points describing what is included and how the work will be done. Be specific and professional. Do NOT invent prices, brand names, dimensions, or commitments not implied by the notes. Only list exclusions the notes mention. Output plain text, no markdown headers.';
+        const user = (trade ? 'Trade: ' + trade + '\n' : '') + (projectType ? 'Project: ' + projectType + '\n' : '') + 'Notes:\n' + String(notes).slice(0, 4000);
+        try { const text = await aiText({ system, user, max_tokens: 1200, mock: () => 'Contractor will furnish all labor, materials, and equipment to complete the following:\n\n• ' + String(notes).slice(0, 200) + '\n• Clean up and haul away debris on completion.' });
+          aiDone(); return sendJSON(res, 200, { text });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Draft a change order from a plain-language request ----
+      if (pathname === '/api/ai/changeorder' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { request: reqText } = await readBody(req);
+        if (!reqText || !String(reqText).trim()) return sendJSON(res, 400, { error: 'Describe the change so the AI can draft it.' });
+        const system = 'You draft construction change orders. Given a plain-language request, return ONLY JSON: {"title":"short title","scope":"1-2 sentence professional description of the added/changed work","reason":"why (customer request, field condition, etc.)","priceNote":"a short note on how it should be priced, e.g. T&M or a lump sum — do NOT invent a dollar amount"}. No prose outside the JSON.';
+        try { const text = await aiText({ system, user: String(reqText).slice(0, 3000), max_tokens: 700, mock: () => '{"title":"Added work","scope":"Furnish and install the additional work described by the client.","reason":"Client request.","priceNote":"Recommend pricing as a lump sum once quantities are confirmed."}' });
+          const co = parseJSONLoose(text) || { title: 'Change order', scope: text, reason: '', priceNote: '' };
+          aiDone(); return sendJSON(res, 200, { changeOrder: co });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Summarize a job's daily logs into a friendly customer update ----
+      if (pathname === '/api/ai/logsummary' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { jobId, logs } = await readBody(req);
+        let logText = '';
+        if (jobId) { const job = db.jobs.find(j => j.id === jobId && j.companyId === me.companyId); if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+          const doc = readJobDoc(job.id) || {};
+          logText = (doc.dailyLogs || []).map(l => [l.date, l.crew ? ('crew: ' + l.crew) : '', l.weather, l.workDone || l.note].filter(Boolean).join(' — ')).join('\n'); }
+        else logText = String(logs || '');
+        if (!logText.trim()) return sendJSON(res, 400, { error: 'No daily logs to summarize yet.' });
+        const system = 'You write short, friendly progress updates a contractor can send a homeowner. From the crew\'s daily logs, write 2-4 warm, plain-language sentences on what got done and what\'s next. No jargon, no pricing, no promises about dates unless the logs state them. Output plain text.';
+        try { const text = await aiText({ system, user: 'Daily logs:\n' + logText.slice(0, 4000), max_tokens: 500, mock: () => 'Great progress on your project this week — the crew completed the work noted in the logs and kept the site tidy. We\'ll continue with the next phase shortly and keep you posted.' });
+          aiDone(); return sendJSON(res, 200, { text });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Conversational search across the company's records ----
+      if (pathname === '/api/ai/search' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { query } = await readBody(req);
+        if (!query || !String(query).trim()) return sendJSON(res, 400, { error: 'Type a question.' });
+        const cid = me.companyId;
+        const jobs = db.jobs.filter(j => j.companyId === cid).map(j => `JOB "${j.name}" client=${j.client||'?'} status=${j.status||'?'}`);
+        const ests = db.estimates.filter(e => e.companyId === cid).map(e => `ESTIMATE "${e.name}" client=${e.client||'?'} total=$${Math.round(e.total||0)} status=${e.status||'?'}`);
+        const invs = db.invoices.filter(i => i.companyId === cid).map(i => `INVOICE #${i.invoiceNo||'?'} client=${i.client||'?'} total=$${Math.round(i.total||0)} paid=$${Math.round(i.amountPaid||0)} status=${invoiceStatus(i.total,i.amountPaid)}`);
+        const leads = db.leads.filter(l => l.companyId === cid).map(l => `LEAD "${l.name}" stage=${l.stage||'?'} value=$${Math.round(l.value||0)}`);
+        const corpus = [...jobs, ...ests, ...invs, ...leads].join('\n').slice(0, 12000);
+        const system = 'You answer a contractor\'s questions using ONLY the records provided. Be concise and specific; cite the record names/numbers. If the answer isn\'t in the data, say so plainly. Never invent records or figures.';
+        try { const text = await aiText({ system, user: 'Records:\n' + (corpus || '(no records yet)') + '\n\nQuestion: ' + String(query).slice(0, 500), max_tokens: 700, mock: () => 'Based on your records: ' + (corpus ? corpus.split('\n')[0] : 'no records yet') + '.' });
+          aiDone(); return sendJSON(res, 200, { text });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Read a receipt photo → structured expense fields ----
+      if (pathname === '/api/ai/receipt' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { image } = await readBody(req);
+        const img = parseImageInput(image);
+        if (!img) return sendJSON(res, 400, { error: 'Send a receipt photo (image, under ~6MB).' });
+        const system = 'You read receipt/invoice photos for a contractor\'s bookkeeping. Return ONLY JSON: {"vendor":"","date":"YYYY-MM-DD or empty","total":number,"tax":number,"category":"Materials|Fuel|Tools|Subcontractor|Permit|Other","summary":"short line of what was bought"}. If a field is unreadable, use "" or 0. No prose outside the JSON.';
+        try { const text = await aiText({ system, user: 'Extract the receipt fields.', images: [img], max_tokens: 500, model: AI_MODEL, mock: () => '{"vendor":"Test Supply Co","date":"2026-07-26","total":142.55,"tax":9.55,"category":"Materials","summary":"Lumber and fasteners"}' });
+          const data = parseJSONLoose(text) || {};
+          aiDone(); return sendJSON(res, 200, { receipt: data });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Suggest takeoff items from a plan image (AI suggestions to verify) ----
+      if (pathname === '/api/ai/takeoff' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { image, trade } = await readBody(req);
+        const img = parseImageInput(image);
+        if (!img) return sendJSON(res, 400, { error: 'Send an image of the plan/drawing (under ~6MB).' });
+        const system = 'You are a construction estimator reviewing a plan image. Suggest likely takeoff items to price. Return ONLY JSON: {"items":[{"item":"","qty":number,"unit":"SF|LF|EA|CY|LS","note":"basis/assumption"}],"disclaimer":"These are AI estimates from a drawing — verify against the real plans."}. Estimate quantities only when the drawing supports it; otherwise use 0 and explain in note.';
+        try { const text = await aiText({ system, user: (trade ? 'Trade focus: ' + trade + '. ' : '') + 'Suggest takeoff items.', images: [img], max_tokens: 1500, mock: () => '{"items":[{"item":"Wall framing","qty":0,"unit":"LF","note":"Measure walls to confirm"}],"disclaimer":"These are AI estimates from a drawing — verify against the real plans."}' });
+          const data = parseJSONLoose(text) || { items: [], disclaimer: 'Could not read the drawing — please verify manually.' };
+          aiDone(); return sendJSON(res, 200, data);
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Flag jobs at risk of losing money (data-driven, AI explains) ----
+      if (pathname === '/api/ai/risk' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'Financial access required.' });
+        const cid = me.companyId;
+        const rows = db.jobs.filter(j => j.companyId === cid && j.status !== 'complete').map(j => {
+          const doc = readJobDoc(j.id) || {}; const c = doc.costing || {};
+          const contract = Number(c.contract) || 0, budget = Number(c.budget) || 0;
+          const cost = (doc.timeEntries || []).reduce((s, t) => s + (Number(t.hours) || 0) * (Number(t.rate) || 0), 0)
+            + (doc.materials || []).reduce((s, m) => s + (Number(m.cost) || 0), 0)
+            + (j.receipts ? 0 : 0);
+          const pct = Number(doc.percentComplete) || 0;
+          return { name: j.name, client: j.client || '', contract, budget, costToDate: Math.round(cost), percentComplete: pct };
+        });
+        if (!rows.length) return sendJSON(res, 200, { text: 'No open jobs to analyze yet.' });
+        const system = 'You are a construction job-cost analyst. Given each open job\'s contract, budget, cost-to-date and % complete, flag which are at risk of losing money and briefly why (e.g. cost pace exceeds % complete, cost near/over budget). Be concise: one short line per at-risk job, then a one-line overall note. If none look risky, say so. No invented numbers.';
+        try { const text = await aiText({ system, user: 'Jobs:\n' + JSON.stringify(rows), max_tokens: 800, mock: () => 'Reviewed ' + rows.length + ' open job(s). None show clear signs of loss based on the current numbers. Keep logging costs to keep this accurate.' });
+          aiDone(); return sendJSON(res, 200, { text, jobs: rows });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
 
       // ---- Estimating: the user's price book (private, per-user) ----
       // GET returns the saved list; a brand-new user gets seeded with the insulation starter

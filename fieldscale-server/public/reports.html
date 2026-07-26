@@ -86,7 +86,7 @@
       <tbody id="prod-rows"></tbody>
     </table></div>
 
-    <h2>Work in progress (WIP)</h2>
+    <h2>Work in progress (WIP) <button class="btn ghost" id="ai-risk-btn" style="display:none;font-size:12px;padding:4px 12px;margin-left:8px" title="Have AI scan your open jobs and flag any trending toward a loss">✨ Flag jobs at risk</button></h2>
     <p class="section-sub">For active jobs: revenue earned (contract × % complete) vs. what you've actually billed. Over-billed = you're ahead; under-billed = money you've earned but haven't invoiced yet.</p>
     <div class="tiles" id="wip-tiles"></div>
     <div class="card"><table>
@@ -310,7 +310,15 @@ async function init(){
     document.getElementById('content').style.display='block';
     try{ renderDashboard(await apiFetch('/api/reports/analytics')); }catch(e){}
     try{ renderWip(await apiFetch('/api/reports/wip')); }catch(e){}
+    setupAiRisk();
   }catch(err){ document.getElementById('loading').textContent='Could not load reports: '+err.message; }
+}
+function setupAiRisk(){
+  const btn=document.getElementById('ai-risk-btn');
+  fsAI.status().then(s=>{ if(s.enabled) btn.style.display=''; });
+  btn.addEventListener('click', ()=>{
+    fsAiRun({ title:'✨ Jobs at risk', loading:'Scanning your open jobs…', run:()=>fsAI.post('/api/ai/risk',{}) });
+  });
 }
 init();
 </script>

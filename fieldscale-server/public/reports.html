@@ -299,7 +299,9 @@ function renderDashboard(a){
     : '<div style="color:var(--steel);font-size:13px">No jobs yet.</div>';
 }
 async function init(){
-  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  let me;
+  try{ me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  if(me.hideFinancials){ document.getElementById('loading').innerHTML='Reports include costs and profit, which your account isn’t set up to view. <a href="/home.html">Back to Home</a>'; return; }
   try{
     const r=await apiFetch('/api/reports/summary');
     renderAR(r.ar); renderJobs(r.jobs); renderEst(r.estimates);

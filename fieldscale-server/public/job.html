@@ -103,7 +103,25 @@
       <div class="block">
         <h3>Client</h3>
         <div class="field"><label>Client name</label><input id="cl-name" placeholder="Customer name" /></div>
+        <div class="row2">
+          <div class="field"><label>Client email</label><input id="cl-email" type="email" placeholder="name@email.com" /></div>
+          <div class="field"><label>Client phone</label><input id="cl-phone" placeholder="(555) 555-5555" /></div>
+        </div>
         <div class="field"><label>Project / job</label><input id="project" /></div>
+        <div id="notify-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+          <select id="notify-tmpl" style="padding:6px 8px;flex:1;min-width:150px">
+            <option value="">Notify client…</option>
+            <option value="appt">Appointment confirmed</option>
+            <option value="onway">Crew on the way</option>
+            <option value="started">Work started</option>
+            <option value="update">Progress update</option>
+            <option value="complete">Job complete</option>
+            <option value="invoice">Invoice due</option>
+            <option value="review">Request a review</option>
+          </select>
+          <button class="btn ghost" id="notify-email" title="Email the client with this message">✉ Email</button>
+          <button class="btn ghost" id="notify-text" title="Text the client with this message">💬 Text</button>
+        </div>
       </div>
       <div class="block">
         <h3>Schedule &amp; crew</h3>
@@ -189,7 +207,9 @@
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">Attach receipts, photos or PDFs. They stay with this job for its whole life.</p>
       <ul class="tasks" id="receipts" style="list-style:none;margin:0 0 10px;padding:0"></ul>
       <input type="file" id="receipt-input" accept="image/*,application/pdf" multiple style="display:none" />
-      <button class="btn ghost" id="add-receipt">＋ Add receipt</button>
+      <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" />
+      <button class="btn ghost" id="add-photo" title="Take a photo (uses your camera on a phone)">📷 Take photo</button>
+      <button class="btn ghost" id="add-receipt">＋ Add receipt / file</button>
       <span id="receipt-status" style="font-size:12px;color:var(--steel);margin-left:10px"></span>
     </div>
 
@@ -789,16 +809,14 @@ function renderReceipts(){
       <button class="rowdel" data-rdel="${r.id}" title="Remove">✕</button>
     </li>`).join('');
 }
-document.getElementById('add-receipt').addEventListener('click', ()=>document.getElementById('receipt-input').click());
-document.getElementById('receipt-input').addEventListener('change', async (e)=>{
-  const files=Array.from(e.target.files||[]); e.target.value='';
-  if(!files.length) return;
+async function uploadFiles(files){
   const st=document.getElementById('receipt-status');
   for(const f of files){
-    if(f.size > 25*1024*1024){ toast(`"${f.name}" is over 25 MB.`, true); continue; }
-    st.textContent='Uploading '+f.name+'…';
+    if(f.size > 25*1024*1024){ toast(`"${f.name||'Photo'}" is over 25 MB.`, true); continue; }
+    const nm=f.name||('photo-'+Date.now()+'.jpg');
+    st.textContent='Uploading '+nm+'…';
     try{
-      const res=await fetch('/api/jobs/'+jobId+'/receipts?name='+encodeURIComponent(f.name), {
+      const res=await fetch('/api/jobs/'+jobId+'/receipts?name='+encodeURIComponent(nm), {
         method:'POST', headers:{'Content-Type': f.type||'application/octet-stream','Authorization':'Bearer '+getToken()}, body:f });
       if(res.status===401){ location.href='/'; return; }
       const data=await res.json(); if(!res.ok) throw new Error(data.error||'Upload failed');
@@ -806,7 +824,11 @@ document.getElementById('receipt-input').addEventListener('change', async (e)=>{
     }catch(err){ toast(err.message,true); }
   }
   st.textContent='';
-});
+}
+document.getElementById('add-receipt').addEventListener('click', ()=>document.getElementById('receipt-input').click());
+document.getElementById('add-photo').addEventListener('click', ()=>document.getElementById('photo-input').click());
+document.getElementById('receipt-input').addEventListener('change', e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; if(f.length) uploadFiles(f); });
+document.getElementById('photo-input').addEventListener('change', e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; if(f.length) uploadFiles(f); });
 document.getElementById('receipts').addEventListener('click', async (e)=>{
   const v=e.target.getAttribute && e.target.getAttribute('data-view');
   if(v){ try{
@@ -893,7 +915,7 @@ function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 function syncDocFromForm(){
   jobName=val('job-name')||'Untitled Job';
-  doc.client={ name:val('cl-name') }; doc.project=val('project');
+  doc.client={ name:val('cl-name'), email:val('cl-email'), phone:val('cl-phone') }; doc.project=val('project');
   doc.startDate=val('start-date'); doc.dueDate=val('due-date'); doc.notes=val('notes'); doc.clientMessage=val('client-message');
   doc.crew=(val('crew')||'').split(',').map(s=>s.trim()).filter(Boolean);
   doc.company=doc.company||{}; doc.fromEstimateId=doc.fromEstimateId||'';
@@ -909,6 +931,33 @@ async function save(){
   await apiFetch('/api/jobs/'+jobId, { method:'PUT', body: JSON.stringify({ name:jobName, client:doc.client.name, status:val('status'), doc }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Job saved.'); refreshDash(); }catch(err){ toast(err.message,true); } });
+// ---- Client status notifications (sent from the contractor's own email/text app) ----
+function notifyMessage(){
+  const key=document.getElementById('notify-tmpl').value; if(!key) return null;
+  const co=(_company&&_company.name)||(doc.company&&doc.company.name)||'us';
+  const cl=(doc.client&&doc.client.name)||'there';
+  const proj=doc.project?(' for '+doc.project):'';
+  const M={
+    appt:`Hi ${cl}, confirming our appointment${proj}. See you then. — ${co}`,
+    onway:`Hi ${cl}, our crew is on the way to your job${proj}. — ${co}`,
+    started:`Hi ${cl}, we've started work${proj} today. We'll keep you posted. — ${co}`,
+    update:`Hi ${cl}, a quick update${proj}: ${(doc.clientMessage||'work is progressing on schedule.')} — ${co}`,
+    complete:`Hi ${cl}, your job${proj} is complete. Thank you for your business! — ${co}`,
+    invoice:`Hi ${cl}, a friendly reminder that your invoice${proj} is due. Thank you! — ${co}`,
+    review:`Hi ${cl}, thanks again for choosing ${co}${proj}. If you were happy with the work, we'd really appreciate a quick review!`
+  };
+  return { subject:`${co} — update${proj}`, body:M[key]||'' };
+}
+document.getElementById('notify-email').addEventListener('click', ()=>{
+  const m=notifyMessage(); if(!m){ toast('Pick a message first.', true); return; }
+  const to=(doc.client&&doc.client.email)||'';
+  location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(m.subject)}&body=${encodeURIComponent(m.body)}`;
+});
+document.getElementById('notify-text').addEventListener('click', ()=>{
+  const m=notifyMessage(); if(!m){ toast('Pick a message first.', true); return; }
+  const to=((doc.client&&doc.client.phone)||'').replace(/[^0-9+]/g,'');
+  location.href=`sms:${to}?&body=${encodeURIComponent(m.body)}`;
+});
 document.getElementById('portal-btn').addEventListener('click', async ()=>{
   try{
     await save();
@@ -1011,7 +1060,7 @@ document.getElementById('to-invoice-btn').addEventListener('click', async ()=>{
 function fillForm(){
   set('job-name',jobName);
   document.getElementById('status').value = statusVal;
-  set('cl-name',(doc.client||{}).name); set('project',doc.project);
+  set('cl-name',(doc.client||{}).name); set('cl-email',(doc.client||{}).email); set('cl-phone',(doc.client||{}).phone); set('project',doc.project);
   set('start-date',doc.startDate); set('due-date',doc.dueDate); set('notes',doc.notes); set('client-message',doc.clientMessage);
   set('crew', Array.isArray(doc.crew)?doc.crew.join(', '):'');
   const c=doc.costing||{};
@@ -1035,9 +1084,9 @@ function fillForm(){
   renderCosting();
 }
 let statusVal='scheduled';
-let isField=false;
+let isField=false, hideFin=false;
 async function init(){
-  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; isField=(me.role==='field'); }catch(e){ return; }
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; isField=(me.role==='field'); hideFin=(isField||!!me.hideFinancials); }catch(e){ return; }
   if(isField) document.body.classList.add('field-role');
   try{
     const j = await apiFetch('/api/jobs/'+jobId);
@@ -1058,13 +1107,17 @@ async function init(){
     fillForm(); renderLines();
     // Field employees don't see money: hide costing/dashboard/change-order sections and skip the
     // financial summary + company fetch (both blocked server-side for them anyway).
-    if(isField){ document.querySelectorAll('.fin-hide').forEach(el=>el.style.display='none'); const tr=document.getElementById('tmpl-row'); if(tr) tr.style.display='none'; }
-    else { refreshDash(); loadTemplates();
-    // Team roster → crew datalist (and default time-entry rates).
-    getCompany().then(co=>{
-      const team=(co&&co.team)||[];
-      document.getElementById('team-list').innerHTML = team.map(t=>`<option value="${escapeHtml(t.name)}">${escapeHtml(t.role||'')}</option>`).join('');
-    });
+    // No financial access → hide costing/dashboard/change-order/draws sections (server also blocks the data).
+    if(hideFin){ document.querySelectorAll('.fin-hide').forEach(el=>el.style.display='none'); }
+    if(isField){ const tr=document.getElementById('tmpl-row'); if(tr) tr.style.display='none'; }
+    else {
+      if(!hideFin) refreshDash();
+      loadTemplates();
+      // Team roster → crew datalist (and default time-entry rates).
+      getCompany().then(co=>{
+        const team=(co&&co.team)||[];
+        document.getElementById('team-list').innerHTML = team.map(t=>`<option value="${escapeHtml(t.name)}">${escapeHtml(t.role||'')}</option>`).join('');
+      });
     }
   }catch(err){ document.getElementById('loading').textContent='Could not load job: '+err.message; }
 }

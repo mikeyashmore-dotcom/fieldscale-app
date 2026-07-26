@@ -95,6 +95,24 @@
       <h3>Notes</h3>
       <textarea id="notes" placeholder="What they want, budget, timeline, conversation notes…"></textarea>
     </div>
+
+    <div class="block">
+      <h3>Site visit</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 10px">Capture what you saw on site so it seeds the estimate scope.</p>
+      <div class="row2">
+        <div class="field"><label>Visit date</label><input id="sv-date" type="date" /></div>
+        <div class="field"><label>Who was present</label><input id="sv-present" placeholder="Names" /></div>
+      </div>
+      <div class="field"><label>Access instructions</label><input id="sv-access" placeholder="Gate code, park in rear, dog on site…" /></div>
+      <div class="field"><label>Scope / observations</label><textarea id="sv-scope" placeholder="What the job involves, conditions, measurements, materials…"></textarea></div>
+      <div class="field"><label>Risks / concerns</label><input id="sv-risks" placeholder="Access, hazards, unknowns…" /></div>
+      <div class="field"><label>Customer sign-off (they sign below)</label>
+        <div style="border:1px solid var(--paper-line);border-radius:var(--radius);background:#fff;display:inline-block">
+          <canvas id="sv-sig" width="360" height="110" style="touch-action:none;display:block;max-width:100%"></canvas>
+        </div>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center"><button type="button" class="btn ghost" id="sv-sig-clear" style="font-size:12px;padding:4px 10px">Clear</button><span id="sv-sig-note" style="font-size:12px;color:var(--steel)"></span></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -121,11 +139,28 @@ function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 
 let doc={};
+// ---- Signature pad ----
+const sigCanvas=document.getElementById('sv-sig'), sctx=sigCanvas.getContext('2d');
+let sigDrawing=false, sigDirty=false;
+sctx.lineWidth=2; sctx.lineCap='round'; sctx.strokeStyle='#1C1E22';
+function sigPos(e){ const r=sigCanvas.getBoundingClientRect(); const p=e.touches?e.touches[0]:e; return { x:(p.clientX-r.left)*(sigCanvas.width/r.width), y:(p.clientY-r.top)*(sigCanvas.height/r.height) }; }
+function sigStart(e){ e.preventDefault(); sigDrawing=true; sigDirty=true; const p=sigPos(e); sctx.beginPath(); sctx.moveTo(p.x,p.y); }
+function sigMove(e){ if(!sigDrawing) return; e.preventDefault(); const p=sigPos(e); sctx.lineTo(p.x,p.y); sctx.stroke(); }
+function sigEnd(){ sigDrawing=false; }
+sigCanvas.addEventListener('pointerdown',sigStart); sigCanvas.addEventListener('pointermove',sigMove);
+window.addEventListener('pointerup',sigEnd);
+document.getElementById('sv-sig-clear').addEventListener('click',()=>{ sctx.clearRect(0,0,sigCanvas.width,sigCanvas.height); sigDirty=false; document.getElementById('sv-sig-note').textContent=''; });
+function loadSig(dataUrl){ if(!dataUrl) return; const img=new Image(); img.onload=()=>{ sctx.clearRect(0,0,sigCanvas.width,sigCanvas.height); sctx.drawImage(img,0,0,sigCanvas.width,sigCanvas.height); }; img.src=dataUrl; document.getElementById('sv-sig-note').textContent='Signed on file.'; }
+function sigDataUrl(existing){ return sigDirty ? sigCanvas.toDataURL('image/png') : (existing||''); }
+
 async function save(){
+  const sv=doc.siteVisit||{};
   await apiFetch('/api/leads/'+leadId, { method:'PUT', body: JSON.stringify({
     name: val('lead-name')||'New Lead', workType: val('work-type'), value: parseFloat(val('value'))||0,
     stage: val('stage'), source: val('source'), followUp: val('follow-up'),
-    doc: { phone: val('phone'), email: val('email'), address: val('address'), notes: val('notes') }
+    doc: { phone: val('phone'), email: val('email'), address: val('address'), notes: val('notes'),
+      siteVisit: { date: val('sv-date'), present: val('sv-present'), access: val('sv-access'),
+        scope: val('sv-scope'), risks: val('sv-risks'), signature: sigDataUrl(sv.signature) } }
   }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Lead saved.'); }catch(err){ toast(err.message,true); } });
@@ -149,6 +184,9 @@ async function init(){
     set('work-type', l.workType); set('value', l.value||''); set('source', l.source); set('follow-up', l.followUp);
     doc=l.doc||{};
     set('phone', doc.phone); set('email', doc.email); set('address', doc.address); set('notes', doc.notes);
+    const sv=doc.siteVisit||{};
+    set('sv-date',sv.date); set('sv-present',sv.present); set('sv-access',sv.access); set('sv-scope',sv.scope); set('sv-risks',sv.risks);
+    loadSig(sv.signature);
     if(l.estimateId){ const oe=document.getElementById('open-est'); oe.href='/estimate.html?id='+encodeURIComponent(l.estimateId); oe.style.display=''; }
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';

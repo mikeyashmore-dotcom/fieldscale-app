@@ -247,6 +247,7 @@ function render(users){
             </select>
             <button class="btn" data-act="reset">Reset password</button>
             <button class="btn" data-act="toggle">${u.disabled?'Enable':'Disable'}</button>
+            ${u.role==='member'?`<label style="font-size:11.5px;color:var(--steel);display:inline-flex;align-items:center;gap:4px" title="Whether this member can see job costs, profit and reports"><input type="checkbox" data-act="fin" ${!u.hideFinancials?'checked':''}/> sees $</label>`:''}
             <button class="btn danger" data-act="delete">Delete</button>
           </div></td>`;
     }
@@ -325,7 +326,8 @@ async function loadSecurity(){
     document.getElementById('sec-rows').innerHTML =
       `<div>Login secret (SESSION_SECRET): ${s.secretFromEnv ? yn(true,'set from the environment') : '<span style="color:var(--orange-dim)">◆ using a saved secret file (works, but setting SESSION_SECRET in the server environment is recommended)</span>'}</div>` +
       `<div>Security headers (CSP, HSTS, anti-clickjacking): ${yn(!!s.securityHeaders,'on')}</div>` +
-      `<div>Automatic backups: ${lb && lb.ok ? yn(true,'last backup '+fmtDate(lb.at)) : (lb ? yn(false,'last attempt failed') : yn(true,'scheduled (runs shortly after start, then daily)'))} · ${s.backupCount||0} kept</div>`;
+      `<div>Automatic backups: ${lb && lb.ok ? yn(true,'last backup '+fmtDate(lb.at)) : (lb ? yn(false,'last attempt failed') : yn(true,'scheduled (runs shortly after start, then daily)'))} · ${s.backupCount||0} kept</div>` +
+      `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--paper-line);font-size:12.5px;color:var(--steel)"><strong style="color:var(--charcoal)">Security review — in place:</strong> passwords salted &amp; hashed · signed sessions with revocation · HTTPS/HSTS · CSP &amp; anti-clickjacking · per-company data isolation · role &amp; financial-visibility permissions (owner/admin/member/field) · public links rate-limited · all customer-entered text escaped · daily backups · activity log · generic server errors (no internal details leaked). Third-party payment/accounting integrations, when added, will need their own review.</div>`;
   }catch(err){ document.getElementById('sec-rows').innerHTML='<span class="muted">Could not load security status: '+escapeHtml(err.message)+'</span>'; }
 }
 document.getElementById('run-backup-btn').addEventListener('click', async ()=>{
@@ -426,6 +428,13 @@ document.getElementById('nu-create').addEventListener('click', async ()=>{
     document.getElementById('nu-name').value=''; document.getElementById('nu-pass').value='';
     await loadTeam();
   }catch(err){ nuMsg(err.message,'err'); }
+});
+// "Sees $" financial-visibility toggle per member.
+document.getElementById('rows').addEventListener('change', async (e)=>{
+  const cb=e.target.closest('input[data-act="fin"]'); if(!cb) return;
+  const wrap=cb.closest('.u-actions'); const id=wrap.dataset.id;
+  try{ await apiSend('/api/admin/users/'+id,'PATCH',{ hideFinancials: !cb.checked }); showAdminMsg('Updated financial access.','ok'); }
+  catch(err){ showAdminMsg(err.message,'error'); loadTeam(); }
 });
 // Role dropdown per user.
 document.getElementById('rows').addEventListener('change', async (e)=>{

@@ -543,6 +543,7 @@ function publicUser(u) {
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt || null,
     aiCalls: u.aiCalls || 0,
+    hideFinancials: !!u.hideFinancials,
     projectCount: db.projects.filter(p => p.userId === u.id).length,
     estimateCount: db.estimates.filter(e => e.userId === u.id).length
   };
@@ -554,6 +555,9 @@ function isPlatformAdmin(u) {
 }
 // A "company admin" (owner or admin) can manage users within their own company.
 function isCompanyAdmin(u) { return !!u && (u.role === 'owner' || u.role === 'admin'); }
+// Who can see money (job costs, profit, reports): owners/admins always; members unless an admin has
+// turned their "sees financials" off; field employees never (they're blocked separately).
+function canSeeFinancials(u) { return !!u && u.role !== 'field' && (u.role === 'owner' || u.role === 'admin' || !u.hideFinancials); }
 // Field employees can only touch job work: their jobs, and the field data they enter (daily logs,
 // time, task check-offs, photos) plus their own account basics. Everything else is 403.
 function fieldAllowed(pathname, method) {
@@ -974,6 +978,7 @@ const server = http.createServer(async (req, res) => {
           username: me.username, role: me.role, id: me.id,
           companyId: me.companyId, companyName: company ? company.name : '',
           platformAdmin: isPlatformAdmin(me),
+          hideFinancials: !canSeeFinancials(me),
           modules: companyModules(company)
         });
       }
@@ -1067,7 +1072,8 @@ const server = http.createServer(async (req, res) => {
           if (target.role === 'owner') return sendJSON(res, 400, { error: "The company owner can't be changed here." });
 
           if (req.method === 'PATCH') {
-            const { role, disabled, password } = await readBody(req);
+            const { role, disabled, password, hideFinancials } = await readBody(req);
+            if (typeof hideFinancials === 'boolean') target.hideFinancials = hideFinancials;
             if (target.id === me.id && role === 'member') {
               return sendJSON(res, 400, { error: "You can't remove your own admin access." });
             }
@@ -2007,6 +2013,7 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Reports: business summary (AR aging, job profitability, estimate win-rate) ----
       if (pathname === '/api/reports/summary' && req.method === 'GET') {
+        if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'No access to financial reports.' });
         const DAY = 86400000, now = Date.now();
         // Accounts receivable — what customers still owe, bucketed by how overdue it is.
         const ar = { totalInvoiced: 0, totalPaid: 0, outstanding: 0,
@@ -2137,6 +2144,7 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Accounting export: every invoice, for import into QuickBooks / Xero / a spreadsheet ----
       if (pathname === '/api/reports/invoices' && req.method === 'GET') {
+        if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'No access to financial reports.' });
         const rows = db.invoices.filter(i => i.companyId === me.companyId).map(i => {
           const d = readInvoiceDoc(i.id) || {};
           const total = Number(i.total) || 0, paid = Number(i.amountPaid) || 0;
@@ -2150,6 +2158,7 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Owner analytics: monthly revenue trend, jobs by status, headline KPIs ----
       if (pathname === '/api/reports/analytics' && req.method === 'GET') {
+        if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'No access to financial reports.' });
         const invs = db.invoices.filter(i => i.companyId === me.companyId);
         const now = new Date();
         const months = [];
@@ -2179,6 +2188,7 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Work-in-progress (WIP): earned revenue vs billed for active jobs ----
       if (pathname === '/api/reports/wip' && req.method === 'GET') {
+        if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'No access to financial reports.' });
         const myInvoices = db.invoices.filter(i => i.companyId === me.companyId);
         const rows = db.jobs.filter(j => j.companyId === me.companyId && j.status !== 'complete' && j.status !== 'cancelled').map(j => {
           const jd = readJobDoc(j.id) || {}; const c = jd.costing || {};
@@ -2264,8 +2274,8 @@ const server = http.createServer(async (req, res) => {
             const margin = contract > 0 ? Math.round(profit / contract * 1000) / 10 : null;
             const base = { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
                      createdAt: j.createdAt, updatedAt: j.updatedAt };
-            // Field employees never see money — omit contract/margin from their job list entirely.
-            return me.role === 'field' ? base : Object.assign(base, { contract, margin });
+            // People without financial access never see money — omit contract/margin from their list.
+            return canSeeFinancials(me) ? Object.assign(base, { contract, margin }) : base;
           })
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);
@@ -2369,6 +2379,7 @@ const server = http.createServer(async (req, res) => {
       // same estimate (contract / invoiced / paid / outstanding / profit on one screen).
       const jobSummaryMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)\/summary$/);
       if (jobSummaryMatch && req.method === 'GET') {
+        if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'No access to financials.' });
         const job = db.jobs.find(j => j.id === jobSummaryMatch[1] && j.companyId === me.companyId);
         if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
         const jdoc = readJobDoc(job.id);
@@ -2553,9 +2564,14 @@ const server = http.createServer(async (req, res) => {
         const lead = db.leads.find(l => l.id === leadId && l.companyId === me.companyId);
         if (!lead) return sendJSON(res, 404, { error: 'Lead not found.' });
         const ld = readLeadDoc(lead.id);
-        const doc = { company: {}, client: { name: lead.name || '', address: ld.address || '' },
+        const sv = ld.siteVisit || {};
+        const noteParts = [];
+        if (ld.notes) noteParts.push('From lead: ' + ld.notes);
+        if (sv.scope) noteParts.push('Site visit — scope: ' + sv.scope);
+        if (sv.access) noteParts.push('Access: ' + sv.access);
+        const doc = { company: {}, client: { name: lead.name || '', email: ld.email || '', address: ld.address || '' },
           project: lead.workType || '', lines: [], markupPct: 0, taxPct: 0,
-          notes: ld.notes ? ('From lead: ' + ld.notes) : '', discount: 0, discountType: 'pct' };
+          notes: noteParts.join('\n'), discount: 0, discountType: 'pct' };
         const est = { id: 'e_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
           name: (lead.name ? lead.name + ' — ' : '') + (lead.workType || 'Estimate'), client: lead.name || '',
           total: 0, status: 'draft', createdAt: Date.now(), updatedAt: Date.now() };
@@ -2774,7 +2790,10 @@ const server = http.createServer(async (req, res) => {
     // ---- Static frontend ----
     serveStatic(req, res, pathname);
   } catch (err) {
-    sendJSON(res, 500, { error: err.message || 'Server error' });
+    // Log the detail server-side; return a generic message so internals aren't leaked to clients.
+    const known = err && (err.message === 'Invalid JSON body' || err.message === 'Request body too large');
+    console.error('[fieldscale] request error:', (err && err.stack) || err);
+    if (!res.headersSent) sendJSON(res, known ? 400 : 500, { error: known ? err.message : 'Something went wrong on our end. Please try again.' });
   }
 });
 

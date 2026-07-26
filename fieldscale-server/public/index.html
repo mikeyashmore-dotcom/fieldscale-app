@@ -1077,7 +1077,7 @@
       <div class="panel-section" id="panel-ai">
         <div class="ai-panel">
           <div class="ai-intro">
-            Select the <b>AI Select</b> tool, drag a box around a region of the plan, then analyze it. Claude finds what's in there and <b>where</b> — symbols get marked on the sheet, wall runs get traced down their centerline. Assign each suggestion to a type from your library (or let it make one), and everything lands as real takeoff geometry. Traced wall lengths are a read of the drawing, not a measurement — check them.
+            Select the <b>AI Select</b> tool, drag a box around a region of the plan, then analyze it. Claude finds what's in there and <b>where</b> — symbols get marked on the sheet, wall runs get traced down their centerline. Assign each suggestion to a type from your library (or let it make one), and everything lands as real takeoff geometry. <b>For walls, box one room or area at a time</b> — a tighter selection is far more accurate than a whole sheet. Traced lines are the AI's read of the drawing, not a measurement — after adding, use the <b>Select</b> tool to drag any point onto the exact wall. Always check them.
           </div>
           <select class="ai-mode-select" id="ai-mode">
             <option value="count">Count &amp; identify symbols/fixtures</option>
@@ -5195,13 +5195,32 @@ document.querySelector('.panel-tab[data-panel="ai"]').addEventListener('click', 
 async function analyzeSelection(){
   if(!state.aiSelection) return;
   const s = state.aiSelection;
-  // crop from the PDF canvas (native resolution, no zoom factor issues since overlay coords are native)
-  const off = document.createElement('canvas');
-  off.width = s.w; off.height = s.h;
-  const octx2 = off.getContext('2d');
-  octx2.drawImage(els.pdfCanvas, s.x, s.y, s.w, s.h, 0, 0, s.w, s.h);
-  const dataUrl = off.toDataURL('image/png');
-  const base64 = dataUrl.split(',')[1];
+  // Re-render JUST the selected region straight from the PDF at high resolution. Vision coordinate
+  // accuracy depends heavily on how sharp the input is; cropping the (zoom-dependent) on-screen
+  // canvas often hands Claude a soft, low-detail image. Rendering the region fresh at ~1600px on its
+  // longest edge (Claude's sweet spot) makes the wall lines crisp so the traced centrelines land
+  // much closer. Falls back to the on-screen crop if the fresh render fails.
+  let base64;
+  try{
+    const page = await state.pdfDoc.getPage(state.pageNum);
+    const sc1 = state.renderScale || 2;                       // on-screen canvas px per PDF px
+    const rx = s.x/sc1, ry = s.y/sc1, rw = s.w/sc1, rh = s.h/sc1;   // region in scale-1 PDF pixels
+    const TARGET = 1600;
+    const scale = Math.min(6, Math.max(2, TARGET / Math.max(rw, rh)));
+    const vp = page.getViewport({ scale });
+    const cw = Math.max(1, Math.round(rw*scale)), ch = Math.max(1, Math.round(rh*scale));
+    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    const cctx = c.getContext('2d');
+    cctx.fillStyle = '#fff'; cctx.fillRect(0,0,cw,ch);
+    // Offset the page so the selected region's top-left lands at the canvas origin.
+    await page.render({ canvasContext: cctx, viewport: vp, transform: [1,0,0,1, -rx*scale, -ry*scale] }).promise;
+    base64 = c.toDataURL('image/png').split(',')[1];
+  }catch(e){
+    const off = document.createElement('canvas');
+    off.width = s.w; off.height = s.h;
+    off.getContext('2d').drawImage(els.pdfCanvas, s.x, s.y, s.w, s.h, 0, 0, s.w, s.h);
+    base64 = off.toDataURL('image/png').split(',')[1];
+  }
 
   const mode = els.aiMode.value;
   let promptText;
@@ -5217,17 +5236,19 @@ Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact sha
 The count of each item is the number of points you list for it, so list one point per instance.
 If you truly cannot identify any countable items, return {"items":[]}.`;
   } else if(mode==='walls'){
-    promptText = `You are assisting with a construction quantity takeoff on a floor plan. Trace the CENTERLINE of each wall run visible in this cropped region. A wall on a plan is drawn as two closely-spaced parallel lines (sometimes hatched between them) — the centerline runs midway between that pair, down the length of the run.
+    promptText = `You are doing a construction WALL takeoff from this cropped floor-plan image. Trace the CENTERLINE of EVERY wall run in the image. Do not stop after one or two — capture ALL of them, including short jogs, closet walls, and every wall that forms each room. A typical room region has at least 4 wall runs; a multi-room region has many more.
 
-Follow a run through its corners as a single polyline rather than breaking it into separate segments. Do not trace: dimension lines, leader lines, grid lines, door swings, furniture, hatching, or text.
+How to identify a wall: it is a pair of solid, closely-spaced parallel dark lines (often with hatching/poché or a filled band between them). The centerline runs EXACTLY midway between that pair. Place your points precisely on that midline — not on either edge line. Follow each run through its corners as ONE continuous polyline, adding a point at every corner or jog, and trace its full length to where it ends or meets another wall (walls meet at inside corners; extend to the intersection).
 
-Group runs by the kind of wall they appear to be (e.g. "Exterior wall", "Interior partition", "Demising wall") and describe the basis briefly.
+Do NOT trace any of these (they are not walls): dimension lines and their arrowheads/tick marks, extension and leader lines, gridlines and round grid bubbles, dashed/center lines, door swing arcs, plumbing fixtures and furniture, stair treads, hatching by itself, and any text, numbers, or callout symbols.
 
-Coordinates are normalised to this image: x=0 is the left edge, x=1 the right edge, y=0 the top edge, y=1 the bottom edge.
+Group the runs by wall kind (e.g. "Exterior wall", "Interior partition", "Plumbing wall") and give a short basis. Be thorough and complete.
+
+Coordinates are normalised to THIS image: x=0 is the left edge, x=1 the right edge, y=0 the top edge, y=1 the bottom edge. Use decimals; be as precise as possible about landing on the wall midline.
 
 Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
 {"items":[{"label":"Interior partition","note":"short basis, under 15 words","lines":[[{"x":0.10,"y":0.20},{"x":0.80,"y":0.20},{"x":0.80,"y":0.60}]]}]}
-Each entry in "lines" is one continuous wall run. If you see no walls, return {"items":[]}.`;
+Each array inside "lines" is one continuous wall run; include a separate array for every run you find. If you truly see no walls, return {"items":[]}.`;
   } else if(mode==='schedule'){
     promptText = `You are assisting with a construction quantity takeoff. This cropped region of a drawing may contain a schedule, legend, or spec callout table. Extract each row/entry as an item with its stated quantity if given (default count 1 if no quantity is stated). Respond ONLY with valid JSON, no markdown fences, in this exact shape:
 {"items":[{"label":"string, e.g. 'Door D-1, 3068 solid core'","count": number,"note":"short note, under 15 words, e.g. unit or spec"}]}

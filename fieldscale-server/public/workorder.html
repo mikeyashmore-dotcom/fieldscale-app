@@ -185,7 +185,7 @@ document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ aw
 
 let _company=null;
 async function getCompany(){ if(_company) return _company; try{ const r=await apiFetch('/api/company'); _company=r.profile||{}; }catch(e){ _company={}; } return _company; }
-const PDF_CSS=`*{box-sizing:border-box} body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
+const PDF_CSS=`*{box-sizing:border-box} :root{--charcoal:#1E242C;--heading:#17293D;--steel:#5C6672;--accent:#2F6DB0;--paper:#F7F8FA;--paper-line:#E4E8EE;--good:#3E8E5A;--danger:#C0392B;--cyan-dim:#3E7A96;--blueprint-2:#1B4B7A;--surface:#FFFFFF;--ink-navy:#15273A;--orange:#2F6DB0;--orange-dim:#255C97}body{font-family:'IBM Plex Sans',Arial,sans-serif;color:var(--charcoal);margin:0;padding:40px;font-size:13px}
   .head{display:flex;justify-content:space-between;border-bottom:3px solid var(--heading);padding-bottom:16px;margin-bottom:20px}
   .co h1{font-family:'Oswald',sans-serif;font-size:24px;margin:0 0 4px;color:var(--heading)}
   .co .sub{color:var(--steel);font-size:12px}

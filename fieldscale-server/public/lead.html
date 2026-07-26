@@ -142,7 +142,7 @@ let doc={};
 // ---- Signature pad ----
 const sigCanvas=document.getElementById('sv-sig'), sctx=sigCanvas.getContext('2d');
 let sigDrawing=false, sigDirty=false;
-sctx.lineWidth=2; sctx.lineCap='round'; sctx.strokeStyle='var(--charcoal)';
+sctx.lineWidth=2; sctx.lineCap='round'; sctx.strokeStyle='#1E242C';
 function sigPos(e){ const r=sigCanvas.getBoundingClientRect(); const p=e.touches?e.touches[0]:e; return { x:(p.clientX-r.left)*(sigCanvas.width/r.width), y:(p.clientY-r.top)*(sigCanvas.height/r.height) }; }
 function sigStart(e){ e.preventDefault(); sigDrawing=true; sigDirty=true; const p=sigPos(e); sctx.beginPath(); sctx.moveTo(p.x,p.y); }
 function sigMove(e){ if(!sigDrawing) return; e.preventDefault(); const p=sigPos(e); sctx.lineTo(p.x,p.y); sctx.stroke(); }

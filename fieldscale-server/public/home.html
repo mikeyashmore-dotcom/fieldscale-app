@@ -19,6 +19,8 @@
   .tile .v{font-family:'Oswald',sans-serif;font-size:26px;font-weight:600;color:var(--ink-navy);margin-top:4px}
   .tile .v.pos{color:var(--good)} .tile .v.neg{color:var(--danger)} .tile .v.warn{color:var(--orange-dim)}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+  .cards-group{font-family:'Oswald',sans-serif;font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--cyan-dim);margin:20px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--paper-line)}
+  .cards-group:first-child{margin-top:4px}
   a.card{background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);padding:16px;text-decoration:none;color:var(--ink-navy);display:flex;align-items:center;gap:12px;transition:border-color .12s,transform .12s}
   a.card:hover{border-color:var(--cyan-dim);transform:translateY(-1px)}
   a.card .ic{font-size:22px;flex:none}
@@ -75,7 +77,7 @@
     <div class="attn" id="attn"></div>
 
     <h2>Jump to</h2>
-    <div class="cards" id="cards"></div>
+    <div id="cards"></div>
 
     <div style="margin-top:28px;padding-top:14px;border-top:1px solid var(--paper-line);font-size:12px;color:var(--steel)">
       <a href="/help.html" style="color:var(--steel)">Help &amp; FAQ</a> ·
@@ -114,27 +116,31 @@ async function apiFetch(path){
 function money(n){ n=Number(n)||0; return '$'+n.toLocaleString(undefined,{maximumFractionDigits:0}); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// Quick-link cards; each ties to a module so we can hide ones the company isn't on.
+// Quick-link cards, grouped to match the top-nav sections (Leads / Takeoff / Estimate / Job /
+// Invoice) plus an Account & setup group for the rest. Each ties to a module so we can hide ones
+// the company isn't on.
+const CARD_GROUPS = ['Leads', 'Takeoff', 'Estimate', 'Job', 'Invoice', 'Account & setup'];
 const CARDS=[
-  {href:'/',icon:'📐',t:'Takeoff',d:'Measure off plans',mod:'takeoff'},
-  {href:'/leads.html',icon:'🎯',t:'Leads',d:'New opportunities',mod:'crm'},
-  {href:'/customers.html',icon:'👥',t:'Customers',d:'Everyone in one place',mod:'crm'},
-  {href:'/proposals.html',icon:'📝',t:'Estimates',d:'Quote the work',mod:'estimating'},
-  {href:'/estimates.html',icon:'📚',t:'Price Book',d:'Your costs & assemblies',mod:'estimating'},
-  {href:'/fieldmeasure.html',icon:'📏',t:'Field Measure',d:'Measure without plans',mod:'estimating'},
-  {href:'/jobs.html',icon:'🔨',t:'Jobs',d:'Work you\'ve won',mod:'jobs'},
-  {href:'/schedule.html',icon:'📅',t:'Schedule',d:'Jobs on a calendar',mod:'jobs'},
-  {href:'/purchase-orders.html',icon:'📦',t:'Purchase Orders',d:'Order materials',mod:'jobs'},
-  {href:'/subs.html',icon:'🤝',t:'Subcontractors',d:'Subs & compliance',mod:'jobs'},
-  {href:'/workorders.html',icon:'🧾',t:'Work Orders',d:'Send crews out',mod:'jobs'},
-  {href:'/invoices.html',icon:'💵',t:'Invoices',d:'Bill & get paid',mod:'invoicing'},
-  {href:'/followups.html',icon:'⏰',t:'Follow-ups',d:'Who to chase',mod:null},
-  {href:'/reports.html',icon:'📊',t:'Reports',d:'The full picture',mod:null},
-  {href:'/employees.html',icon:'👷',t:'Employees',d:'Crew, rates & payroll #',mod:null},
-  {href:'/company.html',icon:'⚙️',t:'Company',d:'Profile & settings',mod:null},
-  {href:'/admin.html',icon:'👤',t:'Team',d:'Logins & user roles',mod:null,admin:true},
-  {href:'/help.html',icon:'❓',t:'Help & FAQ',d:'How things work',mod:null},
-  {action:'pw',icon:'🔑',t:'Change Password',d:'Update your login',mod:null}
+  {href:'/leads.html',icon:'🎯',t:'Leads',d:'New opportunities',mod:'crm',group:'Leads'},
+  {href:'/customers.html',icon:'👥',t:'Customers',d:'Everyone in one place',mod:'crm',group:'Leads'},
+  {href:'/followups.html',icon:'⏰',t:'Follow-ups',d:'Who to chase',mod:null,group:'Leads'},
+  {href:'/',icon:'📐',t:'Takeoff',d:'Measure off plans',mod:'takeoff',group:'Takeoff'},
+  {href:'/proposals.html',icon:'📝',t:'Estimates',d:'Quote the work',mod:'estimating',group:'Estimate'},
+  {href:'/estimates.html',icon:'📚',t:'Price Book',d:'Your costs & assemblies',mod:'estimating',group:'Estimate'},
+  {href:'/fieldmeasure.html',icon:'📏',t:'Field Measure',d:'Measure without plans',mod:'estimating',group:'Estimate'},
+  {href:'/plans.html',icon:'📐',t:'Floor Plans',d:'Sketch a plan to scale',mod:'estimating',group:'Estimate'},
+  {href:'/jobs.html',icon:'🔨',t:'Jobs',d:'Work you\'ve won',mod:'jobs',group:'Job'},
+  {href:'/schedule.html',icon:'📅',t:'Schedule',d:'Jobs on a calendar',mod:'jobs',group:'Job'},
+  {href:'/workorders.html',icon:'🧾',t:'Work Orders',d:'Send crews out',mod:'jobs',group:'Job'},
+  {href:'/purchase-orders.html',icon:'📦',t:'Purchase Orders',d:'Order materials',mod:'jobs',group:'Job'},
+  {href:'/subs.html',icon:'🤝',t:'Subcontractors',d:'Subs & compliance',mod:'jobs',group:'Job'},
+  {href:'/invoices.html',icon:'💵',t:'Invoices',d:'Bill & get paid',mod:'invoicing',group:'Invoice'},
+  {href:'/reports.html',icon:'📊',t:'Reports',d:'The full picture',mod:null,group:'Invoice'},
+  {href:'/employees.html',icon:'👷',t:'Employees',d:'Crew, rates & payroll #',mod:null,group:'Account & setup'},
+  {href:'/company.html',icon:'⚙️',t:'Company',d:'Profile & settings',mod:null,group:'Account & setup'},
+  {href:'/admin.html',icon:'👤',t:'Team',d:'Logins & user roles',mod:null,admin:true,group:'Account & setup'},
+  {href:'/help.html',icon:'❓',t:'Help & FAQ',d:'How things work',mod:null,group:'Account & setup'},
+  {action:'pw',icon:'🔑',t:'Change Password',d:'Update your login',mod:null,group:'Account & setup'}
 ];
 
 function tile(lab,val,cls,href){
@@ -155,10 +161,16 @@ async function init(){
   const enabled = Array.isArray(me.modules) ? me.modules : null;
   const isAdmin = me.role==='owner' || me.role==='admin' || me.platformAdmin;
   const cardsOn = CARDS.filter(c => (!c.mod || !enabled || enabled.indexOf(c.mod)>=0) && (!c.admin || isAdmin));
-  document.getElementById('cards').innerHTML = cardsOn.map(c=>{
+  const cardHtml = c => {
     const inner=`<span class="ic">${c.icon}</span><span><span class="t">${esc(c.t)}</span><br><span class="d">${esc(c.d)}</span></span>`;
     return c.action ? `<button class="card" type="button" data-action="${c.action}" style="text-align:left;font:inherit;cursor:pointer">${inner}</button>`
                     : `<a class="card" href="${c.href}">${inner}</a>`;
+  };
+  // Group the cards under sub-headers that mirror the top nav (Leads / Takeoff / Estimate / Job / Invoice).
+  document.getElementById('cards').innerHTML = CARD_GROUPS.map(g=>{
+    const gc = cardsOn.filter(c => c.group === g);
+    if(!gc.length) return '';
+    return `<h3 class="cards-group">${esc(g)}</h3><div class="cards">${gc.map(cardHtml).join('')}</div>`;
   }).join('');
   document.getElementById('cards').addEventListener('click', e=>{
     const b=e.target.closest('[data-action="pw"]'); if(b) openPwModal();

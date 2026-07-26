@@ -4152,7 +4152,7 @@ function refreshCalibrationUI(){
   els.calibLabel.textContent = cal.source;
   const pxPerFt = 1/cal.unitsPerNativePixel;
   document.getElementById('sp-current').innerHTML =
-    `<span class="k">This sheet's scale</span>${cal.source} · ${pxPerFt.toFixed(1)} px/ft`;
+    `<span class="k">This sheet's scale</span>${escapeHtml(cal.source)} · ${pxPerFt.toFixed(1)} px/ft`;
 }
 
 // Copies the current sheet's scale onto every other sheet. Useful when a whole set is
@@ -4731,7 +4731,7 @@ function renderTakeoffList(){
       const canReactivate = g.category && g.typeId;
       html += `<div class="item-row" data-ids="${g.ids.join(',')}" ${canReactivate?`data-cat="${g.category}" data-typeid="${g.typeId}" style="cursor:pointer;"`:''} title="${canReactivate?'Click to keep using this type · Right-click to edit it':''}">
         <span class="swatch" style="background:${g.color}"></span>
-        <span class="name" title="${g.label}">${g.label}</span>
+        <span class="name" title="${escapeHtml(g.label)}">${escapeHtml(g.label)}</span>
         ${UNIT_COLS.map(cellFor).join('')}
         <span class="del" data-ids="${g.ids.join(',')}">✕</span>
       </div>`;

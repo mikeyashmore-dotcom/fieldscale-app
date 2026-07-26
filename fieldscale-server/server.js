@@ -18,16 +18,30 @@ const path = require('path');
 const url = require('url');
 
 const PORT = process.env.PORT || 3000;
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+// Session signing key. Prefer the SESSION_SECRET env var. If it isn't set, generate one ONCE and
+// persist it under the data dir so sessions survive restarts (instead of logging everyone out every
+// deploy). We still warn, because a real env var is the production best practice.
+const SESSION_SECRET_FROM_ENV = !!process.env.SESSION_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
-  console.warn('[fieldscale] WARNING: SESSION_SECRET not set — using a random one generated at startup.');
-  console.warn('[fieldscale] Everyone will be logged out any time the server restarts. Set SESSION_SECRET in your environment for production.');
-  return crypto.randomBytes(32).toString('hex');
+  const secretFile = path.join(DATA_DIR, '.session-secret');
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (fs.existsSync(secretFile)) return fs.readFileSync(secretFile, 'utf8').trim();
+    const s = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(secretFile, s, { mode: 0o600 });
+    console.warn('[fieldscale] WARNING: SESSION_SECRET env not set — generated a persistent secret at ' + secretFile + '.');
+    console.warn('[fieldscale] Sessions will survive restarts, but setting SESSION_SECRET in your environment is the production best practice.');
+    return s;
+  } catch (e) {
+    console.warn('[fieldscale] WARNING: SESSION_SECRET not set and could not persist one — using a per-boot secret (everyone logs out on restart).');
+    return crypto.randomBytes(32).toString('hex');
+  }
 })();
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 // The deployment owner can name themselves platform admin here, regardless of who signed up
 // first. Set PLATFORM_ADMIN_USERNAME to your username and you always get the cross-company view.
 const PLATFORM_ADMIN_USERNAME = (process.env.PLATFORM_ADMIN_USERNAME || '').trim().toLowerCase();
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -335,6 +349,7 @@ function loadDB() {
   parsed.leads = parsed.leads || [];
   parsed.purchaseOrders = parsed.purchaseOrders || [];
   parsed.customers = parsed.customers || []; // per-customer notes + activity log (records are derived otherwise)
+  parsed.audit = parsed.audit || []; // activity log / audit trail (capped)
   parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -418,6 +433,42 @@ function saveDB(db) {
   fs.renameSync(tmp, DB_FILE);
 }
 let db = loadDB();
+
+// ---------- Activity log / audit trail ----------
+// Records who did what, per company. Capped so the db file can't grow forever. Caller saves the db.
+function logAudit(me, action, detail) {
+  try {
+    db.audit.push({ at: Date.now(), companyId: me && me.companyId ? me.companyId : '',
+      userId: me && me.id ? me.id : '', username: (me && me.username) || '', action: String(action || ''),
+      detail: String(detail || '').slice(0, 300) });
+    if (db.audit.length > 5000) db.audit = db.audit.slice(-4000);
+  } catch (e) { /* logging must never break the request */ }
+}
+
+// ---------- Automatic backups ----------
+// Snapshot the structured JSON data (db + all record docs) into DATA_DIR/backups daily, keeping the
+// last 14. Plan PDFs and receipt photos are excluded — they're big and the customer has the originals.
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+let lastBackup = null;
+function runBackup() {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const dest = path.join(BACKUP_DIR, 'backup-' + stamp);
+    fs.mkdirSync(dest, { recursive: true });
+    if (fs.existsSync(DB_FILE)) fs.copyFileSync(DB_FILE, path.join(dest, 'db.json'));
+    const dirs = [COMPANIES_DIR, ESTIMATES_DIR, EST_REV_DIR, TEMPLATES_DIR, INVOICES_DIR, PO_DIR, JOBS_DIR, WORKORDERS_DIR, LEADS_DIR, PRICEBOOKS_DIR];
+    for (const d of dirs) { if (fs.existsSync(d)) fs.cpSync(d, path.join(dest, path.basename(d)), { recursive: true }); }
+    const keep = 14;
+    const all = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('backup-')).sort();
+    while (all.length > keep) { const old = all.shift(); try { fs.rmSync(path.join(BACKUP_DIR, old), { recursive: true, force: true }); } catch (e) {} }
+    lastBackup = { at: Date.now(), name: 'backup-' + stamp, ok: true };
+    console.log('[fieldscale] backup written:', dest);
+  } catch (e) {
+    lastBackup = { at: Date.now(), ok: false, error: e.message };
+    console.warn('[fieldscale] backup failed:', e.message);
+  }
+}
 
 // ---------- Password hashing (scrypt, built into Node — no bcrypt dependency needed) ----------
 function hashPassword(password, salt) {
@@ -600,6 +651,34 @@ function noteLoginFail(uname) {
   loginFails.set(uname, rec);
 }
 
+// ---------- Security headers (applied to every response) ----------
+// CSP allows the app's inline scripts/handlers (it's built with them), Google Fonts, the pdf.js CDN
+// used by the takeoff viewer, and blob/data URLs for PDF generation — while blocking framing
+// (clickjacking), plugins, and stray script/base origins. HSTS only over HTTPS.
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "script-src 'self' 'unsafe-inline' blob: https://cdnjs.cloudflare.com",
+  "worker-src 'self' blob: https://cdnjs.cloudflare.com",
+  "connect-src 'self' https://cdnjs.cloudflare.com",
+  "form-action 'self'"
+].join('; ');
+function applySecurityHeaders(req, res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  res.setHeader('Content-Security-Policy', CSP);
+  if ((req.headers['x-forwarded-proto'] || '') === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+}
+
 // ---------- Helpers ----------
 function sendJSON(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -662,6 +741,7 @@ function serveStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   const parsed = url.parse(req.url, true);
   const pathname = parsed.pathname;
+  applySecurityHeaders(req, res);
 
   try {
     // ---- Health check (hosting platforms ping this) ----
@@ -737,6 +817,7 @@ const server = http.createServer(async (req, res) => {
       }
       loginFails.delete(uname);
       user.lastLoginAt = Date.now();
+      logAudit(user, 'auth.login', 'Signed in');
       saveDB(db);
       return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
     }
@@ -901,6 +982,7 @@ const server = http.createServer(async (req, res) => {
             createdAt: Date.now(), lastLoginAt: null
           };
           db.users.push(user);
+          logAudit(me, 'user.create', 'Created ' + user.username + ' (' + user.role + ')');
           saveDB(db);
           return sendJSON(res, 200, { user: publicUser(user) });
         }
@@ -935,6 +1017,11 @@ const server = http.createServer(async (req, res) => {
               target.salt = salt; target.hash = hash;
               target.tokenVersion += 1;
             }
+            const changes = [];
+            if (role === 'admin' || role === 'member' || role === 'field') changes.push('role→' + role);
+            if (typeof disabled === 'boolean') changes.push(disabled ? 'disabled' : 'enabled');
+            if (password !== undefined) changes.push('password reset');
+            logAudit(me, 'user.update', target.username + ': ' + (changes.join(', ') || 'updated'));
             saveDB(db);
             return sendJSON(res, 200, { user: publicUser(target) });
           }
@@ -947,6 +1034,7 @@ const server = http.createServer(async (req, res) => {
             // Projects/estimates belong to the COMPANY (shared workspace), so they stay when a
             // sub-user is removed. Only the account goes.
             db.users = db.users.filter(u => u.id !== target.id);
+            logAudit(me, 'user.delete', 'Deleted ' + target.username);
             saveDB(db);
             return sendJSON(res, 200, { deleted: true });
           }
@@ -1308,6 +1396,7 @@ const server = http.createServer(async (req, res) => {
         // header, home page, and everywhere else that reads the record show the name you edited.
         const companyRec = companyById(me.companyId);
         if (companyRec && clean.name) companyRec.name = clean.name;
+        logAudit(me, 'company.update', 'Updated company profile');
         saveDB(db); // persist the name sync + any invoice-counter change on the company record
         return sendJSON(res, 200, { profile: clean, invoiceNext: nextInvoiceNo(companyById(me.companyId)) });
       }
@@ -1331,6 +1420,32 @@ const server = http.createServer(async (req, res) => {
         })).filter(t => t.name || t.role || t.email || t.phone || t.empNo) : [];
         writeCompany(me.companyId, prof);
         return sendJSON(res, 200, { team: prof.team });
+      }
+
+      // ---- Security status + activity log (owner/admin) ----
+      if (pathname === '/api/security' && req.method === 'GET') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Owners and admins only.' });
+        let backupCount = 0;
+        try { backupCount = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('backup-')).length; } catch (e) {}
+        return sendJSON(res, 200, {
+          secretFromEnv: SESSION_SECRET_FROM_ENV,
+          securityHeaders: true,
+          lastBackup: lastBackup,
+          backupCount
+        });
+      }
+      // Owner/admin can trigger a backup on demand.
+      if (pathname === '/api/security/backup' && req.method === 'POST') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Owners and admins only.' });
+        runBackup();
+        logAudit(me, 'backup.run', 'Manual backup');
+        saveDB(db);
+        return sendJSON(res, 200, { lastBackup });
+      }
+      if (pathname === '/api/audit' && req.method === 'GET') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Owners and admins only.' });
+        const rows = db.audit.filter(a => a.companyId === me.companyId).slice(-200).reverse();
+        return sendJSON(res, 200, { rows });
       }
 
       // ---- Estimating: list / create estimates ----
@@ -1456,6 +1571,7 @@ const server = http.createServer(async (req, res) => {
           db.estimates = db.estimates.filter(e => e.id !== est.id);
           try { fs.unlinkSync(estimatePath(est.id)); } catch (e) {}
           try { fs.rmSync(estRevDir(est.id), { recursive: true, force: true }); } catch (e) {}
+          logAudit(me, 'estimate.delete', 'Deleted estimate "' + (est.name || est.id) + '"');
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }
@@ -1590,6 +1706,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'DELETE') {
           db.invoices = db.invoices.filter(i => i.id !== inv.id);
           try { fs.unlinkSync(invoicePath(inv.id)); } catch (e) {}
+          logAudit(me, 'invoice.delete', 'Deleted invoice "' + (inv.name || inv.id) + '"');
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }
@@ -2105,6 +2222,7 @@ const server = http.createServer(async (req, res) => {
           db.jobs = db.jobs.filter(j => j.id !== job.id);
           try { fs.unlinkSync(jobPath(job.id)); } catch (e) {}
           try { fs.rmSync(receiptDir(job.id), { recursive: true, force: true }); } catch (e) {}
+          logAudit(me, 'job.delete', 'Deleted job "' + (job.name || job.id) + '"');
           saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }
@@ -2433,4 +2551,8 @@ server.listen(PORT, () => {
   if (db.users.length === 0) {
     console.log('[fieldscale] No accounts yet. The first account you create becomes the administrator.');
   }
+  if (!SESSION_SECRET_FROM_ENV) console.warn('[fieldscale] Reminder: set the SESSION_SECRET environment variable for production.');
+  // Automatic backups: one shortly after boot, then daily.
+  setTimeout(runBackup, 10000);
+  setInterval(runBackup, 24 * 60 * 60 * 1000);
 });

@@ -160,6 +160,23 @@
       Members and administrators see the whole app; field employees only see their jobs.
     </p>
 
+    <h1 style="margin-top:34px">Security &amp; backups</h1>
+    <p class="sub">Your data protection at a glance.</p>
+    <div class="backup" id="security-card">
+      <div id="sec-rows" style="font-size:13.5px;line-height:1.9"></div>
+      <button class="btn" id="run-backup-btn" style="margin-top:10px">⬇ Back up now</button>
+      <span id="sec-msg" class="msg" style="margin-left:10px"></span>
+    </div>
+
+    <h1 style="margin-top:34px">Recent activity</h1>
+    <p class="sub">A log of logins and important changes in your company.</p>
+    <div class="card">
+      <table>
+        <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead>
+        <tbody id="audit-rows"></tbody>
+      </table>
+    </div>
+
     <div id="platform" style="display:none;margin-top:34px">
       <h1>All Companies <span style="font-size:12px;color:var(--steel);font-family:'IBM Plex Sans',sans-serif;font-weight:400">(platform admin)</span></h1>
       <p class="sub">Every company on the platform. You see counts only — never any company's actual data.</p>
@@ -300,6 +317,36 @@ async function loadTeam(){
   const data = await apiFetch('/api/admin/users');
   render(data.users || []);
 }
+function yn(ok,goodTxt,badTxt){ return `<span style="color:${ok?'var(--good)':'var(--danger)'}">${ok?'✓ '+goodTxt:'⚠ '+badTxt}</span>`; }
+async function loadSecurity(){
+  try{
+    const s = await apiFetch('/api/security');
+    const lb = s.lastBackup;
+    document.getElementById('sec-rows').innerHTML =
+      `<div>Login secret (SESSION_SECRET): ${s.secretFromEnv ? yn(true,'set from the environment') : '<span style="color:var(--orange-dim)">◆ using a saved secret file (works, but setting SESSION_SECRET in the server environment is recommended)</span>'}</div>` +
+      `<div>Security headers (CSP, HSTS, anti-clickjacking): ${yn(!!s.securityHeaders,'on')}</div>` +
+      `<div>Automatic backups: ${lb && lb.ok ? yn(true,'last backup '+fmtDate(lb.at)) : (lb ? yn(false,'last attempt failed') : yn(true,'scheduled (runs shortly after start, then daily)'))} · ${s.backupCount||0} kept</div>`;
+  }catch(err){ document.getElementById('sec-rows').innerHTML='<span class="muted">Could not load security status: '+escapeHtml(err.message)+'</span>'; }
+}
+document.getElementById('run-backup-btn').addEventListener('click', async ()=>{
+  const msg=document.getElementById('sec-msg'); msg.textContent='Backing up…';
+  try{ await apiSend('/api/security/backup','POST'); msg.style.color='var(--good)'; msg.textContent='Backup done.'; loadSecurity(); }
+  catch(err){ msg.style.color='var(--danger)'; msg.textContent=err.message; }
+});
+async function loadAudit(){
+  try{
+    const a = await apiFetch('/api/audit');
+    const tb=document.getElementById('audit-rows');
+    if(!a.rows.length){ tb.innerHTML='<tr><td colspan="4" class="muted" style="padding:16px">No activity logged yet.</td></tr>'; return; }
+    tb.innerHTML=a.rows.map(r=>`<tr>
+      <td class="muted">${fmtDateTime(r.at)}</td>
+      <td>${escapeHtml(r.username||'—')}</td>
+      <td>${escapeHtml(r.action)}</td>
+      <td class="muted">${escapeHtml(r.detail||'')}</td>
+    </tr>`).join('');
+  }catch(err){ document.getElementById('audit-rows').innerHTML='<tr><td colspan="4" class="muted" style="padding:16px">Could not load activity: '+escapeHtml(err.message)+'</td></tr>'; }
+}
+function fmtDateTime(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}); }
 async function init(){
   let me;
   try{ me = await apiFetch('/api/me'); }catch(e){ return; }
@@ -320,6 +367,8 @@ async function init(){
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     await loadTeam();
+    loadSecurity();
+    loadAudit();
     if(me.platformAdmin){
       try{ const pc = await apiFetch('/api/platform/companies'); if(Array.isArray(pc.allModules)) ALL_MODULES=pc.allModules; renderPlatform(pc.companies || []); }catch(e){}
       try{ const pu = await apiFetch('/api/platform/users'); renderPlatformUsers(pu.users || []); }catch(e){}

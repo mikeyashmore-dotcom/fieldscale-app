@@ -203,6 +203,19 @@
     </div>
     <div class="fin-hide" style="margin:10px 0 18px"><button class="btn ghost" id="add-co">＋ Add change order</button></div>
 
+    <div class="block fin-hide" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Progress billing (draws)</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0" id="draw-sub">Bill the contract in stages. Each draw is a % of the contract; generate an invoice for it when it's due.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Draw</th><th class="num">% of contract</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead>
+        <tbody id="draw-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" id="add-draw">＋ Add draw</button>
+        <button class="btn ghost" id="add-draw-std" title="30% deposit, 30% rough-in, 40% completion">＋ Standard 30/30/40</button>
+      </div>
+    </div>
+
     <div class="block" style="padding:0;overflow:hidden">
       <div class="lines-scroll">
         <table class="lines">
@@ -240,6 +253,36 @@
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">A quick record of each day on site — weather, who was there, and what got done. Attach site photos in Receipts above.</p>
       <div id="logs"></div>
       <button class="btn ghost" id="add-log" style="margin-top:6px">＋ Add day</button>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Customer selections &amp; allowances</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Track choices the customer still needs to make and how the actual cost compares to the allowance in the estimate.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Item</th><th class="num">Allowance&nbsp;$</th><th class="num">Actual&nbsp;$</th><th class="num">Over/(under)</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="sel-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-sel">＋ Add selection</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Material tracking</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">What to order for this job and where each item stands — ordered, delivered, used.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Material</th><th class="num">Qty</th><th>Unit</th><th>Supplier</th><th>Status</th><th></th></tr></thead>
+        <tbody id="mat-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-mat">＋ Add material</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Inspections &amp; deliveries</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Key dates — inspections, material deliveries and milestones — so nothing slips.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>What</th><th>Type</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="insp-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-insp">＋ Add date</button></div>
     </div>
 
     <div class="block" style="padding:0;overflow:hidden">
@@ -503,6 +546,78 @@ document.getElementById('punch-wrap').addEventListener('input', e=>{
 document.getElementById('punch-wrap').addEventListener('click', e=>{
   const d=e.target.getAttribute('data-pdel'); if(d!==null){ doc.punch.splice(Number(d),1); renderPunch(); }
 });
+
+// ---- Generic job list sections (selections, materials, inspections) ----
+function bindListSection(key, tbodyId, addBtnId, cols, blank){
+  const tb=document.getElementById(tbodyId);
+  function cell(r,i,c){
+    if(c.type==='select') return `<td><select data-i="${i}" data-f="${c.f}">${c.opts.map(o=>`<option ${r[c.f]===o?'selected':''}>${o}</option>`).join('')}</select></td>`;
+    if(c.type==='calc') return `<td class="num">${c.calc(r)}</td>`;
+    const num=c.type==='num', date=c.type==='date';
+    return `<td${num?' class="num"':''}><input ${date?'type="date"':''} data-i="${i}" data-f="${c.f}"${num?' data-num="1" inputmode="decimal"':''}${c.recalc?' data-recalc="1"':''} value="${escapeHtml(r[c.f]==null?'':r[c.f])}" placeholder="${c.ph||''}" ${num?'style="width:90px"':''} /></td>`;
+  }
+  function render(){
+    const arr=doc[key]||[];
+    tb.innerHTML = arr.length ? arr.map((r,i)=>`<tr>${cols.map(c=>cell(r,i,c)).join('')}<td style="text-align:right"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td></tr>`).join('')
+      : `<tr><td colspan="${cols.length+1}" style="padding:12px 14px;color:var(--steel);font-size:13px">None yet.</td></tr>`;
+  }
+  tb.addEventListener('input', e=>{ const i=e.target.getAttribute('data-i'), f=e.target.getAttribute('data-f'); if(i===null||!f) return; const num=e.target.getAttribute('data-num')!==null; doc[key][i][f]= num?(parseFloat(e.target.value)||0):e.target.value; if(e.target.getAttribute('data-recalc')!==null) render(); });
+  tb.addEventListener('change', e=>{ const i=e.target.getAttribute('data-i'), f=e.target.getAttribute('data-f'); if(i===null||!f||e.target.tagName!=='SELECT') return; doc[key][i][f]=e.target.value; });
+  tb.addEventListener('click', e=>{ const d=e.target.getAttribute&&e.target.getAttribute('data-del'); if(d!==null&&d!==undefined){ doc[key].splice(Number(d),1); render(); } });
+  document.getElementById(addBtnId).addEventListener('click', ()=>{ doc[key]=doc[key]||[]; doc[key].push(Object.assign({id:key.slice(0,3)+'_'+Math.random().toString(16).slice(2,8)}, blank())); render(); });
+  return render;
+}
+const money0=n=>'$'+((Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}));
+const renderSelections = bindListSection('selections','sel-lines','add-sel',[
+  {f:'item',ph:'e.g. Kitchen faucet'},
+  {f:'allowance',type:'num',recalc:true},
+  {f:'actual',type:'num',recalc:true},
+  {f:'diff',type:'calc',calc:r=>{ const d=(Number(r.actual)||0)-(Number(r.allowance)||0); return `<span style="color:${d>0.005?'var(--danger)':(d<-0.005?'var(--good)':'var(--steel)')}">${d<0?'('+money0(-d)+')':money0(d)}</span>`; }},
+  {f:'status',type:'select',opts:['Pending','Selected','Ordered']},
+  {f:'notes',ph:''}
+], ()=>({item:'',allowance:0,actual:0,status:'Pending',notes:''}));
+const renderMaterials = bindListSection('materials','mat-lines','add-mat',[
+  {f:'item',ph:'e.g. 2x4 studs'},
+  {f:'qty',type:'num'},
+  {f:'unit',ph:'ea'},
+  {f:'supplier',ph:'Supplier'},
+  {f:'status',type:'select',opts:['To order','Ordered','Delivered','Used']}
+], ()=>({item:'',qty:0,unit:'',supplier:'',status:'To order'}));
+// ---- Progress billing (draws) ----
+function jobContract(){ const co=(doc.changeOrders||[]).reduce((a,x)=>a+(x.status==='approved'?(Number(x.priceDelta)||0):0),0); return (parseFloat((document.getElementById('c-contract')||{}).value)||Number((doc.costing||{}).contract)||0)+co; }
+function updateDrawSub(){ const contract=jobContract(); const arr=doc.draws||[]; const pct=arr.reduce((s,d)=>s+(Number(d.percent)||0),0); const billedPct=arr.filter(d=>d.billed).reduce((s,d)=>s+(Number(d.percent)||0),0); const el=document.getElementById('draw-sub'); if(el) el.textContent=`Contract ${money(contract)} · draws total ${pct}% · billed ${billedPct}%.`; }
+function renderDraws(){
+  const tb=document.getElementById('draw-lines'); const arr=doc.draws||[]; const contract=jobContract();
+  if(!arr.length){ tb.innerHTML=`<tr><td colspan="5" style="padding:12px 14px;color:var(--steel);font-size:13px">No draws yet.</td></tr>`; updateDrawSub(); return; }
+  tb.innerHTML=arr.map((d,i)=>{ const amt=contract*(Number(d.percent)||0)/100;
+    return `<tr>
+      <td><input data-di="${i}" data-df="label" value="${escapeHtml(d.label||'')}" placeholder="e.g. Rough-in" /></td>
+      <td class="num"><input class="num" data-di="${i}" data-df="percent" value="${d.percent||0}" inputmode="decimal" style="width:70px" /></td>
+      <td class="num">${money(amt)}</td>
+      <td>${d.billed?`<span style="color:var(--good)">Billed</span>${d.invoiceId?` · <a href="/invoice.html?id=${encodeURIComponent(d.invoiceId)}">view</a>`:''}`:`<button class="btn ghost" data-drawgen="${i}" style="padding:3px 9px;font-size:12px">Generate invoice</button>`}</td>
+      <td style="text-align:right"><button class="rowdel" data-drawdel="${i}" title="Remove">✕</button></td>
+    </tr>`; }).join('');
+  updateDrawSub();
+}
+document.getElementById('draw-lines').addEventListener('input', e=>{ const i=e.target.getAttribute('data-di'), f=e.target.getAttribute('data-df'); if(i===null) return; doc.draws[i][f]= f==='percent'?(parseFloat(e.target.value)||0):e.target.value; if(f==='percent') renderDraws(); });
+document.getElementById('draw-lines').addEventListener('click', async e=>{
+  const del=e.target.getAttribute&&e.target.getAttribute('data-drawdel'); if(del!==null&&del!==undefined){ doc.draws.splice(Number(del),1); renderDraws(); return; }
+  const gen=e.target.getAttribute&&e.target.getAttribute('data-drawgen'); if(gen!==null&&gen!==undefined){
+    if(!confirm('Create an invoice for this draw?')) return;
+    try{ await save(); const r=await apiFetch('/api/invoices/from-draw',{method:'POST',body:JSON.stringify({jobId, drawId: doc.draws[Number(gen)].id})}); toast('Invoice created.'); location.href='/invoice.html?id='+encodeURIComponent(r.id); }
+    catch(err){ toast(err.message,true); }
+  }
+});
+document.getElementById('add-draw').addEventListener('click', ()=>{ doc.draws=doc.draws||[]; doc.draws.push({id:'dr_'+Math.random().toString(16).slice(2,8),label:'',percent:0,billed:false}); renderDraws(); });
+document.getElementById('add-draw-std').addEventListener('click', ()=>{ doc.draws=doc.draws||[]; [['Deposit',30],['Rough-in',30],['Completion',40]].forEach(a=>doc.draws.push({id:'dr_'+Math.random().toString(16).slice(2,8),label:a[0],percent:a[1],billed:false})); renderDraws(); });
+
+const renderInspections = bindListSection('inspections','insp-lines','add-insp',[
+  {f:'label',ph:'e.g. Rough-in inspection'},
+  {f:'type',type:'select',opts:['Inspection','Delivery','Milestone']},
+  {f:'date',type:'date'},
+  {f:'status',type:'select',opts:['Scheduled','Passed','Failed','Received','Done']},
+  {f:'notes',ph:''}
+], ()=>({label:'',type:'Inspection',date:'',status:'Scheduled',notes:''}));
 document.getElementById('tasks-wrap').addEventListener('input', e=>{
   const t=e.target.getAttribute('data-tt'); if(t!==null){ doc.tasks[t].text=e.target.value; }
 });
@@ -809,6 +924,9 @@ async function openJobPDF(){
     + (cos?`<div class="sec"><h4>Change orders</h4></div><table><thead><tr><th>Description</th><th class="c">Status</th><th class="r">Price</th><th class="r">Cost</th></tr></thead><tbody>${cos}</tbody></table>`:'')
     + ((doc.dailyLogs||[]).length?`<div class="sec"><h4>Daily logs</h4></div><table><thead><tr><th>Date</th><th>Weather</th><th>Crew</th><th>Work done</th></tr></thead><tbody>${doc.dailyLogs.map(l=>`<tr><td>${escapeHtml(pdfDate(l.date))||'—'}</td><td>${escapeHtml(l.weather)}</td><td>${escapeHtml(l.crew)}</td><td>${escapeHtml(l.workDone)}</td></tr>`).join('')}</tbody></table>`:'')
     + ((doc.punch||[]).length?`<div class="sec"><h4>Punch list</h4></div><table><thead><tr><th>Done</th><th>Item</th><th>Location</th></tr></thead><tbody>${doc.punch.map(p=>`<tr><td class="c">${p.done?'☑':'☐'}</td><td>${escapeHtml(p.text)}</td><td>${escapeHtml(p.location||'')}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.selections||[]).length?`<div class="sec"><h4>Selections &amp; allowances</h4></div><table><thead><tr><th>Item</th><th class="r">Allowance</th><th class="r">Actual</th><th>Status</th></tr></thead><tbody>${doc.selections.map(s=>`<tr><td>${escapeHtml(s.item)}</td><td class="r">${money(s.allowance)}</td><td class="r">${money(s.actual)}</td><td>${escapeHtml(s.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.materials||[]).length?`<div class="sec"><h4>Materials</h4></div><table><thead><tr><th>Material</th><th class="r">Qty</th><th>Unit</th><th>Supplier</th><th>Status</th></tr></thead><tbody>${doc.materials.map(m=>`<tr><td>${escapeHtml(m.item)}</td><td class="r">${Number(m.qty)||0}</td><td>${escapeHtml(m.unit||'')}</td><td>${escapeHtml(m.supplier||'')}</td><td>${escapeHtml(m.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.inspections||[]).length?`<div class="sec"><h4>Inspections &amp; deliveries</h4></div><table><thead><tr><th>What</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody>${doc.inspections.map(x=>`<tr><td>${escapeHtml(x.label)}</td><td>${escapeHtml(x.type||'')}</td><td>${escapeHtml(pdfDate(x.date))}</td><td>${escapeHtml(x.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + (doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:'')
     + `<div class="foot">${escapeHtml(co.name||'')} — job sheet</div>`;
   printWindow(jobName||'Job', body);
@@ -841,6 +959,10 @@ function fillForm(){
   renderDailyLogs();
   renderTasks();
   renderPunch();
+  renderSelections();
+  renderMaterials();
+  renderInspections();
+  renderDraws();
   renderWarranty();
   renderTime();
   renderClock();
@@ -859,6 +981,7 @@ async function init(){
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
     doc.tasks = doc.tasks||[]; doc.punch = doc.punch||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
+    doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[];
     receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){

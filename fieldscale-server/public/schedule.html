@@ -73,6 +73,7 @@
   <p class="sub">Your jobs on a calendar, by start and due date. Set dates on each job to place it here.</p>
   <div id="loading" class="loading">Loading…</div>
   <div id="content" style="display:none">
+    <div id="conflicts" style="display:none;background:rgba(192,57,43,.08);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:13px"></div>
     <div class="calbar">
       <button class="navbtn" id="prev" title="Previous month">‹</button>
       <h2 id="month-title"></h2>
@@ -166,11 +167,26 @@ document.getElementById('prev').addEventListener('click',()=>{ view=new Date(vie
 document.getElementById('next').addEventListener('click',()=>{ view=new Date(view.getFullYear(),view.getMonth()+1,1); renderCal(); });
 document.getElementById('today-btn').addEventListener('click',()=>{ view=new Date(); renderCal(); });
 
+// Double-booking: same crew member on two jobs whose date ranges overlap.
+function renderConflicts(){
+  const el=document.getElementById('conflicts');
+  const dated=jobs.filter(j=>j.start&&j.due&&(j.crew||[]).length && j.status!=='complete');
+  const overlap=(a,b)=> a.start<=b.due && b.start<=a.due;
+  const seen=new Set(), issues=[];
+  for(let i=0;i<dated.length;i++) for(let k=i+1;k<dated.length;k++){
+    const a=dated[i], b=dated[k]; if(!overlap(a,b)) continue;
+    const shared=(a.crew||[]).filter(n=> (b.crew||[]).some(m=>m.toLowerCase()===n.toLowerCase()));
+    shared.forEach(n=>{ const key=n.toLowerCase()+'|'+[a.id,b.id].sort().join('|'); if(seen.has(key))return; seen.add(key);
+      issues.push(`<strong>${esc(n)}</strong> is booked on “${esc(a.name)}” and “${esc(b.name)}” at the same time`); });
+  }
+  if(issues.length){ el.style.display='block'; el.innerHTML='⚠ Possible double-booking:<br>'+issues.join('<br>'); }
+  else el.style.display='none';
+}
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{
     jobs=await apiFetch('/api/schedule');
-    renderCal(); renderAgenda();
+    renderCal(); renderAgenda(); renderConflicts();
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
   }catch(err){ document.getElementById('loading').textContent='Could not load the schedule: '+err.message; }

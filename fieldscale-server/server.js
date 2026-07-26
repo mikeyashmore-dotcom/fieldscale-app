@@ -1711,6 +1711,37 @@ const server = http.createServer(async (req, res) => {
         saveDB(db);
         return sendJSON(res, 200, { id: inv.id });
       }
+      // Progress billing: create an invoice for one draw (a % of the job's contract).
+      if (pathname === '/api/invoices/from-draw' && req.method === 'POST') {
+        const { jobId, drawId } = await readBody(req);
+        const job = db.jobs.find(j => j.id === jobId && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+        const jdoc = readJobDoc(job.id) || {};
+        const draw = (jdoc.draws || []).find(d => d.id === drawId);
+        if (!draw) return sendJSON(res, 404, { error: 'Draw not found.' });
+        if (draw.billed) return sendJSON(res, 400, { error: 'This draw has already been invoiced.' });
+        const c = jdoc.costing || {};
+        const coAdj = (jdoc.changeOrders || []).reduce((a, x) => a + (x.status === 'approved' ? (Number(x.priceDelta) || 0) : 0), 0);
+        const contract = (Number(c.contract) || 0) + coAdj;
+        const amount = Math.round(contract * (Number(draw.percent) || 0) / 100 * 100) / 100;
+        const doc = {
+          company: jdoc.company || {}, client: jdoc.client || {}, project: jdoc.project || job.name || '',
+          invoiceNo: '', date: '', dueDate: '', taxPct: 0, taxAmount: 0, discount: 0, discountType: 'pct',
+          lines: [{ id: 'l_' + crypto.randomBytes(6).toString('hex'), name: 'Progress draw — ' + (draw.label || '') + ' (' + (Number(draw.percent) || 0) + '% of contract)', code: '', unit: '', qty: 1, unitCost: amount }],
+          notes: '', terms: '', amountPaid: 0, fromEstimateId: job.fromEstimateId || '', fromJobId: job.id
+        };
+        const autoNo = assignInvoiceNo(companyById(me.companyId));
+        if (autoNo) doc.invoiceNo = autoNo;
+        const inv = { id: 'i_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: (job.name || 'Job') + ' — ' + (draw.label || 'Draw'), client: (jdoc.client && jdoc.client.name) || job.client || '',
+          total: amount, amountPaid: 0, fromEstimateId: job.fromEstimateId || '', fromJobId: job.id, createdAt: Date.now(), updatedAt: Date.now() };
+        writeInvoiceDoc(inv.id, doc);
+        db.invoices.push(inv);
+        draw.billed = true; draw.invoiceId = inv.id; writeJobDoc(job.id, jdoc);
+        logAudit(me, 'invoice.draw', 'Draw "' + (draw.label || '') + '" on ' + (job.name || ''));
+        saveDB(db);
+        return sendJSON(res, 200, { id: inv.id });
+      }
       // Duplicate an invoice into a fresh unpaid draft — the building block for recurring invoices.
       const invDupMatch = pathname.match(/^\/api\/invoices\/([a-zA-Z0-9_]+)\/duplicate$/);
       if (invDupMatch && req.method === 'POST') {
@@ -2092,9 +2123,10 @@ const server = http.createServer(async (req, res) => {
             const co = (jd.changeOrders || []).reduce((a, x) => {
               if (x.status === 'approved') a.price += Number(x.priceDelta) || 0; return a;
             }, { price: 0 });
+            const crew = Array.isArray(jd.crew) ? jd.crew
+              : String(jd.crew || '').split(',').map(s => s.trim()).filter(Boolean);
             return { id: j.id, name: j.name, client: j.client || '', status: j.status || 'scheduled',
-                     start: jd.startDate || '', due: jd.dueDate || '',
-                     crew: Array.isArray(jd.crew) ? jd.crew : [],
+                     start: jd.startDate || '', due: jd.dueDate || '', crew,
                      contract: Math.round(((Number(c.contract) || 0) + co.price) * 100) / 100 };
           });
         return sendJSON(res, 200, list);

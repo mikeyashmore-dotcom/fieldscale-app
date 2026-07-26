@@ -83,6 +83,13 @@
       <button class="btn ghost" id="dup-btn" title="Create a fresh copy of this invoice (unpaid, new number)">⎘ Duplicate</button>
       <button class="btn ghost" id="save-btn">Save</button>
       <button class="btn ghost" id="email-btn" title="Open your email app with the invoice details ready to send">✉ Email invoice</button>
+      <select id="lien-type" title="Lien waiver type" style="padding:6px 8px">
+        <option value="cond-final">Conditional — final payment</option>
+        <option value="uncond-final">Unconditional — final payment</option>
+        <option value="cond-progress">Conditional — progress payment</option>
+        <option value="uncond-progress">Unconditional — progress payment</option>
+      </select>
+      <button class="btn ghost" id="lien-btn" title="Generate a lien waiver / release for this payment">📄 Lien Release</button>
       <button class="btn primary" id="pdf-btn">Generate PDF</button>
     </div>
 
@@ -427,6 +434,50 @@ function openInvoicePDF(){
   if(!w){ toast('Please allow pop-ups to generate the PDF.', true); return; }
   w.document.open(); w.document.write(html); w.document.close();
 }
+
+// ---- Lien waiver / release generator ----
+function openLienWaiver(type){
+  syncDocFromForm();
+  const co=doc.company||{}, cl=doc.client||{};
+  const t=computeTotals();
+  const conditional = type.startsWith('cond');
+  const progress = type.endsWith('progress');
+  const amount = money(progress ? Math.max(0, t.total) : Math.max(0, t.total));
+  const title = (conditional?'Conditional':'Unconditional')+' Waiver and Release Upon '+(progress?'Progress':'Final')+' Payment';
+  const paidClause = conditional
+    ? `This waiver and release is <b>conditional</b> and becomes effective only upon the claimant's actual receipt of ${progress?'the progress payment':'final payment'} of <b>${amount}</b>.`
+    : `The claimant has received <b>${progress?'a progress payment':'final payment'}</b> of <b>${amount}</b> and <b>unconditionally</b> waives and releases the rights below.`;
+  const scopeClause = progress
+    ? `the labor and materials furnished through the date of this waiver on the project below`
+    : `all labor and materials furnished on the project below`;
+  const dateStr = pdfDate(doc.date) || pdfDate(Date.now());
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lien Waiver</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box}body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;padding:44px;font-size:13.5px;line-height:1.6}
+h1{font-family:'Oswald',sans-serif;color:#0E2A47;font-size:20px;margin:0 0 4px} .meta{color:#7C8896;font-size:12px;margin-bottom:18px}
+.row{margin:6px 0} .row b{display:inline-block;min-width:150px;color:#0E2A47}
+.box{border:1px solid #E4DFCF;border-radius:4px;padding:14px 16px;margin:16px 0;background:#F6F3EA}
+.sign{margin-top:36px;display:flex;gap:40px} .sign .line{flex:1;border-top:1px solid #1C1E22;padding-top:6px;color:#7C8896;font-size:12px}
+.note{margin-top:26px;color:#7C8896;font-size:11px;border-top:1px solid #E4DFCF;padding-top:10px}
+.bar{position:fixed;top:0;left:0;right:0;background:#0E2A47;padding:10px;text-align:center}.bar button{background:#E8722C;color:#fff;border:none;padding:9px 20px;border-radius:3px;cursor:pointer;font-family:inherit}
+@media print{.bar,.spacer40{display:none}body{padding:0}@page{margin:16mm}}.spacer40{height:52px}</style></head><body>
+<div class="bar"><button onclick="window.print()">Save as PDF / Print</button></div><div class="spacer40"></div>
+<h1>${title}</h1>
+<div class="meta">Lien waiver &amp; release</div>
+<div class="row"><b>Claimant (Contractor):</b> ${escapeHtml(co.name||'')}${co.license?(' · Lic# '+escapeHtml(co.license)):''}</div>
+<div class="row"><b>Customer / Owner:</b> ${escapeHtml(cl.name||'')}</div>
+<div class="row"><b>Project:</b> ${escapeHtml(doc.project||'')}${cl.address?(' · '+escapeHtml(cl.address)):''}</div>
+<div class="row"><b>Invoice:</b> ${escapeHtml(doc.invoiceNo||'—')} &nbsp; <b style="min-width:0">Date:</b> ${escapeHtml(dateStr)}</div>
+<div class="box">${paidClause}</div>
+<p>In consideration of the payment described above, the claimant waives and releases any mechanic's lien, stop-payment notice, or bond right it has for ${scopeClause}, to the extent of the amount paid. ${conditional?'If the payment is not actually received, this waiver is void and of no effect.':''}</p>
+<p>This release covers ${progress?'amounts through the date above only and does not cover work performed or materials delivered after that date, or retention, unpaid change orders, or disputed items.':'the final payment and all work on the project, except retention and disputed items expressly reserved in writing.'}</p>
+<div class="sign"><div class="line">Claimant signature</div><div class="line">Date</div></div>
+<div class="note">Template only. Lien-waiver wording and requirements vary by state (several states mandate exact statutory forms). Have this reviewed for your state before relying on it.</div>
+</body></html>`;
+  const w=window.open('','_blank'); if(!w){ toast('Please allow pop-ups to generate the waiver.', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+document.getElementById('lien-btn').addEventListener('click', ()=>{ openLienWaiver(document.getElementById('lien-type').value); });
 
 function fillForm(){
   set('inv-name',invName);

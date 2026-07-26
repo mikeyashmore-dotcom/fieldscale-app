@@ -350,6 +350,9 @@
   .panel-tabs{display:none;}
   #panel-ai{display:none !important;}
   .tool[data-tool="ai-select"]{display:none !important;}
+  /* Auto-tag (AI) parked for now — button hidden; the code + manual right-click "Add reference tag"
+     stay in place. Delete this one line to re-enable the button. */
+  #autotag-btn{display:none !important;}
   .panel-body{flex:1;overflow-y:auto;min-height:0;}
   .panel-section{display:none;height:100%;flex-direction:column;}
   .panel-section.active{display:flex;}
@@ -1050,7 +1053,7 @@
   <div class="stage-wrap" id="stage-wrap">
     <div class="empty-state" id="empty-state">
       <h2>NO PLAN LOADED</h2>
-      <p>Upload a PDF plan sheet to begin. Calibrate a known dimension first, then use the measurement tools to take off quantities. Use 🏷 Auto-tag refs to turn detail callouts into clickable links.</p>
+      <p>Upload a PDF plan sheet to begin. Calibrate a known dimension first, then use the measurement tools to take off quantities. Right-click a detail callout to add a reference tag that jumps to another sheet.</p>
       <label class="btn primary" for="file-input">Upload Plan (PDF)</label>
     </div>
     <div class="canvas-stack" id="canvas-stack" style="display:none;">

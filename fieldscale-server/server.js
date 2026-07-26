@@ -651,6 +651,21 @@ function noteLoginFail(uname) {
   loginFails.set(uname, rec);
 }
 
+// ---------- Generic per-IP rate limiting for public endpoints (anti-spam / anti-abuse) ----------
+const rateBuckets = new Map(); // key -> { count, resetAt }
+function clientIp(req) { return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || 'unknown'; }
+// Returns true when the caller has exceeded `max` requests in the rolling `windowMs`.
+function rateLimited(bucket, req, max, windowMs) {
+  const now = Date.now();
+  const key = bucket + ':' + clientIp(req);
+  let rec = rateBuckets.get(key);
+  if (!rec || rec.resetAt <= now) { rec = { count: 0, resetAt: now + windowMs }; rateBuckets.set(key, rec); }
+  rec.count += 1;
+  if (rateBuckets.size > 5000) { for (const [k, v] of rateBuckets) { if (v.resetAt <= now) rateBuckets.delete(k); } }
+  return rec.count > max;
+}
+const TOO_MANY = { error: 'Too many requests — please slow down and try again in a few minutes.' };
+
 // ---------- Security headers (applied to every response) ----------
 // CSP allows the app's inline scripts/handlers (it's built with them), Google Fonts, the pdf.js CDN
 // used by the takeoff viewer, and blob/data URLs for PDF generation — while blocking framing
@@ -760,6 +775,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Auth: register ----
     if (pathname === '/api/register' && req.method === 'POST') {
+      if (rateLimited('register', req, 5, 60 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY); // 5/hour/IP
       const isFirstUser = db.users.length === 0;
       if (!db.settings.allowSignups && !isFirstUser) {
         return sendJSON(res, 403, { error: 'New signups are closed. Ask an administrator to create an account for you.' });
@@ -824,6 +840,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Public (no login): a client viewing / approving a shared estimate by token ----
     if (pathname === '/api/public/estimate' && req.method === 'GET') {
+      if (rateLimited('pubest', req, 120, 10 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY);
       const token = (parsed.query && parsed.query.token) || '';
       const est = token ? db.estimates.find(e => e.shareToken === token) : null;
       if (!est) return sendJSON(res, 404, { error: 'This link is no longer valid.' });
@@ -831,7 +848,7 @@ const server = http.createServer(async (req, res) => {
       // Only expose what a client should see — the proposal, not internal notes.
       const lines = (doc.lines || []).map(l => ({ name: l.name, code: l.code, unit: l.unit,
         qty: l.qty, unitCost: l.unitCost, mode: l.mode, unitPrice: l.unitPrice, material: l.material,
-        laborHours: l.laborHours, laborRate: l.laborRate, mkEff: l.mkEff, taxEff: l.taxEff }));
+        laborHours: l.laborHours, laborRate: l.laborRate, mkEff: l.mkEff, taxEff: l.taxEff, optional: !!l.optional }));
       return sendJSON(res, 200, { name: est.name, status: est.status,
         company: doc.company || {}, client: doc.client || {}, project: doc.project || '',
         estimateNo: doc.estimateNo || '', date: doc.date || '', validUntil: doc.validUntil || '',
@@ -844,6 +861,7 @@ const server = http.createServer(async (req, res) => {
         notes: doc.notes || '', terms: doc.terms || '', signature: doc.signature || null });
     }
     if (pathname === '/api/public/estimate-accept' && req.method === 'POST') {
+      if (rateLimited('accept', req, 20, 10 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY);
       const b = await readBody(req);
       const est = b.token ? db.estimates.find(e => e.shareToken === b.token) : null;
       if (!est) return sendJSON(res, 404, { error: 'This link is no longer valid.' });
@@ -860,6 +878,8 @@ const server = http.createServer(async (req, res) => {
     }
     // Public lead-capture form: a website visitor submits their info and it becomes a new lead.
     if (pathname === '/api/public/lead' && req.method === 'POST') {
+      if (rateLimited('lead', req, 10, 10 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY); // anti-spam
+
       const b = await readBody(req);
       const company = b.token ? db.companies.find(c => c.leadFormToken === b.token) : null;
       if (!company) return sendJSON(res, 404, { error: 'This form is no longer active.' });
@@ -877,6 +897,7 @@ const server = http.createServer(async (req, res) => {
     }
     // The public form fetches the company name to show a friendly heading.
     if (pathname === '/api/public/lead-form' && req.method === 'GET') {
+      if (rateLimited('leadform', req, 60, 10 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY);
       const token = (parsed.query && parsed.query.token) || '';
       const company = token ? db.companies.find(c => c.leadFormToken === token) : null;
       if (!company) return sendJSON(res, 404, { error: 'This form is no longer active.' });
@@ -1618,7 +1639,9 @@ const server = http.createServer(async (req, res) => {
         const defMk = (Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0);
         // Fold at FULL precision (don't round per line) so the invoice total equals the estimate
         // the customer approved — rounding each line first made it drift by a few cents.
-        const lines = (edoc.lines || []).map(l => {
+        // Optional add-ons/alternates are excluded — they weren't part of the quoted Total.
+        const billLines = (edoc.lines || []).filter(l => !l.optional);
+        const lines = billLines.map(l => {
           const effMk = (l.mkEff !== undefined && l.mkEff !== null) ? Number(l.mkEff) : defMk;
           return { id: 'l_' + crypto.randomBytes(6).toString('hex'), name: l.name, code: l.code, unit: l.unit,
             description: l.description || '', qty: Number(l.qty) || 0, unitCost: (Number(l.unitCost) || 0) * (1 + effMk / 100) };
@@ -1628,7 +1651,7 @@ const server = http.createServer(async (req, res) => {
         const discountInput = Number(edoc.discount) || 0;
         // Tax base = the taxable portion of each line (category rules can flip a trade on/off).
         // Default: build-up material is taxed; flat prices are tax-included. Carried as a fixed amount.
-        const materialBase = (edoc.lines || []).reduce((s, l) => {
+        const materialBase = billLines.reduce((s, l) => {
           const taxable = (l.taxEff !== undefined && l.taxEff !== null) ? !!l.taxEff : (l.mode === 'buildup');
           if (!taxable) return s;
           const base = l.mode === 'buildup' ? (Number(l.material) || 0) : (Number(l.qty) || 0) * (Number(l.unitCost) || 0);
@@ -1977,6 +2000,35 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { rows });
       }
 
+      // ---- Owner analytics: monthly revenue trend, jobs by status, headline KPIs ----
+      if (pathname === '/api/reports/analytics' && req.method === 'GET') {
+        const invs = db.invoices.filter(i => i.companyId === me.companyId);
+        const now = new Date();
+        const months = [];
+        for (let k = 5; k >= 0; k--) { const d = new Date(now.getFullYear(), now.getMonth() - k, 1); months.push({ key: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), label: d.toLocaleString(undefined, { month: 'short' }), invoiced: 0, collected: 0 }); }
+        const idx = {}; months.forEach(m => idx[m.key] = m);
+        invs.forEach(i => {
+          const d = new Date(i.createdAt || Date.now());
+          const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+          if (idx[key]) { idx[key].invoiced += Number(i.total) || 0; idx[key].collected += Number(i.amountPaid) || 0; }
+        });
+        months.forEach(m => { m.invoiced = Math.round(m.invoiced * 100) / 100; m.collected = Math.round(m.collected * 100) / 100; });
+        const jobsByStatus = {};
+        db.jobs.filter(j => j.companyId === me.companyId).forEach(j => { const s = j.status || 'scheduled'; jobsByStatus[s] = (jobsByStatus[s] || 0) + 1; });
+        const ests = db.estimates.filter(e => e.companyId === me.companyId);
+        const accepted = ests.filter(e => e.status === 'accepted').length, rejected = ests.filter(e => e.status === 'rejected').length;
+        const winRate = (accepted + rejected) > 0 ? Math.round(accepted / (accepted + rejected) * 100) : null;
+        const totalInvoiced = invs.reduce((s, i) => s + (Number(i.total) || 0), 0);
+        const totalCollected = invs.reduce((s, i) => s + (Number(i.amountPaid) || 0), 0);
+        return sendJSON(res, 200, {
+          months, jobsByStatus, winRate,
+          totalInvoiced: Math.round(totalInvoiced * 100) / 100,
+          totalCollected: Math.round(totalCollected * 100) / 100,
+          outstanding: Math.round((totalInvoiced - totalCollected) * 100) / 100,
+          activeJobs: (jobsByStatus['in progress'] || 0) + (jobsByStatus['scheduled'] || 0)
+        });
+      }
+
       // ---- Schedule: jobs with their start/due dates for the calendar ----
       if (pathname === '/api/schedule' && req.method === 'GET') {
         const list = db.jobs.filter(j => j.companyId === me.companyId)
@@ -2067,14 +2119,15 @@ const server = http.createServer(async (req, res) => {
         // Freeze the job's budget from the estimate: cost basis = sum(qty x unitCost);
         // contract (revenue) = cost + markup, per line (category rules may vary the markup).
         const defMkJob = (Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0);
-        const budget = (edoc.lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0);
-        const contract = Math.round((edoc.lines || []).reduce((s, l) => {
+        const jobLines = (edoc.lines || []).filter(l => !l.optional); // optional add-ons aren't in the contract
+        const budget = jobLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0);
+        const contract = Math.round(jobLines.reduce((s, l) => {
           const effMk = (l.mkEff !== undefined && l.mkEff !== null) ? Number(l.mkEff) : defMkJob;
           return s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0) * (1 + effMk / 100);
         }, 0) * 100) / 100;
         const doc = {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
-          lines: (edoc.lines || []).map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),
+          lines: jobLines.map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),
             name: l.name, code: l.code, unit: l.unit, qty: Number(l.qty) || 0, done: false })),
           startDate: '', dueDate: '', notes: edoc.notes || '', fromEstimateId: est.id,
           costing: { budget: Math.round(budget * 100) / 100, contract, actualCost: 0 }
@@ -2203,7 +2256,7 @@ const server = http.createServer(async (req, res) => {
             const existing = readJobDoc(job.id) || {};
             if (doc && typeof doc === 'object') {
               const merged = Object.assign({}, existing);
-              ['dailyLogs', 'timeEntries', 'tasks'].forEach(k => { if (doc[k] !== undefined) merged[k] = doc[k]; });
+              ['dailyLogs', 'timeEntries', 'tasks', 'punch'].forEach(k => { if (doc[k] !== undefined) merged[k] = doc[k]; });
               writeJobDoc(job.id, merged);
             }
             job.updatedAt = Date.now();

@@ -66,6 +66,18 @@
   <div id="loading" class="loading">Loading…</div>
   <div id="content" style="display:none">
 
+    <h2>Owner dashboard</h2>
+    <p class="section-sub">The big picture at a glance.</p>
+    <div class="tiles" id="dash-tiles"></div>
+    <div class="card" style="padding:16px 18px;margin-bottom:8px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-bottom:12px">Invoiced vs collected — last 6 months</div>
+      <div id="rev-chart" style="display:flex;align-items:flex-end;gap:14px;height:150px"></div>
+    </div>
+    <div class="card" style="padding:16px 18px;margin-bottom:8px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-bottom:12px">Jobs by status</div>
+      <div id="status-bars"></div>
+    </div>
+
     <h2>Production <button class="btn ghost" id="payroll-btn" style="font-size:12px;padding:4px 12px;margin-left:8px">⬇ Export time (CSV)</button></h2>
     <p class="section-sub">Where your jobs stand, hours logged, and anything running behind schedule.</p>
     <div class="tiles" id="prod-tiles"></div>
@@ -233,6 +245,33 @@ function renderSources(list){
     <td class="num">${s.wonValue?money(s.wonValue):'—'}</td></tr>`).join('');
 }
 
+function renderDashboard(a){
+  document.getElementById('dash-tiles').innerHTML =
+    tile('Invoiced (all time)', money(a.totalInvoiced)) +
+    tile('Collected', money(a.totalCollected), 'pos') +
+    tile('Outstanding', money(a.outstanding), a.outstanding>0.005?'neg':'') +
+    tile('Active jobs', a.activeJobs) +
+    tile('Win rate', a.winRate==null?'—':a.winRate+'%');
+  // Monthly invoiced (bar) vs collected (inner bar).
+  const max=Math.max(1, ...a.months.map(m=>m.invoiced));
+  document.getElementById('rev-chart').innerHTML = a.months.map(m=>{
+    const h=Math.round((m.invoiced/max)*110), hc=Math.round((m.collected/max)*110);
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+      <div title="Invoiced ${money(m.invoiced)} · Collected ${money(m.collected)}" style="position:relative;width:100%;max-width:46px;height:110px;display:flex;align-items:flex-end">
+        <div style="width:100%;height:${h}px;background:var(--paper-line);border-radius:3px 3px 0 0"></div>
+        <div style="position:absolute;bottom:0;left:0;width:100%;height:${hc}px;background:var(--good);border-radius:3px 3px 0 0"></div>
+      </div>
+      <div style="font-size:11px;color:var(--steel)">${esc(m.label)}</div>
+      <div style="font-size:10px;color:var(--steel);font-family:'IBM Plex Mono',monospace">${m.invoiced>=1000?('$'+Math.round(m.invoiced/1000)+'k'):('$'+Math.round(m.invoiced))}</div>
+    </div>`;
+  }).join('') + `<div style="font-size:10.5px;color:var(--steel);align-self:flex-start;margin-left:8px">▮ invoiced &nbsp; <span style="color:var(--good)">▮</span> collected</div>`;
+  const sb=a.jobsByStatus||{}; const keys=Object.keys(sb); const smax=Math.max(1,...keys.map(k=>sb[k]));
+  document.getElementById('status-bars').innerHTML = keys.length ? keys.map(k=>
+    `<div style="display:flex;align-items:center;gap:10px;margin:5px 0"><div style="width:110px;font-size:12px;color:var(--steel);text-transform:capitalize">${esc(k)}</div>
+     <div style="flex:1;background:var(--paper);border-radius:3px;overflow:hidden"><div style="width:${Math.round(sb[k]/smax*100)}%;min-width:2px;background:var(--cyan-dim);height:16px"></div></div>
+     <div style="width:30px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px">${sb[k]}</div></div>`).join('')
+    : '<div style="color:var(--steel);font-size:13px">No jobs yet.</div>';
+}
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{
@@ -241,6 +280,7 @@ async function init(){
     renderCashflow(r.cashflow); renderSources(r.leadSources); renderProduction(r.production);
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
+    try{ renderDashboard(await apiFetch('/api/reports/analytics')); }catch(e){}
   }catch(err){ document.getElementById('loading').textContent='Could not load reports: '+err.message; }
 }
 init();

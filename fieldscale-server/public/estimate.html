@@ -28,6 +28,10 @@
   .lines td,.lines th{padding:8px 8px}
   .lines input{padding:6px 7px}
   .lines input.internal-note{margin-top:4px;font-size:11.5px;font-style:italic;color:var(--steel);background:var(--paper);border-style:dashed}
+  .lines label.optchk{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--steel);margin-top:4px;cursor:pointer}
+  .lines label.optchk input{width:auto;margin:0}
+  .lines tr.opt-row{background:rgba(111,195,228,.06)}
+  .lines tr.opt-row td.col-item input{font-style:italic}
   .lines input.internal-note::placeholder{color:var(--steel-light)}
   .rowdel{background:transparent;border:none;color:var(--steel-light);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:var(--radius)}
   .rowdel:hover{color:var(--danger);background:rgba(192,57,43,.08)}
@@ -324,12 +328,14 @@ function assemblyUnitCost(a){
 }
 
 function computeTotals(){
-  const subtotal = doc.lines.reduce((s,l)=> s + lineAmount(l), 0);
   // Lines with no category rule use the estimate's default Overhead + Profit; ruled lines use the
-  // rule's markup (a "Category markup" bucket). With no rules this equals the old overhead+profit.
-  let subDefault=0, categoryMarkup=0, materialBase=0;
+  // rule's markup (a "Category markup" bucket). Optional add-ons/alternates are NOT in the base
+  // total — they're listed separately for the customer to choose.
+  let subtotal=0, subDefault=0, categoryMarkup=0, materialBase=0, optionalTotal=0;
   doc.lines.forEach(l=>{
     const amt=lineAmount(l);
+    if(l.optional){ optionalTotal += amt*(1+effMarkup(l)/100); return; }
+    subtotal += amt;
     if(lineRule(l)) categoryMarkup += amt*effMarkup(l)/100;
     else subDefault += amt;
     if(effTaxable(l)) materialBase += lineTaxBase(l);
@@ -346,7 +352,7 @@ function computeTotals(){
   // build-up material is taxed; a flat price is assumed tax-included.
   const tax = materialBase*(Number(doc.taxPct)||0)/100;
   const total = taxable + tax;
-  return { subtotal, overhead, profit, categoryMarkup, markup: overhead, price, discount, materialBase, tax, total };
+  return { subtotal, overhead, profit, categoryMarkup, markup: overhead, price, discount, materialBase, tax, total, optionalTotal };
 }
 function renderTotals(){
   const t=computeTotals();
@@ -378,11 +384,12 @@ function renderLines(){
     const dis = flat ? 'disabled' : '';
     const upDis = flat ? '' : 'disabled';
     const off = 'style="opacity:.4"';
-    return `<tr>
+    return `<tr class="${l.optional?'opt-row':''}">
       ${showCode?`<td class="col-code">${codeSelect(i, l.code)}</td>`:''}
       <td class="col-item"><input data-i="${i}" data-f="name" value="${escapeHtml(l.name)}" placeholder="Item" /></td>
       <td class="col-desc"><input data-i="${i}" data-f="description" value="${escapeHtml(l.description||'')}" placeholder="What's being done…" />
-        <input class="internal-note" data-i="${i}" data-f="internalNote" value="${escapeHtml(l.internalNote||'')}" placeholder="🔒 Internal note — not shown to the customer" /></td>
+        <input class="internal-note" data-i="${i}" data-f="internalNote" value="${escapeHtml(l.internalNote||'')}" placeholder="🔒 Internal note — not shown to the customer" />
+        <label class="optchk"><input type="checkbox" data-i="${i}" data-f="optional" ${l.optional?'checked':''} /> Optional add-on (not in the total)</label></td>
       <td class="num"><input class="num" data-i="${i}" data-f="qty" value="${l.qty}" inputmode="decimal" style="width:70px" /></td>
       <td>${unitSelect(i, l.unit)}</td>
       <td class="num" ${flat?off:''}><span class="dollar">$<input class="num" data-i="${i}" data-f="material" value="${l.material||0}" inputmode="decimal" placeholder="0.00" style="width:78px" ${dis} /></span></td>
@@ -410,6 +417,12 @@ document.getElementById('lines').addEventListener('input', e=>{
   const num=(f==='qty'||f==='material'||f==='laborHours'||f==='laborRate'||f==='unitPrice');
   doc.lines[i][f]= num ? (parseFloat(el.value)||0) : el.value;
   if(num || f==='unit') recalcLine(i);
+});
+document.getElementById('lines').addEventListener('change', e=>{
+  const el=e.target; if(el.getAttribute('data-f')!=='optional') return;
+  const i=el.getAttribute('data-i'); if(i===null) return;
+  doc.lines[i].optional = el.checked;
+  renderLines();  // re-render to dim the row + recompute totals (optional lines leave the total)
 });
 document.getElementById('lines').addEventListener('click', e=>{
   const d=e.target.getAttribute && e.target.getAttribute('data-del');
@@ -654,7 +667,12 @@ function proposalDocHTML(forDownload){
   const showQty = doc.showQty!==false, showUnit = doc.showUnit!==false,
         showUnitPrice = doc.showUnitPrice!==false, showLineTotal = doc.showLineTotal!==false,
         showCode = doc.estimateClass!=='none';
-  const rows=doc.lines.map((l,i)=>`<tr>
+  // Optional add-ons/alternates are listed in their own section, not the main priced table.
+  const baseLines = doc.lines.filter(l=>!l.optional);
+  const optLines = doc.lines.filter(l=>l.optional);
+  const optUnit = l => lineUnitPrice(l)*(1+effMarkup(l)/100);
+  const optAmt  = l => lineAmount(l)*(1+effMarkup(l)/100);
+  const rows=baseLines.map((l,i)=>`<tr>
       <td class="c">${i+1}</td>
       <td>${(showCode&&l.code)?`<span class="code" style="margin-right:6px">${escapeHtml(l.code)}</span>`:''}<strong>${escapeHtml(l.name)}</strong>${l.description?`<div class="code">${escapeHtml(l.description)}</div>`:''}</td>
       ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}
@@ -662,6 +680,19 @@ function proposalDocHTML(forDownload){
       ${showUnitPrice?`<td class="r">${money(custUnit(l))}</td>`:''}
       ${showLineTotal?`<td class="r">${money(custAmt(l))}</td>`:''}
     </tr>`).join('');
+  const optRows=optLines.map((l,i)=>`<tr>
+      <td class="c">${i+1}</td>
+      <td>${(showCode&&l.code)?`<span class="code" style="margin-right:6px">${escapeHtml(l.code)}</span>`:''}<strong>${escapeHtml(l.name)}</strong>${l.description?`<div class="code">${escapeHtml(l.description)}</div>`:''}</td>
+      ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}
+      ${showUnit?`<td>${escapeHtml(normUnit(l.unit))}</td>`:''}
+      ${showUnitPrice?`<td class="r">${money(optUnit(l))}</td>`:''}
+      ${showLineTotal?`<td class="r">${money(optAmt(l))}</td>`:''}
+    </tr>`).join('');
+  const nCols = 2+(showQty?1:0)+(showUnit?1:0)+(showUnitPrice?1:0)+(showLineTotal?1:0);
+  const optSection = optLines.length ? `<div class="sec"><h4>Optional add-ons</h4>
+    <table><thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUnit?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
+    <tbody>${optRows}</tbody></table>
+    <div style="color:#7C8896;font-size:11px">These are optional — not included in the Total above. Let us know which you'd like to add.</div></div>` : '';
   // Deposit + balance-due + validity are structured terms; combine with the free-text terms.
   const termsExtra=[];
   const balPhrase=balanceDuePhrase(doc.balanceDue);
@@ -723,6 +754,7 @@ function proposalDocHTML(forDownload){
     <div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
   </div>
+  ${optSection}
   ${doc.notes?`<div class="sec"><h4>Scope of work</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:''}
   ${termsBody?`<div class="sec"><h4>Terms</h4><div class="body">${termsBody}</div></div>`:''}
   <div class="foot">Thank you for the opportunity. ${escapeHtml(co.name||'')}</div>

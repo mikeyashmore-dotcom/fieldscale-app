@@ -49,6 +49,15 @@
     <h1 class="hi">Welcome back<span id="co-wrap">, <span class="co" id="co-name"></span></span></h1>
     <p class="sub">Here's where your business stands today.</p>
 
+    <div id="onboard" style="display:none;background:#fff;border:1px solid var(--paper-line);border-left:3px solid var(--cyan-dim);border-radius:var(--radius);padding:16px 18px;margin-bottom:22px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+        <h2 style="margin:0 0 2px">Get set up <span id="ob-count" style="font-size:12px;color:var(--steel);font-weight:400"></span></h2>
+        <a href="#" id="ob-dismiss" style="font-size:12px;color:var(--steel)">Dismiss</a>
+      </div>
+      <p style="font-size:12.5px;color:var(--steel);margin:0 0 10px">A few quick steps to get the most out of Fieldscale.</p>
+      <div id="ob-steps"></div>
+    </div>
+
     <div class="tiles" id="stat-tiles"></div>
 
     <h2>Needs attention</h2>
@@ -136,6 +145,8 @@ async function init(){
     const b=e.target.closest('[data-action="pw"]'); if(b) openPwModal();
   });
 
+  if(isAdmin) loadOnboarding();
+
   // Stats + needs-attention (best-effort; fine if a section is empty).
   try{
     const [r,fu] = await Promise.all([ apiFetch('/api/reports/summary'), apiFetch('/api/followups') ]);
@@ -167,6 +178,29 @@ async function init(){
   document.getElementById('loading').style.display='none';
   document.getElementById('content').style.display='block';
 }
+
+// ---- Guided onboarding checklist (new accounts) ----
+async function loadOnboarding(){
+  if(localStorage.getItem('fs_onboard_dismissed')==='1') return;
+  let prof={}, pb={items:[]}, ests=[];
+  try{ const c=await apiFetch('/api/company'); prof=c.profile||{}; }catch(e){}
+  try{ pb=await apiFetch('/api/pricebook'); }catch(e){}
+  try{ ests=await apiFetch('/api/estimates'); }catch(e){}
+  const steps=[
+    { label:'Set up your company profile (name, logo, license)', href:'/company.html', done: !!(prof.name && (prof.logo||prof.license||prof.address)) },
+    { label:'Add your crew on the Employees page', href:'/employees.html', done: !!(prof.team && prof.team.length) },
+    { label:'Build your price book', href:'/estimates.html', done: !!(pb.items && pb.items.length) },
+    { label:'Create your first estimate', href:'/proposals.html', done: !!(ests && ests.length) }
+  ];
+  const doneCount=steps.filter(s=>s.done).length;
+  if(doneCount===steps.length) return; // all set — no need to show it
+  document.getElementById('ob-count').textContent = '· '+doneCount+' of '+steps.length+' done';
+  document.getElementById('ob-steps').innerHTML = steps.map(s=>
+    `<div style="padding:6px 0;font-size:14px">${s.done?'<span style="color:var(--good)">✓</span>':'<span style="color:var(--steel-light)">○</span>'} `+
+    (s.done?`<span style="color:var(--steel)">${esc(s.label)}</span>`:`<a href="${s.href}">${esc(s.label)}</a>`)+`</div>`).join('');
+  document.getElementById('onboard').style.display='';
+}
+document.getElementById('ob-dismiss').addEventListener('click', e=>{ e.preventDefault(); localStorage.setItem('fs_onboard_dismissed','1'); document.getElementById('onboard').style.display='none'; });
 
 // ---- Change Password (moved here from the header account menu) ----
 const pwModal=document.getElementById('pw-modal');

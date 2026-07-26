@@ -225,6 +225,17 @@
     </div>
 
     <div class="block">
+      <h3>Punch list</h3>
+      <p style="font-size:12px;color:var(--steel);margin:0 0 10px">End-of-job fixes and touch-ups, with where each one is. Check them off as they're completed.</p>
+      <div id="punch-wrap"></div>
+      <div class="task-add" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <input id="punch-input" placeholder="Item to fix…" style="flex:2;min-width:160px" />
+        <input id="punch-loc" placeholder="Location (e.g. Kitchen)" style="flex:1;min-width:120px" />
+        <button class="btn ghost" id="add-punch">＋ Add</button>
+      </div>
+    </div>
+
+    <div class="block">
       <h3>Daily logs</h3>
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">A quick record of each day on site — weather, who was there, and what got done. Attach site photos in Receipts above.</p>
       <div id="logs"></div>
@@ -457,6 +468,40 @@ document.getElementById('add-closeout').addEventListener('click', ()=>{
 });
 document.getElementById('tasks-wrap').addEventListener('change', e=>{
   const k=e.target.getAttribute('data-tk'); if(k!==null){ doc.tasks[k].done=e.target.checked; renderTasks(); }
+});
+
+// ---- Punch list (deficiencies to fix before closeout; each with a location) ----
+function renderPunch(){
+  const wrap=document.getElementById('punch-wrap');
+  const items=doc.punch||[];
+  if(!items.length){ wrap.innerHTML=`<div style="color:var(--steel);font-size:13px">No punch items yet.</div>`; return; }
+  const doneN=items.filter(t=>t.done).length;
+  wrap.innerHTML=`<div style="font-size:12px;color:var(--steel);margin-bottom:6px">${doneN} of ${items.length} done</div>`+
+    items.map((t,i)=>`<div class="task-row" style="display:flex;align-items:center;gap:8px;padding:4px 0">
+      <input type="checkbox" data-pk="${i}" ${t.done?'checked':''} />
+      <input data-pt="${i}" value="${escapeHtml(t.text)}" style="flex:2;${t.done?'text-decoration:line-through;color:var(--steel)':''}" />
+      <input data-pl="${i}" value="${escapeHtml(t.location||'')}" placeholder="Location" style="flex:1" />
+      <button class="rowdel" data-pdel="${i}" title="Remove">✕</button>
+    </div>`).join('');
+}
+function addPunch(){
+  const inp=document.getElementById('punch-input'), loc=document.getElementById('punch-loc');
+  const v=(inp.value||'').trim(); if(!v) return;
+  doc.punch=doc.punch||[]; doc.punch.push({ id:'pn_'+Math.random().toString(16).slice(2,8), text:v, location:(loc.value||'').trim(), done:false });
+  inp.value=''; loc.value=''; renderPunch();
+}
+document.getElementById('add-punch').addEventListener('click', addPunch);
+document.getElementById('punch-input').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addPunch(); } });
+document.getElementById('punch-wrap').addEventListener('change', e=>{
+  const k=e.target.getAttribute('data-pk'); if(k!==null){ doc.punch[k].done=e.target.checked; renderPunch(); }
+});
+document.getElementById('punch-wrap').addEventListener('input', e=>{
+  const t=e.target.getAttribute('data-pt'), l=e.target.getAttribute('data-pl');
+  if(t!==null) doc.punch[t].text=e.target.value;
+  if(l!==null) doc.punch[l].location=e.target.value;
+});
+document.getElementById('punch-wrap').addEventListener('click', e=>{
+  const d=e.target.getAttribute('data-pdel'); if(d!==null){ doc.punch.splice(Number(d),1); renderPunch(); }
 });
 document.getElementById('tasks-wrap').addEventListener('input', e=>{
   const t=e.target.getAttribute('data-tt'); if(t!==null){ doc.tasks[t].text=e.target.value; }
@@ -763,6 +808,7 @@ async function openJobPDF(){
         <div class="tr total"><span>Est. profit (${margin.toFixed(1)}%)</span><span>${money(estProfit)}</span></div></div>`
     + (cos?`<div class="sec"><h4>Change orders</h4></div><table><thead><tr><th>Description</th><th class="c">Status</th><th class="r">Price</th><th class="r">Cost</th></tr></thead><tbody>${cos}</tbody></table>`:'')
     + ((doc.dailyLogs||[]).length?`<div class="sec"><h4>Daily logs</h4></div><table><thead><tr><th>Date</th><th>Weather</th><th>Crew</th><th>Work done</th></tr></thead><tbody>${doc.dailyLogs.map(l=>`<tr><td>${escapeHtml(pdfDate(l.date))||'—'}</td><td>${escapeHtml(l.weather)}</td><td>${escapeHtml(l.crew)}</td><td>${escapeHtml(l.workDone)}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.punch||[]).length?`<div class="sec"><h4>Punch list</h4></div><table><thead><tr><th>Done</th><th>Item</th><th>Location</th></tr></thead><tbody>${doc.punch.map(p=>`<tr><td class="c">${p.done?'☑':'☐'}</td><td>${escapeHtml(p.text)}</td><td>${escapeHtml(p.location||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + (doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:'')
     + `<div class="foot">${escapeHtml(co.name||'')} — job sheet</div>`;
   printWindow(jobName||'Job', body);
@@ -794,6 +840,7 @@ function fillForm(){
   renderReceipts();
   renderDailyLogs();
   renderTasks();
+  renderPunch();
   renderWarranty();
   renderTime();
   renderClock();
@@ -811,7 +858,7 @@ async function init(){
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
-    doc.tasks = doc.tasks||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
+    doc.tasks = doc.tasks||[]; doc.punch = doc.punch||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
     receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){

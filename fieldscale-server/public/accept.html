@@ -67,8 +67,9 @@ async function api(path, opts={}){
 function money0(n){ return money(n); }
 function computeTotals(d){
   // Each line's markup can differ (category rules); tax base is each line's taxable portion.
+  // Optional add-ons/alternates are excluded from the base total.
   let subtotal=0, price=0, materialBase=0;
-  (d.lines||[]).forEach(l=>{ const amt=lineAmount(l); subtotal+=amt; price+=amt*(1+effMk(l,d)/100); if(effTax(l)) materialBase+=taxBase(l); });
+  (d.lines||[]).forEach(l=>{ if(l.optional) return; const amt=lineAmount(l); subtotal+=amt; price+=amt*(1+effMk(l,d)/100); if(effTax(l)) materialBase+=taxBase(l); });
   const discInput=Number(d.discount)||0;
   let discount=d.discountType==='amt'?discInput:price*discInput/100;
   discount=Math.min(Math.max(discount,0),price);
@@ -85,10 +86,18 @@ function render(d){
   const showQty=d.showQty!==false, showUom=d.showUnit!==false,
         showUnitPrice=d.showUnitPrice!==false, showLineTotal=d.showLineTotal!==false,
         showCode=d.estimateClass!=='none';
-  const rows=(d.lines||[]).map((l,i)=>`<tr><td class="c">${i+1}</td>
+  const baseLines=(d.lines||[]).filter(l=>!l.optional), optLines=(d.lines||[]).filter(l=>l.optional);
+  const rows=baseLines.map((l,i)=>`<tr><td class="c">${i+1}</td>
     <td>${esc(l.name)}${(showCode&&l.code)?`<div class="code">${esc(l.code)}</div>`:''}</td>
     ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}${showUom?`<td>${esc(l.unit)}</td>`:''}
     ${showUnitPrice?`<td class="r">${money(lineUnit(l)*(1+effMk(l,d)/100)*ft)}</td>`:''}${showLineTotal?`<td class="r">${money(lineAmount(l)*(1+effMk(l,d)/100)*ft)}</td>`:''}</tr>`).join('');
+  const optRows=optLines.map((l,i)=>`<tr><td class="c">${i+1}</td>
+    <td>${esc(l.name)}${(showCode&&l.code)?`<div class="code">${esc(l.code)}</div>`:''}</td>
+    ${showQty?`<td class="r">${Number(l.qty)||0}</td>`:''}${showUom?`<td>${esc(l.unit)}</td>`:''}
+    ${showUnitPrice?`<td class="r">${money(lineUnit(l)*(1+effMk(l,d)/100))}</td>`:''}${showLineTotal?`<td class="r">${money(lineAmount(l)*(1+effMk(l,d)/100))}</td>`:''}</tr>`).join('');
+  const optSection = optLines.length ? `<div class="sec"><h4>Optional add-ons</h4>
+    <table><thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUom?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
+    <tbody>${optRows}</tbody></table><div style="color:#7C8896;font-size:11px">Optional — not included in the Total above.</div></div>` : '';
   // Deposit + balance-due + validity terms, combined with any free-text terms (same as the PDF).
   const termsExtra=[];
   const balPhrase=({completion:'upon completion',receipt:'upon receipt of the final invoice',net7:'within 7 days of completion',net15:'within 15 days of completion',net30:'within 30 days of completion'})[d.balanceDue]||'';
@@ -122,6 +131,7 @@ function render(d){
       <div class="tr"><span>Discount</span><span>-${money(t.discount)}</span></div>`:''}
       <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
     </div>
+    ${optSection}
     ${d.notes?`<div class="sec"><h4>Notes</h4><div class="body">${esc(d.notes)}</div></div>`:''}
     ${termsBody?`<div class="sec"><h4>Terms</h4><div class="body">${termsBody}</div></div>`:''}
     ${approveBlock}

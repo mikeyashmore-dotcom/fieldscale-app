@@ -314,15 +314,18 @@ const LEAD_STAGES = ['new', 'contacted', 'estimating', 'won', 'lost', 'on hold']
 // Its own store, walled off per company, mirroring leads. The full drawing (walls/fixtures/rooms)
 // lives in a per-plan doc on disk; db.json keeps only lightweight listing metadata.
 const PLANS_DIR = path.join(DATA_DIR, 'plans');
-function planPath(id){ return path.join(PLANS_DIR, id + '.json'); }
+// NOTE: named floorPlanPath (NOT planPath) — the takeoff tool already has a planPath() for its
+// PDF plan sets. A duplicate planPath() here would win via hoisting and silently redirect the
+// takeoff's PDF reads/writes to the wrong place (broke plan upload + loading).
+function floorPlanPath(id){ return path.join(PLANS_DIR, id + '.json'); }
 function readPlanDoc(id){
-  const f = planPath(id);
+  const f = floorPlanPath(id);
   if (!fs.existsSync(f)) return {};
   try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
 }
 function writePlanDoc(id, doc){
   if (!fs.existsSync(PLANS_DIR)) fs.mkdirSync(PLANS_DIR, { recursive: true });
-  writeJsonAtomic(planPath(id), doc || {});
+  writeJsonAtomic(floorPlanPath(id), doc || {});
 }
 
 // ---------- Receipts attached to a job (kept on disk for the life of the job) ----------
@@ -2910,7 +2913,7 @@ const server = http.createServer(async (req, res) => {
         }
         if (req.method === 'DELETE') {
           db.plans = db.plans.filter(p => p.id !== plan.id);
-          try { fs.unlinkSync(planPath(plan.id)); } catch (e) {}
+          try { fs.unlinkSync(floorPlanPath(plan.id)); } catch (e) {}
           saveDB(db);
           logAudit(me, 'plan.delete', plan.name);
           return sendJSON(res, 200, { deleted: true });

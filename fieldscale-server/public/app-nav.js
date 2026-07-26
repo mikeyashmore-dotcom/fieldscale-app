@@ -17,7 +17,8 @@
     { label: 'Estimate', items: [
       { label: 'Estimates', href: '/proposals.html', module: 'estimating' },
       { label: 'Price Book', href: '/estimates.html', module: 'estimating' },
-      { label: 'Field Measure', href: '/fieldmeasure.html', module: 'estimating' }
+      { label: 'Field Measure', href: '/fieldmeasure.html', module: 'estimating' },
+      { label: 'Floor Plans', href: '/plans.html', module: 'estimating' }
     ] },
     { label: 'Job', items: [
       { label: 'Jobs', href: '/jobs.html', module: 'jobs' },
@@ -43,7 +44,7 @@
     '/lead.html': '/leads.html', '/customer.html': '/customers.html',
     '/estimate.html': '/proposals.html',
     '/job.html': '/jobs.html', '/workorder.html': '/workorders.html', '/po.html': '/purchase-orders.html',
-    '/invoice.html': '/invoices.html'
+    '/invoice.html': '/invoices.html', '/floorplan.html': '/plans.html'
   };
   var LANDING = { takeoff: '/', crm: '/leads.html', estimating: '/proposals.html', jobs: '/jobs.html', invoicing: '/invoices.html' };
   var ORDER = ['crm', 'takeoff', 'estimating', 'jobs', 'invoicing'];

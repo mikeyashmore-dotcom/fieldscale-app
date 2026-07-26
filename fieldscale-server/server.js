@@ -310,6 +310,21 @@ function writeLeadDoc(id, doc){
 }
 const LEAD_STAGES = ['new', 'contacted', 'estimating', 'won', 'lost', 'on hold'];
 
+// ---------- Floor Plans (a standalone sketch tool: walls + fixtures on a scaled grid) ----------
+// Its own store, walled off per company, mirroring leads. The full drawing (walls/fixtures/rooms)
+// lives in a per-plan doc on disk; db.json keeps only lightweight listing metadata.
+const PLANS_DIR = path.join(DATA_DIR, 'plans');
+function planPath(id){ return path.join(PLANS_DIR, id + '.json'); }
+function readPlanDoc(id){
+  const f = planPath(id);
+  if (!fs.existsSync(f)) return {};
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return {}; }
+}
+function writePlanDoc(id, doc){
+  if (!fs.existsSync(PLANS_DIR)) fs.mkdirSync(PLANS_DIR, { recursive: true });
+  writeJsonAtomic(planPath(id), doc || {});
+}
+
 // ---------- Receipts attached to a job (kept on disk for the life of the job) ----------
 // Files live under data/receipts/<jobId>/<receiptId>; the metadata lives on the job record
 // (job.receipts), so a client save of the job doc can never clobber them.
@@ -347,6 +362,7 @@ function loadDB() {
   parsed.jobs = parsed.jobs || [];
   parsed.workOrders = parsed.workOrders || [];
   parsed.leads = parsed.leads || [];
+  parsed.plans = parsed.plans || [];
   parsed.purchaseOrders = parsed.purchaseOrders || [];
   parsed.customers = parsed.customers || []; // per-customer notes + activity log (records are derived otherwise)
   parsed.audit = parsed.audit || []; // activity log / audit trail (capped)
@@ -382,6 +398,7 @@ function migrateToCompanies(db) {
   });
   db.projects.forEach(p => { if (!p.companyId) p.companyId = company.id; });
   db.estimates.forEach(e => { if (!e.companyId) e.companyId = company.id; });
+  (db.plans || []).forEach(p => { if (!p.companyId) p.companyId = company.id; });
   // The owner's private price book + company profile become the company's shared copies.
   const move = (dir) => {
     try {
@@ -2611,6 +2628,52 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ---- Floor Plans (standalone sketch tool) ----
+      if (pathname === '/api/plans' && req.method === 'GET') {
+        const list = db.plans.filter(p => p.companyId === me.companyId)
+          .map(p => ({ id: p.id, name: p.name, client: p.client || '', jobId: p.jobId || '',
+                       createdAt: p.createdAt, updatedAt: p.updatedAt }))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        return sendJSON(res, 200, list);
+      }
+      if (pathname === '/api/plans' && req.method === 'POST') {
+        const { name, client, jobId, doc } = await readBody(req);
+        const plan = { id: 'pl_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: (name && String(name).slice(0, 200)) || 'Untitled Plan', client: (client && String(client).slice(0, 200)) || '',
+          jobId: (jobId && String(jobId).slice(0, 64)) || '', createdAt: Date.now(), updatedAt: Date.now() };
+        writePlanDoc(plan.id, doc || {});
+        db.plans.push(plan);
+        saveDB(db);
+        logAudit(me, 'plan.create', plan.name);
+        return sendJSON(res, 200, { id: plan.id });
+      }
+      const planMatch = pathname.match(/^\/api\/plans\/([a-zA-Z0-9_]+)$/);
+      if (planMatch) {
+        const plan = db.plans.find(p => p.id === planMatch[1] && p.companyId === me.companyId);
+        if (!plan) return sendJSON(res, 404, { error: 'Plan not found.' });
+        if (req.method === 'GET') {
+          return sendJSON(res, 200, { id: plan.id, name: plan.name, client: plan.client || '', jobId: plan.jobId || '',
+            createdAt: plan.createdAt, updatedAt: plan.updatedAt, doc: readPlanDoc(plan.id) });
+        }
+        if (req.method === 'PUT') {
+          const { name, client, jobId, doc } = await readBody(req);
+          if (name !== undefined) plan.name = String(name).slice(0, 200);
+          if (client !== undefined) plan.client = String(client).slice(0, 200);
+          if (jobId !== undefined) plan.jobId = String(jobId).slice(0, 64);
+          if (doc !== undefined) writePlanDoc(plan.id, doc);
+          plan.updatedAt = Date.now();
+          saveDB(db);
+          return sendJSON(res, 200, { id: plan.id, updatedAt: plan.updatedAt });
+        }
+        if (req.method === 'DELETE') {
+          db.plans = db.plans.filter(p => p.id !== plan.id);
+          try { fs.unlinkSync(planPath(plan.id)); } catch (e) {}
+          saveDB(db);
+          logAudit(me, 'plan.delete', plan.name);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
+
       // ---- Full backup / export (company owner or admin) ----
       // Bundles everything that's hard to replace — company profile, price book, every estimate,
       // and every project's takeoff measurements — into one JSON file. Plan PDFs are NOT included
@@ -2656,6 +2719,10 @@ const server = http.createServer(async (req, res) => {
           customers: db.customers.filter(c => c.companyId === me.companyId).map(c => ({
             id: c.id, key: c.key, displayName: c.displayName, notes: c.notes, activity: c.activity || [],
             createdAt: c.createdAt, updatedAt: c.updatedAt
+          })),
+          plans: db.plans.filter(p => p.companyId === me.companyId).map(p => ({
+            id: p.id, name: p.name, client: p.client, jobId: p.jobId,
+            createdAt: p.createdAt, updatedAt: p.updatedAt, doc: readPlanDoc(p.id)
           })),
           projects, estimates, invoices, jobs, workOrders, purchaseOrders
         });

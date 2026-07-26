@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Floor Plans</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<meta name="fs-module" content="estimating">
+<script src="/app-nav.js"></script>
+<style>
+  .toolbar{display:flex;gap:8px;align-items:center;margin:0 0 18px}
+  .rowlink{cursor:pointer}
+  .rowlink:hover td{background:#FbF9F3}
+  .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
+  .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:560px} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav></nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <h1>Floor Plans</h1>
+  <p class="sub">Sketch a simple, to-scale floor plan when the job has no drawings — draw walls, drop doors, windows, and fixtures, then label rooms. Great for remodels. Save it, print it, or attach the picture to an estimate.</p>
+
+  <div class="toolbar">
+    <button class="btn primary" id="new-btn">＋ New Floor Plan</button>
+  </div>
+
+  <div id="loading" class="loading">Loading…</div>
+  <div class="card" id="list-card" style="display:none">
+    <table>
+      <thead>
+        <tr><th>Plan</th><th>Client</th><th>Updated</th><th></th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path, options={}){
+  const headers=Object.assign({'Content-Type':'application/json'}, options.headers||{});
+  const t=getToken(); if(t) headers['Authorization']='Bearer '+t;
+  const res=await fetch(path, Object.assign({}, options, {headers}));
+  if(res.status===401){ location.href='/'; throw new Error('Session expired'); }
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+function fmtDate(v){ if(!v) return '—'; const d=new Date(v); return isNaN(d)?'—':d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer; function toast(msg,isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+
+document.getElementById('new-btn').addEventListener('click', async () => {
+  try{ const r = await apiFetch('/api/plans', { method:'POST', body: JSON.stringify({ name:'Untitled Plan' }) });
+    location.href = '/floorplan.html?id=' + encodeURIComponent(r.id);
+  }catch(err){ toast(err.message, true); }
+});
+
+function render(list){
+  const tb=document.getElementById('rows');
+  if(!list.length){
+    tb.innerHTML=`<tr><td colspan="4" style="padding:32px;text-align:center;color:var(--steel)">
+      No floor plans yet. Click <strong>＋ New Floor Plan</strong> to sketch one.</td></tr>`;
+    return;
+  }
+  tb.innerHTML=list.map(p=>`
+    <tr class="rowlink" data-open="${p.id}">
+      <td>${escapeHtml(p.name)}</td>
+      <td class="muted">${escapeHtml(p.client)||'—'}</td>
+      <td class="muted">${fmtDate(p.updatedAt)}</td>
+      <td class="num"><button class="act" data-del="${p.id}" title="Delete">✕</button></td>
+    </tr>`).join('');
+}
+document.getElementById('rows').addEventListener('click', async (e) => {
+  const del = e.target.getAttribute && e.target.getAttribute('data-del');
+  if(del){ e.stopPropagation();
+    if(!confirm('Delete this floor plan permanently?')) return;
+    try{ await apiFetch('/api/plans/'+del, { method:'DELETE' }); load(); toast('Plan deleted.'); }
+    catch(err){ toast(err.message, true); }
+    return;
+  }
+  const row = e.target.closest && e.target.closest('[data-open]');
+  if(row){ location.href='/floorplan.html?id='+encodeURIComponent(row.getAttribute('data-open')); }
+});
+
+async function load(){
+  const list = await apiFetch('/api/plans');
+  document.getElementById('loading').style.display='none';
+  document.getElementById('list-card').style.display='block';
+  render(list);
+}
+async function init(){
+  try{ const me = await apiFetch('/api/me'); document.getElementById('who').textContent = me.username; }catch(err){ return; }
+  try{ await load(); }catch(err){ document.getElementById('loading').textContent='Could not load plans: '+err.message; }
+}
+init();
+</script>
+</body>
+</html>

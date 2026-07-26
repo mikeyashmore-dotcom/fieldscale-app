@@ -42,6 +42,10 @@
   .fp-zoom button{width:34px;height:34px;border:1px solid var(--paper-line);background:#fff;border-radius:var(--radius);font-size:17px;cursor:pointer;color:var(--ink-navy);box-shadow:0 1px 3px rgba(14,42,71,.08)}
   .fp-zoom button:hover{background:var(--paper)}
   .fp-hint{position:absolute;bottom:14px;left:14px;background:rgba(14,42,71,.9);color:#fff;font-size:12px;padding:6px 11px;border-radius:var(--radius);max-width:340px;line-height:1.4}
+  .fp-tip{position:absolute;pointer-events:none;background:#0E2A47;color:#fff;font-size:11px;font-weight:500;padding:4px 8px;border-radius:4px;white-space:nowrap;display:none;z-index:6;box-shadow:0 2px 7px rgba(14,42,71,.28);transform:translateY(-50%)}
+  .fp-tip.show{display:block}
+  .wallh-row{display:flex;align-items:center;gap:6px;margin:2px 0 4px;font-size:11px;color:var(--steel)}
+  .wallh-row input{width:50px;padding:4px 6px;border:1px solid var(--paper-line);border-radius:3px;font-family:inherit}
   .btn.tiny{padding:6px 10px;font-size:12px}
   @media (max-width:720px){ .fp-tools{width:150px} .fp-bar input.name{width:130px} }
 </style>
@@ -70,6 +74,7 @@
       <h4>Draw</h4>
       <button class="tool" data-tool="select"><span class="ico">▲</span> Select / move</button>
       <button class="tool" data-tool="wall"><span class="ico">▬</span> Wall</button>
+      <div class="wallh-row">Wall height <input id="wall-h" type="number" min="1" step="0.5" value="8"> ft</div>
       <button class="tool" data-tool="room"><span class="ico">▭</span> Room</button>
       <button class="tool" data-tool="text"><span class="ico">T</span> Label</button>
       <h4>Openings</h4>
@@ -90,6 +95,7 @@
         <button id="z-fit" title="Fit to view" style="font-size:12px">FIT</button>
       </div>
       <div class="fp-hint" id="hint"></div>
+      <div class="fp-tip" id="fp-tip"></div>
     </div>
   </div>
 </div>
@@ -153,6 +159,9 @@ let name='', client='';
 let zoom = 16;          // pixels per foot
 let panX = -2, panY = -2; // world (feet) coordinate shown at canvas top-left
 let tool = 'select';
+let wallHeight = 8;      // default height (ft) applied to new walls — used for wall-face area
+let companyProfile = {}; // logo + contact info for the printed title block
+let logoImg = null;
 let placeType = null;    // a FIX key when a palette item is armed
 let sel = null;          // {kind:'item'|'wall', i, ...}
 let drawPts = null;      // in-progress wall chain [{x,y},...]
@@ -275,6 +284,7 @@ let drag=null, roomDrag=null;
 function evPos(e){ const r=canvas.getBoundingClientRect(); return { sx:e.clientX-r.left, sy:e.clientY-r.top }; }
 canvas.addEventListener('pointerdown', e=>{
   canvas.setPointerCapture(e.pointerId);
+  showTip('');
   const {sx,sy}=evPos(e); const wpt=S2W(sx,sy); cursor=wpt;
   if(placeType){ placeFixture(placeType, snapPt(wpt)); return; }
   if(tool==='wall'){ addWallPoint(snapPt(wpt)); return; }
@@ -306,8 +316,21 @@ canvas.addEventListener('pointermove', e=>{
     if(drag.mode==='wallpt'){ const w=doc.walls[sel.i]; const p=snapPt(wpt); if(drag.end===1){ w.x1=p.x; w.y1=p.y; } else { w.x2=p.x; w.y2=p.y; } draw(); return; }
     if(drag.mode==='wallmove'){ const w=doc.walls[sel.i]; const ddx=snap(wpt.x-drag.start.x), ddy=snap(wpt.y-drag.start.y); w.x1=drag.o.x1+ddx; w.y1=drag.o.y1+ddy; w.x2=drag.o.x2+ddx; w.y2=drag.o.y2+ddy; draw(); return; }
   }
+  // hover tooltips over the selection handles (only in select mode, when not dragging)
+  if(tool==='select' && sel && !drag){
+    let tip='', cur='';
+    if(sel.kind==='item'){ const it=doc.items[sel.i]; const hp=handlePts(it);
+      if(it.type!=='text' && nearScreen(sx,sy,hp.br)){ tip = it.type==='room' ? 'Drag to resize the room (updates its square footage)' : 'Drag to resize'; cur='nwse-resize'; }
+      else if(it.type!=='text' && it.type!=='room' && nearScreen(sx,sy,hp.rotH)){ tip='Drag to rotate (hold Shift for any angle)'; cur='grab'; }
+    } else if(sel.kind==='wall'){ const w=doc.walls[sel.i]; const a=W2S({x:w.x1,y:w.y1}), b=W2S({x:w.x2,y:w.y2});
+      if(nearScreen(sx,sy,a)||nearScreen(sx,sy,b)){ tip='Drag to move this wall end'; cur='move'; }
+    }
+    showTip(tip, sx, sy); canvas.style.cursor = cur;
+  } else if(!drag){ showTip(''); if(tool==='select') canvas.style.cursor=''; }
   if(drawPts || roomDrag || placeType || tool==='wall' || tool==='room') draw();
 });
+function showTip(txt,sx,sy){ const t=document.getElementById('fp-tip'); if(!txt){ t.className='fp-tip'; return; } t.textContent=txt; t.className='fp-tip show'; t.style.left=(sx+16)+'px'; t.style.top=sy+'px'; }
+canvas.addEventListener('pointerleave', ()=> showTip(''));
 canvas.addEventListener('pointerup', e=>{
   if(drag){ if(['move','resize','rotate','wallpt','wallmove'].includes(drag.mode)) markDirty();
     if(drag.mode==='pan'){} drag=null; }
@@ -317,7 +340,8 @@ canvas.addEventListener('pointerup', e=>{
 canvas.addEventListener('dblclick', ()=>{ if(drawPts){ finishWall(); } });
 canvas.addEventListener('wheel', e=>{ e.preventDefault(); const {sx,sy}=evPos(e); const before=S2W(sx,sy); zoom*=(e.deltaY<0?1.12:0.89); zoom=Math.max(4,Math.min(80,zoom)); const after=S2W(sx,sy); panX+=before.x-after.x; panY+=before.y-after.y; draw(); }, {passive:false});
 
-function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts[drawPts.length-1]; doc.walls.push({x1:last.x,y1:last.y,x2:p.x,y2:p.y}); drawPts.push(p); markDirty(); } draw(); }
+function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts[drawPts.length-1]; doc.walls.push({x1:last.x,y1:last.y,x2:p.x,y2:p.y,height:wallHeight}); drawPts.push(p); markDirty(); } draw(); }
+document.getElementById('wall-h').addEventListener('change',e=>{ const v=parseFloat(e.target.value); if(v>0) wallHeight=v; });
 function finishWall(){ drawPts=null; draw(); }
 function placeFixture(type, p){ const f=FIX[type]; doc.items.push({type, x:p.x, y:p.y, w:f.w, h:f.h, rot:0, label:''}); sel={kind:'item',i:doc.items.length-1}; markDirty(); setTool('select'); showProps(); draw(); }
 
@@ -350,9 +374,14 @@ function setHint(){ const h=document.getElementById('hint');
 function showProps(){ const el=document.getElementById('props');
   if(!sel){ el.className='fp-props'; el.innerHTML=''; return; }
   el.className='fp-props show';
-  if(sel.kind==='wall'){ const w=doc.walls[sel.i];
-    el.innerHTML='<div style="font-weight:600;color:#0E2A47">Wall</div><label>Length</label><input id="pp-len" value="'+ftFeetStr(dist(w.x1,w.y1,w.x2,w.y2))+'"><div class="meta">Type feet (e.g. 12.5) to set length</div><div class="row"><button class="btn" id="pp-del">Delete</button></div>';
-    document.getElementById('pp-len').addEventListener('change',ev=>{ const nf=parseFloat(ev.target.value); if(nf>0){ const L=dist(w.x1,w.y1,w.x2,w.y2)||1; const ux=(w.x2-w.x1)/L, uy=(w.y2-w.y1)/L; w.x2=snap(w.x1+ux*nf); w.y2=snap(w.y1+uy*nf); markDirty(); draw(); showProps(); } });
+  if(sel.kind==='wall'){ const w=doc.walls[sel.i]; if(w.height==null) w.height=8; const L=dist(w.x1,w.y1,w.x2,w.y2);
+    el.innerHTML='<div style="font-weight:600;color:#0E2A47">Wall</div>'
+      +'<label>Length (ft)</label><input id="pp-len" value="'+ftFeetStr(L)+'">'
+      +'<label>Height (ft)</label><input id="pp-ht" value="'+w.height+'">'
+      +'<div class="meta">Wall face: <b id="pp-face">'+(L*w.height).toFixed(0)+'</b> sq ft &nbsp;('+ftIn(L)+' × '+w.height+' ft)</div>'
+      +'<div class="row"><button class="btn" id="pp-del">Delete</button></div>';
+    document.getElementById('pp-len').addEventListener('change',ev=>{ const nf=parseFloat(ev.target.value); if(nf>0){ const cur=dist(w.x1,w.y1,w.x2,w.y2)||1; const ux=(w.x2-w.x1)/cur, uy=(w.y2-w.y1)/cur; w.x2=snap(w.x1+ux*nf); w.y2=snap(w.y1+uy*nf); markDirty(); draw(); showProps(); } });
+    document.getElementById('pp-ht').addEventListener('change',ev=>{ const h=parseFloat(ev.target.value); if(h>0){ w.height=h; markDirty(); draw(); showProps(); } });
   } else { const it=doc.items[sel.i];
     let html='<div style="font-weight:600;color:#0E2A47">'+(it.type==='room'?'Room':it.type==='text'?'Label':(FIX[it.type]?FIX[it.type].label:'Item'))+'</div>';
     html+='<label>Label</label><input id="pp-label" value="'+escAttr(it.label||'')+'">';
@@ -400,22 +429,80 @@ const nameInput=document.getElementById('plan-name'), clientInput=document.getEl
 nameInput.addEventListener('input',()=>{ name=nameInput.value; markDirty(); });
 clientInput.addEventListener('input',()=>{ client=clientInput.value; markDirty(); });
 
-// export
-document.getElementById('btn-png').onclick=()=>{ exportImage(); };
-document.getElementById('btn-print').onclick=()=>{ const url=renderExport(1400); const w=window.open(''); w.document.write('<img src="'+url+'" style="max-width:100%" onload="print()">'); w.document.title=name||'Floor Plan'; };
-function renderExport(px){ // render the whole plan onto an offscreen canvas at a fixed pixel width
-  const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2});});
-  let minx=0,miny=0,maxx=20,maxy=15; if(pts.length){ minx=Math.min(...pts.map(p=>p.x));miny=Math.min(...pts.map(p=>p.y));maxx=Math.max(...pts.map(p=>p.x));maxy=Math.max(...pts.map(p=>p.y)); }
-  const pad=2, fw=(maxx-minx)+pad*2, fh=(maxy-miny)+pad*2, z=px/fw;
-  const oc=document.createElement('canvas'); oc.width=px; oc.height=Math.max(1,Math.round(fh*z));
-  const octx=oc.getContext('2d');
-  // Point the view globals at the export frame, draw, then restore them.
-  const _z=zoom,_px=panX,_py=panY; zoom=z; panX=minx-pad; panY=miny-pad;
-  octx.fillStyle='#fff'; octx.fillRect(0,0,oc.width,oc.height);
-  doc.items.forEach(it=>drawItemOn(octx,it)); doc.walls.forEach(w=>drawWallOn(octx,w));
+// export — a full "sheet" with an architect-style title block (logo + project info) on the right.
+document.getElementById('btn-png').onclick=async ()=>{ await loadLogo(); exportImage(); };
+document.getElementById('btn-print').onclick=async ()=>{ await loadLogo(); const url=renderSheet(1800); const w=window.open(''); w.document.write('<title>'+escAttr(name||'Floor Plan')+'</title><img src="'+url+'" style="max-width:100%" onload="setTimeout(function(){print()},120)">'); w.document.close(); };
+function loadLogo(){ return new Promise(res=>{ const url=companyProfile.logo; if(!url){ logoImg=null; return res(); } if(logoImg && logoImg.src===url){ return res(); } const im=new Image(); im.onload=()=>{ logoImg=im; res(); }; im.onerror=()=>{ logoImg=null; res(); }; im.src=url; }); }
+function planBounds(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2});});
+  let minx=0,miny=0,maxx=20,maxy=15; if(pts.length){ minx=Math.min(...pts.map(p=>p.x));miny=Math.min(...pts.map(p=>p.y));maxx=Math.max(...pts.map(p=>p.x));maxy=Math.max(...pts.map(p=>p.y)); } return {minx,miny,maxx,maxy}; }
+function renderSheet(px){
+  const k=px/1800;                         // scale factor for fonts/margins
+  const margin=Math.round(28*k), tbW=Math.max(Math.round(230*k), Math.round(px*0.2)), gap=Math.round(24*k);
+  const drawW=px - margin*2 - tbW - gap;
+  const b=planBounds(); const padFt=2, fw=(b.maxx-b.minx)+padFt*2, fh=(b.maxy-b.miny)+padFt*2;
+  const z=Math.max(2, drawW/fw), drawH=fh*z;
+  const sheetH=Math.max(Math.round(drawH)+margin*2, Math.round(560*k));
+  const oc=document.createElement('canvas'); oc.width=px; oc.height=sheetH; const c=oc.getContext('2d');
+  c.fillStyle='#fff'; c.fillRect(0,0,px,sheetH);
+  // outer border (double line, like a drawing sheet)
+  c.strokeStyle='#0E2A47'; c.lineWidth=2*k; c.strokeRect(margin*0.5,margin*0.5,px-margin,sheetH-margin);
+  c.lineWidth=1*k; c.strokeRect(margin*0.5+4*k,margin*0.5+4*k,px-margin-8*k,sheetH-margin-8*k);
+  // plan region
+  const planX=margin, planY=margin + Math.max(0,(sheetH-margin*2-drawH)/2);
+  const _z=zoom,_px=panX,_py=panY; zoom=z; panX=(b.minx-padFt) - planX/z; panY=(b.miny-padFt) - planY/z;
+  c.save(); c.beginPath(); c.rect(planX,planY,drawW,drawH); c.clip();
+  // faint scale grid
+  for(let gx=Math.floor(b.minx-padFt); gx<=Math.ceil(b.maxx+padFt); gx++){ const s=W2S({x:gx,y:0}); c.strokeStyle=gx%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(s.x,planY); c.lineTo(s.x,planY+drawH); c.stroke(); }
+  for(let gy=Math.floor(b.miny-padFt); gy<=Math.ceil(b.maxy+padFt); gy++){ const s=W2S({x:0,y:gy}); c.strokeStyle=gy%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(planX,s.y); c.lineTo(planX+drawW,s.y); c.stroke(); }
+  doc.items.forEach(it=>drawItemOn(c,it)); doc.walls.forEach(w=>drawWallOn(c,w));
+  drawScaleBar(c, planX+12*k, planY+drawH-16*k, z, k);
+  c.restore();
+  c.strokeStyle='#c9c2ae'; c.lineWidth=1*k; c.strokeRect(planX,planY,drawW,drawH);
   zoom=_z; panX=_px; panY=_py;
+  drawTitleBlock(c, px-margin-tbW, margin, tbW, sheetH-margin*2, k);
   return oc.toDataURL('image/png');
 }
+function niceScaleFt(z, maxpx){ const cand=[1,2,5,10,20,50,100]; let best=1; cand.forEach(f=>{ if(f*z<=maxpx) best=f; }); return best; }
+function drawScaleBar(c,x,y,z,k){ const ft=niceScaleFt(z, 260*k); const len=ft*z; c.strokeStyle='#0E2A47'; c.fillStyle='#0E2A47'; c.lineWidth=1.5*k;
+  c.beginPath(); c.moveTo(x,y); c.lineTo(x+len,y); c.stroke();
+  [0,len/2,len].forEach(dx=>{ c.beginPath(); c.moveTo(x+dx,y-4*k); c.lineTo(x+dx,y+4*k); c.stroke(); });
+  c.font=(11*k)+'px "IBM Plex Mono", monospace'; c.textAlign='center'; c.textBaseline='top'; c.fillText('0',x,y+6*k); c.fillText(ft+" ft",x+len,y+6*k); }
+function drawTitleBlock(c,x,y,w,h,k){
+  c.strokeStyle='#0E2A47'; c.lineWidth=1.5*k; c.strokeRect(x,y,w,h);
+  let ty=y; const pad=12*k; const line=(yy)=>{ c.strokeStyle='#c9c2ae'; c.lineWidth=1*k; c.beginPath(); c.moveTo(x,yy); c.lineTo(x+w,yy); c.stroke(); };
+  // logo
+  ty+=pad;
+  if(logoImg){ const maxW=w-pad*2, maxH=72*k; const r=Math.min(maxW/logoImg.width, maxH/logoImg.height); const iw=logoImg.width*r, ih=logoImg.height*r; c.drawImage(logoImg, x+(w-iw)/2, ty, iw, ih); ty+=ih+pad; }
+  // company block
+  c.textAlign='center'; c.textBaseline='top';
+  c.fillStyle='#0E2A47'; c.font='600 '+(17*k)+'px Oswald, sans-serif';
+  const cName=companyProfile.name||''; if(cName){ c.fillText(cutText(c,cName,w-pad*2), x+w/2, ty); ty+=20*k; }
+  c.fillStyle='#5b6b7b'; c.font=(11*k)+'px "IBM Plex Sans", sans-serif';
+  [companyProfile.license?('Lic. '+companyProfile.license):'', companyProfile.address||'', companyProfile.phone||'', companyProfile.email||'', companyProfile.website||''].filter(Boolean).forEach(t=>{ c.fillText(cutText(c,t,w-pad*2), x+w/2, ty); ty+=15*k; });
+  ty+=pad; line(ty); ty+=pad;
+  // project fields (left-aligned label/value rows)
+  c.textAlign='left';
+  const field=(label,val)=>{ c.fillStyle='#98a2ad'; c.font='600 '+(9*k)+'px "IBM Plex Mono", monospace'; c.fillText(label.toUpperCase(), x+pad, ty); ty+=12*k;
+    c.fillStyle='#0E2A47'; c.font='600 '+(13*k)+'px "IBM Plex Sans", sans-serif'; c.fillText(cutText(c,val||'—',w-pad*2), x+pad, ty); ty+=19*k; };
+  field('Project', name||'Floor Plan');
+  field('Client', client);
+  field('Date', new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}));
+  field('Scale', 'Drawn to scale (see bar)');
+  ty+=2*k; line(ty); ty+=pad;
+  // quantities
+  const floorArea=doc.items.filter(i=>i.type==='room').reduce((s,i)=>s+i.w*i.h,0);
+  const wallArea=doc.walls.reduce((s,wl)=>s+dist(wl.x1,wl.y1,wl.x2,wl.y2)*(wl.height||8),0);
+  c.fillStyle='#98a2ad'; c.font='600 '+(9*k)+'px "IBM Plex Mono", monospace'; c.fillText('QUANTITIES', x+pad, ty); ty+=13*k;
+  c.font=(12*k)+'px "IBM Plex Sans", sans-serif';
+  const qty=(t)=>{ c.fillStyle='#243B53'; c.fillText(t, x+pad, ty); ty+=16*k; };
+  if(floorArea>0) qty('Floor area:  '+Math.round(floorArea).toLocaleString()+' sq ft');
+  if(wallArea>0)  qty('Wall face:   '+Math.round(wallArea).toLocaleString()+' sq ft');
+  // footer pinned to bottom
+  c.fillStyle='#98a2ad'; c.font=(9.5*k)+'px "IBM Plex Sans", sans-serif'; c.textAlign='center'; c.textBaseline='bottom';
+  c.fillText('For planning only — not a stamped construction document.', x+w/2, y+h-18*k);
+  c.fillStyle='#c9c2ae'; c.fillText('Prepared with Fieldscale', x+w/2, y+h-6*k);
+}
+function cutText(c,s,maxw){ s=String(s); if(c.measureText(s).width<=maxw) return s; while(s.length>1 && c.measureText(s+'…').width>maxw) s=s.slice(0,-1); return s+'…'; }
 function drawWallOn(c,wl){ const a=W2S({x:wl.x1,y:wl.y1}),b=W2S({x:wl.x2,y:wl.y2}); c.strokeStyle='#243B53'; c.lineWidth=Math.max(2,0.42*zoom); c.lineCap='round'; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); c.lineCap='butt'; const len=dist(wl.x1,wl.y1,wl.x2,wl.y2); const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2}; if(len>0.5) labelOn(c,ftIn(len),mid.x,mid.y-8); }
 function drawItemOn(c,it){ const p=W2S({x:it.x,y:it.y}); const wpx=it.w*zoom,hpx=it.h*zoom; c.save(); c.translate(p.x,p.y); c.rotate((it.rot||0)*Math.PI/180);
   if(it.type==='room'){ c.fillStyle='rgba(111,195,228,.10)'; c.fillRect(-wpx/2,-hpx/2,wpx,hpx); c.strokeStyle='#3E7A96'; c.lineWidth=1.5; c.strokeRect(-wpx/2,-hpx/2,wpx,hpx); c.fillStyle='#0E2A47'; c.textAlign='center'; c.textBaseline='middle'; c.font='600 13px Oswald, sans-serif'; c.fillText(it.label||'Room',0,-6); c.font='11px monospace'; c.fillStyle='#3E7A96'; c.fillText((it.w*it.h).toFixed(0)+' sq ft',0,10); }
@@ -423,18 +510,23 @@ function drawItemOn(c,it){ const p=W2S({x:it.x,y:it.y}); const wpx=it.w*zoom,hpx
   else { const f=FIX[it.type]; c.strokeStyle='#243B53'; c.fillStyle='#243B53'; c.lineWidth=1.6; if(f) f.draw(c,wpx,hpx); else c.strokeRect(-wpx/2,-hpx/2,wpx,hpx); if(it.label){ c.fillStyle='#5b6b7b'; c.font='10px sans-serif'; c.textAlign='center'; c.fillText(it.label,0,hpx/2+9); } }
   c.restore(); }
 function labelOn(c,txt,x,y){ c.font='600 11px monospace'; c.textAlign='center'; c.textBaseline='middle'; const wpx=c.measureText(txt).width+8; c.fillStyle='#fff'; c.fillRect(x-wpx/2,y-8,wpx,16); c.fillStyle='#0E2A47'; c.fillText(txt,x,y); }
-function exportImage(){ const url=renderExport(1600); const a=document.createElement('a'); a.href=url; a.download=(name||'floor-plan').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'.png'; a.click(); }
+function exportImage(){ const url=renderSheet(1800); const a=document.createElement('a'); a.href=url; a.download=(name||'floor-plan').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'.png'; a.click(); }
 
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{ const p=await apiFetch('/api/plans/'+planId); name=p.name||''; client=p.client||''; nameInput.value=name; clientInput.value=client; doc=Object.assign({walls:[],items:[]}, p.doc||{}); doc.walls=doc.walls||[]; doc.items=doc.items||[]; }
   catch(e){ alert('Could not load plan: '+e.message); location.href='/plans.html'; return; }
+  try{ const co=await apiFetch('/api/company'); companyProfile=co.profile||{}; loadLogo(); }catch(e){}
   resize(); setTool('select'); if(doc.walls.length||doc.items.length) fitView(); document.getElementById('save-state').textContent='Saved ✓';
 }
 buildPalette();
 init();
 // lightweight hooks for automated tests (no effect on normal use)
-window.__model=()=>doc; window.__exportURL=()=>renderExport(800); window.__dbg={walls:()=>doc.walls.length};
+window.__model=()=>doc; window.__exportURL=()=>renderSheet(900); window.__dbg={walls:()=>doc.walls.length};
+window.__co=()=>companyProfile;
+window.__select=(i)=>{ sel={kind:'item',i}; showProps(); draw(); return handlePts(doc.items[i]); };
+window.__handlesNow=()=>sel&&sel.kind==='item'?handlePts(doc.items[sel.i]):null;
+window.__selectWall=(i)=>{ sel={kind:'wall',i}; showProps(); draw(); };
 </script>
 </body>
 </html>

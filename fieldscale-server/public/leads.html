@@ -27,7 +27,10 @@
   .tile{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 14px;min-width:110px}
   .tile .n{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--heading)}
   .tile .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-top:2px}
-  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:640px} }
+  a.tile{text-decoration:none;display:block} a.tile:hover{border-color:var(--cyan-dim)}
+  .stage-h{font-family:'Oswald',sans-serif;font-size:14px;font-weight:600;color:var(--heading);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px;display:flex;align-items:center;gap:8px}
+  .stage-n{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel);background:var(--surface-2);border-radius:20px;padding:1px 9px;font-weight:400}
+  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:560px} }
 </style>
 </head>
 <body>
@@ -64,14 +67,8 @@
 
   <div id="loading" class="loading">Loading…</div>
   <div id="pipeline" class="tiles" style="display:none"></div>
-  <div class="card" id="list-card" style="display:none">
-    <table>
-      <thead>
-        <tr><th>Lead</th><th>Type of work</th><th class="num">Est. value</th><th>Source</th><th>Stage</th><th>Follow-up</th><th></th></tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
+  <div id="groups" style="display:none"></div>
+  <p id="leads-note" class="sub" style="display:none;font-size:12.5px;margin-top:10px">Leads move through <strong>New</strong> → <strong>Contacted</strong>. Once you start an estimate, the lead moves to the <a href="/proposals.html">Estimates</a> tab.</p>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -102,39 +99,51 @@ document.getElementById('new-btn').addEventListener('click', async () => {
   }catch(err){ toast(err.message, true); }
 });
 
+// Active pipeline stages shown on this page, in order. "estimating" leads live in the Estimates
+// tab; won/lost are closed and drop off the active list.
+const ACTIVE_STAGES=[{key:'new',label:'New'},{key:'contacted',label:'Contacted'},{key:'on hold',label:'On hold'}];
+const isActive = l => ['new','contacted','on hold'].includes((l.stage||'new').toLowerCase());
 function renderPipeline(list){
-  const open = list.filter(l=>l.stage!=='won' && l.stage!=='lost');
-  const openVal = open.reduce((s,l)=>s+(Number(l.value)||0),0);
-  const won = list.filter(l=>l.stage==='won');
-  const wonVal = won.reduce((s,l)=>s+(Number(l.value)||0),0);
-  const el=document.getElementById('pipeline');
-  el.style.display='flex';
+  const active = list.filter(isActive);
+  const cnt = k => active.filter(l=>(l.stage||'new').toLowerCase()===k).length;
+  const openVal = active.reduce((s,l)=>s+(Number(l.value)||0),0);
+  const estimating = list.filter(l=>l.stage==='estimating').length;
+  const el=document.getElementById('pipeline'); el.style.display='flex';
   el.innerHTML =
-    `<div class="tile"><div class="n">${list.length}</div><div class="l">Total leads</div></div>`+
-    `<div class="tile"><div class="n">${open.length}</div><div class="l">Open</div></div>`+
-    `<div class="tile"><div class="n">${money(openVal)}</div><div class="l">Open pipeline value</div></div>`+
-    `<div class="tile"><div class="n">${won.length}</div><div class="l">Won</div></div>`+
-    `<div class="tile"><div class="n">${money(wonVal)}</div><div class="l">Won value</div></div>`;
+    `<div class="tile"><div class="n">${active.length}</div><div class="l">Active leads</div></div>`+
+    `<div class="tile"><div class="n">${cnt('new')}</div><div class="l">New</div></div>`+
+    `<div class="tile"><div class="n">${cnt('contacted')}</div><div class="l">Contacted</div></div>`+
+    `<div class="tile"><div class="n">${money(openVal)}</div><div class="l">Pipeline value</div></div>`+
+    `<a class="tile" href="/proposals.html"><div class="n">${estimating}</div><div class="l">Estimating →</div></a>`;
 }
 function render(list){
-  const tb=document.getElementById('rows');
-  if(!list.length){
-    tb.innerHTML=`<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--steel)">
-      No leads yet. Click <strong>＋ New Lead</strong> to track your first opportunity.</td></tr>`;
+  const groups=document.getElementById('groups');
+  document.getElementById('leads-note').style.display='';
+  const active = list.filter(isActive);
+  if(!active.length){
+    groups.innerHTML=`<div class="card"><div style="padding:32px;text-align:center;color:var(--steel)">
+      No active leads. Click <strong>＋ New Lead</strong> to add one. Leads you're estimating are in the <a href="/proposals.html">Estimates</a> tab.</div></div>`;
     return;
   }
-  tb.innerHTML=list.map(l=>`
-    <tr class="rowlink" data-open="${l.id}">
-      <td>${escapeHtml(l.name)}</td>
-      <td class="muted">${escapeHtml(l.workType)||'—'}</td>
-      <td class="num">${l.value?money(l.value):'—'}</td>
-      <td class="muted">${escapeHtml(l.source)||'—'}</td>
-      <td><span class="pill ${pillClass(l.stage)}">${escapeHtml(l.stage||'new')}</span></td>
-      <td class="muted">${fmtDate(l.followUp)}</td>
-      <td class="num"><button class="act" data-del="${l.id}" title="Delete">✕</button></td>
-    </tr>`).join('');
+  groups.innerHTML = ACTIVE_STAGES.map(g=>{
+    const rows = active.filter(l=>(l.stage||'new').toLowerCase()===g.key);
+    if(!rows.length) return '';
+    return `<div class="stage-h">${g.label} <span class="stage-n">${rows.length}</span></div>
+      <div class="card" style="margin-bottom:16px"><table>
+        <thead><tr><th>Lead</th><th>Type of work</th><th class="num">Est. value</th><th>Source</th><th>Follow-up</th><th></th></tr></thead>
+        <tbody>${rows.map(l=>`
+          <tr class="rowlink" data-open="${l.id}">
+            <td>${escapeHtml(l.name)}</td>
+            <td class="muted">${escapeHtml(l.workType)||'—'}</td>
+            <td class="num">${l.value?money(l.value):'—'}</td>
+            <td class="muted">${escapeHtml(l.source)||'—'}</td>
+            <td class="muted">${fmtDate(l.followUp)}</td>
+            <td class="num"><button class="act" data-del="${l.id}" title="Delete">✕</button></td>
+          </tr>`).join('')}</tbody>
+      </table></div>`;
+  }).join('');
 }
-document.getElementById('rows').addEventListener('click', async (e) => {
+document.getElementById('groups').addEventListener('click', async (e) => {
   const del = e.target.getAttribute && e.target.getAttribute('data-del');
   if(del){ e.stopPropagation();
     if(!confirm('Delete this lead permanently?')) return;
@@ -149,7 +158,7 @@ document.getElementById('rows').addEventListener('click', async (e) => {
 async function load(){
   const list = await apiFetch('/api/leads');
   document.getElementById('loading').style.display='none';
-  document.getElementById('list-card').style.display='block';
+  document.getElementById('groups').style.display='block';
   renderPipeline(list); render(list);
 }
 async function init(){

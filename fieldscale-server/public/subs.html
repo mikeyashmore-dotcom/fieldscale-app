@@ -123,7 +123,7 @@ function render(){
     <td><input data-i="${i}" data-f="name" value="${esc(s.name)}" placeholder="Company / name" ${dis} /></td>
     <td><input data-i="${i}" data-f="trade" value="${esc(s.trade)}" placeholder="e.g. Electrical" ${dis} /></td>
     <td><input data-i="${i}" data-f="contact" value="${esc(s.contact)}" placeholder="Contact person" ${dis} /></td>
-    <td><input data-i="${i}" data-f="phone" value="${esc(s.phone)}" ${dis} /></td>
+    <td><input data-i="${i}" data-f="phone" value="${esc(s.phone)}" placeholder="000-000-0000" ${dis} /></td>
     <td><input data-i="${i}" data-f="email" type="email" value="${esc(s.email)}" ${dis} /></td>
     <td class="chk"><input type="checkbox" data-i="${i}" data-f="w9" ${s.w9?'checked':''} ${dis} /></td>
     <td><input data-i="${i}" data-f="coiExpires" type="date" value="${esc(s.coiExpires)}" ${dis} /> ${flagHtml(s.coiExpires)}</td>

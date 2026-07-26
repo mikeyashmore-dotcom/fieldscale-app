@@ -12,8 +12,12 @@
 <style>
   .wrap{max-width:920px}
   .pagebar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
-  .pagebar input.title{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;border:none;border-bottom:1px solid var(--paper-line);background:transparent;width:300px;padding:4px 2px}
-  .pagebar input.title:focus{border-bottom-color:var(--cyan-dim)}
+  .pagebar .title{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--heading);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+  .lf-list{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 6px}
+  .lf-chip{display:inline-flex;align-items:center;gap:5px;background:var(--surface-2);border:1px solid var(--paper-line);border-radius:20px;padding:2px 6px 2px 10px;font-size:12px}
+  .lf-chip a{color:var(--accent);text-decoration:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lf-chip button{background:none;border:none;color:var(--steel-light);cursor:pointer;font-size:12px;padding:0 2px}
+  .lf-chip button:hover{color:var(--danger)}
   .pagebar .spacer{flex:1}
   .pagebar select{width:auto;padding:6px 8px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
@@ -56,7 +60,7 @@
   <div id="content" style="display:none">
     <div class="pagebar">
       <a href="/leads.html" class="btn ghost">← Leads</a>
-      <input class="title" id="lead-name" placeholder="Lead / customer name" />
+      <span class="title" id="lead-title">Lead</span>
       <select id="stage">
         <option value="new">New</option>
         <option value="contacted">Contacted</option>
@@ -74,11 +78,13 @@
     <div class="grid2">
       <div class="block" style="margin-bottom:0">
         <h3>Contact</h3>
+        <div class="field"><label>Contact name</label><input id="lead-name" placeholder="Customer / company name" /></div>
         <div class="row2">
-          <div class="field"><label>Phone</label><input id="phone" /></div>
-          <div class="field"><label>Email</label><input id="email" /></div>
+          <div class="field"><label>Phone</label><input id="phone" placeholder="000-000-0000" /></div>
+          <div class="field"><label>Email</label><input id="email" placeholder="name@email.com" /></div>
         </div>
         <div class="field"><label>Project address</label><input id="address" /></div>
+        <div class="field"><label>First contact date</label><input id="first-contact" type="date" /></div>
       </div>
       <div class="block" style="margin-bottom:0">
         <h3>Opportunity</h3>
@@ -106,6 +112,12 @@
       <div class="field"><label>Access instructions</label><input id="sv-access" placeholder="Gate code, park in rear, dog on site…" /></div>
       <div class="field"><label>Scope / observations</label><textarea id="sv-scope" placeholder="What the job involves, conditions, measurements, materials…"></textarea></div>
       <div class="field"><label>Risks / concerns</label><input id="sv-risks" placeholder="Access, hazards, unknowns…" /></div>
+      <div class="field"><label>Site photos &amp; files</label>
+        <div class="lf-list" id="lead-files"></div>
+        <input type="file" id="lead-file-input" accept="image/*,application/pdf" multiple style="display:none" />
+        <button type="button" class="btn ghost" id="lead-file-btn" style="font-size:12px;padding:4px 10px">＋ Upload photo / file</button>
+        <span id="lead-file-status" style="font-size:12px;color:var(--steel);margin-left:8px"></span>
+      </div>
       <div class="field"><label>Customer sign-off (they sign below)</label>
         <div style="border:1px solid var(--paper-line);border-radius:var(--radius);background:var(--surface);display:inline-block">
           <canvas id="sv-sig" width="360" height="110" style="touch-action:none;display:block;max-width:100%"></canvas>
@@ -159,10 +171,49 @@ async function save(){
     name: val('lead-name')||'New Lead', workType: val('work-type'), value: parseFloat(val('value'))||0,
     stage: val('stage'), source: val('source'), followUp: val('follow-up'),
     doc: { phone: val('phone'), email: val('email'), address: val('address'), notes: val('notes'),
+      firstContact: val('first-contact'),
       siteVisit: { date: val('sv-date'), present: val('sv-present'), access: val('sv-access'),
         scope: val('sv-scope'), risks: val('sv-risks'), signature: sigDataUrl(sv.signature) } }
   }) });
 }
+// Keep the page heading in sync with the contact name (name now lives in the Contact box).
+function syncTitle(){ const n=(val('lead-name')||'').trim(); document.getElementById('lead-title').textContent = n || 'Lead'; }
+document.getElementById('lead-name').addEventListener('input', syncTitle);
+
+// ---- Site-visit files ----
+function renderLeadFiles(){
+  const wrap=document.getElementById('lead-files'); const files=doc.files||[];
+  wrap.innerHTML = files.length ? files.map(f=>`<span class="lf-chip"><a href="#" data-view="${f.id}" title="${escAttr(f.name)}">${esc(f.name)}</a><button data-del="${f.id}" title="Remove">✕</button></span>`).join('')
+    : '<span style="font-size:12px;color:var(--steel)">No files yet.</span>';
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escAttr(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
+document.getElementById('lead-file-btn').addEventListener('click', ()=>document.getElementById('lead-file-input').click());
+document.getElementById('lead-file-input').addEventListener('change', async (e)=>{
+  const files=[...e.target.files]; e.target.value=''; if(!files.length) return;
+  const st=document.getElementById('lead-file-status');
+  for(const f of files){
+    st.textContent='Uploading '+f.name+'…';
+    try{
+      const res=await fetch('/api/leads/'+leadId+'/files?name='+encodeURIComponent(f.name.slice(0,120)),
+        {method:'POST',headers:{'Authorization':'Bearer '+getToken(),'Content-Type':f.type||'application/octet-stream'},body:f});
+      const d=await res.json().catch(()=>({})); if(!res.ok) throw new Error(d.error||'Upload failed');
+      doc.files=doc.files||[]; doc.files.push(d);
+    }catch(err){ toast(err.message,true); }
+  }
+  st.textContent=''; renderLeadFiles();
+});
+document.getElementById('lead-files').addEventListener('click', async (e)=>{
+  const v=e.target.getAttribute && e.target.getAttribute('data-view');
+  if(v){ e.preventDefault();
+    try{ const res=await fetch('/api/leads/'+leadId+'/files/'+v,{headers:{'Authorization':'Bearer '+getToken()}});
+      if(!res.ok) throw new Error(); const u=URL.createObjectURL(await res.blob()); window.open(u,'_blank'); setTimeout(()=>URL.revokeObjectURL(u),60000);
+    }catch(err){ toast('Could not open file.',true); } return; }
+  const d=e.target.getAttribute && e.target.getAttribute('data-del');
+  if(d){ if(!confirm('Remove this file?')) return;
+    try{ await apiFetch('/api/leads/'+leadId+'/files/'+d,{method:'DELETE'}); doc.files=(doc.files||[]).filter(f=>f.id!==d); renderLeadFiles(); toast('File removed.'); }
+    catch(err){ toast(err.message,true); } }
+});
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Lead saved.'); }catch(err){ toast(err.message,true); } });
 document.getElementById('to-est-btn').addEventListener('click', async ()=>{
   const nm=(val('lead-name')||'').trim();
@@ -184,6 +235,7 @@ async function init(){
     set('work-type', l.workType); set('value', l.value||''); set('source', l.source); set('follow-up', l.followUp);
     doc=l.doc||{};
     set('phone', doc.phone); set('email', doc.email); set('address', doc.address); set('notes', doc.notes);
+    set('first-contact', doc.firstContact); syncTitle(); renderLeadFiles();
     const sv=doc.siteVisit||{};
     set('sv-date',sv.date); set('sv-present',sv.present); set('sv-access',sv.access); set('sv-scope',sv.scope); set('sv-risks',sv.risks);
     loadSig(sv.signature);

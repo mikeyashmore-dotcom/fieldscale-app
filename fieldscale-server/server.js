@@ -299,6 +299,11 @@ const WO_STATUSES = ['open', 'in progress', 'complete', 'on hold'];
 // ---------- Leads / CRM (the sales front of the funnel: lead -> estimate -> job -> invoice) ----------
 const LEADS_DIR = path.join(DATA_DIR, 'leads');
 function leadPath(id){ return path.join(LEADS_DIR, id + '.json'); }
+// Site-visit files attached to a lead — on disk, metadata on the lead doc (doc.files), managed only
+// by the upload/delete endpoints so a normal lead save can never wipe them.
+const LEAD_FILES_DIR = path.join(DATA_DIR, 'lead-files');
+function leadFileDir(id){ return path.join(LEAD_FILES_DIR, id); }
+function leadFilePath(id, fid){ return path.join(leadFileDir(id), fid); }
 function readLeadDoc(id){
   const f = leadPath(id);
   if (!fs.existsSync(f)) return {};
@@ -2861,7 +2866,11 @@ const server = http.createServer(async (req, res) => {
           if (stage !== undefined && LEAD_STAGES.includes(stage)) lead.stage = stage;
           if (source !== undefined) lead.source = String(source).slice(0, 120);
           if (followUp !== undefined) lead.followUp = String(followUp).slice(0, 20);
-          if (doc !== undefined) writeLeadDoc(lead.id, doc);
+          if (doc !== undefined) {
+            const merged = Object.assign({}, doc);
+            merged.files = (readLeadDoc(lead.id).files) || [];  // files are server-managed; never trust the client save
+            writeLeadDoc(lead.id, merged);
+          }
           lead.updatedAt = Date.now();
           saveDB(db);
           return sendJSON(res, 200, { id: lead.id, updatedAt: lead.updatedAt, stage: lead.stage });
@@ -2869,7 +2878,56 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'DELETE') {
           db.leads = db.leads.filter(l => l.id !== lead.id);
           try { fs.unlinkSync(leadPath(lead.id)); } catch (e) {}
+          try { fs.rmSync(leadFileDir(lead.id), { recursive: true, force: true }); } catch (e) {}
           saveDB(db);
+          return sendJSON(res, 200, { deleted: true });
+        }
+      }
+      // ---- Site-visit files on a lead (upload / view / delete) ----
+      const leadFileUp = pathname.match(/^\/api\/leads\/([a-zA-Z0-9_]+)\/files$/);
+      if (leadFileUp && req.method === 'POST') {
+        const lead = db.leads.find(l => l.id === leadFileUp[1] && l.companyId === me.companyId);
+        if (!lead) return sendJSON(res, 404, { error: 'Lead not found.' });
+        const fid = 'lf_' + crypto.randomBytes(8).toString('hex');
+        const dir = leadFileDir(lead.id);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const tmp = leadFilePath(lead.id, fid) + '.tmp';
+        const ws = fs.createWriteStream(tmp);
+        let bytes = 0, failed = false;
+        const fail = (e, code) => { if (failed) return; failed = true; try { ws.destroy(); } catch (_) {} try { fs.unlinkSync(tmp); } catch (_) {} if (!res.headersSent) sendJSON(res, code || 500, { error: (e && e.message) || String(e) }); };
+        req.on('data', (c) => { bytes += c.length; if (bytes > MAX_RECEIPT_BYTES) { fail(new Error('File is too large (max 25 MB).'), 413); try { req.destroy(); } catch (_) {} } });
+        ws.on('error', fail); req.on('error', fail);
+        ws.on('finish', () => {
+          if (failed) return;
+          try { fs.renameSync(tmp, leadFilePath(lead.id, fid)); } catch (e) { return fail(e); }
+          const meta = { id: fid, name: String((parsed.query && parsed.query.name) || 'file').slice(0, 200),
+            mime: String(req.headers['content-type'] || 'application/octet-stream').slice(0, 100), size: bytes, uploadedAt: Date.now() };
+          const d = readLeadDoc(lead.id); d.files = d.files || []; d.files.push(meta); writeLeadDoc(lead.id, d);
+          lead.updatedAt = Date.now(); saveDB(db);
+          sendJSON(res, 200, meta);
+        });
+        req.pipe(ws);
+        return;
+      }
+      const leadFileMatch = pathname.match(/^\/api\/leads\/([a-zA-Z0-9_]+)\/files\/([a-zA-Z0-9_]+)$/);
+      if (leadFileMatch) {
+        const lead = db.leads.find(l => l.id === leadFileMatch[1] && l.companyId === me.companyId);
+        if (!lead) return sendJSON(res, 404, { error: 'Lead not found.' });
+        const d = readLeadDoc(lead.id); const meta = (d.files || []).find(f => f.id === leadFileMatch[2]);
+        if (!meta) return sendJSON(res, 404, { error: 'File not found.' });
+        if (req.method === 'GET') {
+          const f = leadFilePath(lead.id, meta.id);
+          if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'File missing.' });
+          const stat = fs.statSync(f);
+          res.writeHead(200, { 'Content-Type': meta.mime || 'application/octet-stream', 'Content-Length': stat.size,
+            'Content-Disposition': 'inline; filename="' + encodeURIComponent(meta.name) + '"', 'Cache-Control': 'private, max-age=3600' });
+          const rs = fs.createReadStream(f); rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the file.' }); else res.destroy(); }); rs.pipe(res);
+          return;
+        }
+        if (req.method === 'DELETE') {
+          d.files = (d.files || []).filter(f => f.id !== meta.id); writeLeadDoc(lead.id, d);
+          try { fs.unlinkSync(leadFilePath(lead.id, meta.id)); } catch (e) {}
+          lead.updatedAt = Date.now(); saveDB(db);
           return sendJSON(res, 200, { deleted: true });
         }
       }

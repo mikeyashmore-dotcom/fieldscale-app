@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fieldscale — A · Blueprint Blue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F4F6F9; --card:#FFFFFF; --line:#E4E8EE; --text:#1A1F26; --text2:#5C6672;
+    --accent:#2F6DB0; --good:#3E8E5A; --warn:#B7791F; --bad:#C0432F;
+    --good-bg:rgba(62,142,90,.13); --warn-bg:rgba(183,121,31,.14); --bad-bg:rgba(192,67,47,.12);
+    --canvas:#767A80; --zebra:rgba(18,32,52,.022);
+    --font:'Inter', system-ui, sans-serif; --font-head:'Inter', system-ui, sans-serif; --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .num{font-variant-numeric:tabular-nums slashed-zero;font-feature-settings:"tnum" 1,"zero" 1}
+  header.top{display:flex;align-items:center;gap:24px;padding:0 22px;height:58px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  .brand{font-family:var(--font-head);font-weight:700;letter-spacing:.01em;font-size:19px;display:flex;align-items:center;gap:10px;color:var(--text)}
+  .brand .mk{width:21px;height:21px;border:2px solid var(--accent);border-radius:4px;position:relative;flex:none}
+  .brand .mk::before,.brand .mk::after{content:'';position:absolute;background:var(--accent)}
+  .brand .mk::before{width:2px;height:13px;left:7.5px;top:2px}.brand .mk::after{height:2px;width:13px;top:7.5px;left:2px}
+  nav{display:flex;gap:22px}
+  nav a{color:var(--text2);text-decoration:none;font-size:14px;font-weight:500}
+  nav a.active{color:var(--accent);font-weight:600}
+  .sp{flex:1}.acct{color:var(--text2);font-size:14px}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
+  h1{font-family:var(--font-head);font-size:27px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em;line-height:1.2}
+  .sub{color:var(--text2);margin:0 0 24px;font-size:14.5px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:26px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:15px 17px}
+  .tile .l{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2)}
+  .tile .v{font-family:var(--font-head);font-size:25px;font-weight:600;margin-top:6px}
+  .tile .v.pos{color:var(--good)}
+  .grid2{display:grid;grid-template-columns:1.65fr 1fr;gap:20px;align-items:start}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .card > h2{font-family:var(--font-head);font-size:15px;margin:0;padding:14px 16px;border-bottom:1px solid var(--line);font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  thead th{text-align:left;font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--text2);font-weight:600;padding:11px 14px;border-bottom:1.5px solid var(--line)}
+  th.r,td.r{text-align:right}
+  tbody td{padding:11px 14px;border-bottom:1px solid var(--line)}
+  tbody tr:nth-child(even){background:var(--zebra)}
+  tfoot td{padding:8px 14px;color:var(--text2)}
+  tfoot td.r{color:var(--text)}
+  tfoot .tot td{font-family:var(--font-head);font-weight:600;font-size:16px;color:var(--text);border-top:2px solid var(--line);padding-top:11px}
+  .pill{display:inline-block;padding:2px 11px;border-radius:20px;font-size:12px;font-weight:600}
+  .pill.ok{background:var(--good-bg);color:var(--good)} .pill.warn{background:var(--warn-bg);color:var(--warn)} .pill.bad{background:var(--bad-bg);color:var(--bad)}
+  .stack{display:flex;flex-direction:column;gap:18px}
+  .cap{padding:12px 16px;color:var(--text2);font-size:12.5px;border-top:1px solid var(--line)}
+  .canvas{height:172px;background:var(--canvas);position:relative}
+  .btnrow{display:flex;gap:10px;flex-wrap:wrap;padding:16px}
+  .btn{border-radius:8px;padding:9px 16px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--text)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .pills{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 16px}
+  .spec{padding:14px 16px;font-size:14px}
+  .spec .row{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:5px 0}
+  .spec .row:last-child{border:none}
+  .note{max-width:66ch;color:var(--text2);font-size:14px;padding:0 16px 16px}
+  .foot{margin-top:28px;border-top:1px solid var(--line);padding-top:16px;color:var(--text2);font-size:13px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-head)}
+  .sw{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.12)}
+</style></head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mk"></span>FIELDSCALE</div>
+  <nav><a>Leads</a><a>Takeoff</a><a class="active">Estimate</a><a>Job</a><a>Invoice</a></nav>
+  <div class="sp"></div>
+  <div class="acct">Palmetto Insulation ▾</div>
+</header>
+<div class="wrap">
+  <h1>Smith Kitchen Remodel</h1>
+  <p class="sub">Estimate #1042 · Prepared Jul 26, 2026 · <span style="color:var(--accent)">Draft</span></p>
+
+  <div class="tiles">
+    <div class="tile"><div class="l">Contract</div><div class="v num">$24,850.00</div></div>
+    <div class="tile"><div class="l">Est. cost</div><div class="v num">$16,102.00</div></div>
+    <div class="tile"><div class="l">Margin</div><div class="v pos num">34.8%</div></div>
+    <div class="tile"><div class="l">Balance due</div><div class="v num">$8,530.00</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="stack">
+      <div class="card">
+        <h2>Line items</h2>
+        <table>
+          <thead><tr><th>Item</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
+          <tbody>
+            <tr><td>Demo &amp; disposal</td><td class="r num">1</td><td>LS</td><td class="r num">$1,850.00</td><td class="r num">$1,850.00</td></tr>
+            <tr><td>Cabinets — install</td><td class="r num">24</td><td>LF</td><td class="r num">$210.00</td><td class="r num">$5,040.00</td></tr>
+            <tr><td>Quartz countertop</td><td class="r num">48</td><td>SF</td><td class="r num">$85.00</td><td class="r num">$4,080.00</td></tr>
+            <tr><td>Tile backsplash</td><td class="r num">32</td><td>SF</td><td class="r num">$28.50</td><td class="r num">$912.00</td></tr>
+            <tr><td>Electrical rough-in</td><td class="r num">1</td><td>LS</td><td class="r num">$2,300.00</td><td class="r num">$2,300.00</td></tr>
+            <tr><td>Plumbing fixtures</td><td class="r num">3</td><td>EA</td><td class="r num">$640.00</td><td class="r num">$1,920.00</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><td colspan="4" class="r">Subtotal</td><td class="r num">$16,102.00</td></tr>
+            <tr><td colspan="4" class="r">Overhead &amp; profit (28%)</td><td class="r num">$4,508.56</td></tr>
+            <tr class="tot"><td colspan="4" class="r">Total</td><td class="r num">$20,610.56</td></tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Scope notes</h2>
+        <p class="note">Furnish all labor and materials to remodel the kitchen: remove existing cabinets and countertops, install owner-selected shaker cabinets and quartz tops, tile backsplash, and update electrical and plumbing to code. Debris hauled off on completion.</p>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h2>Plan canvas</h2>
+        <div class="canvas">
+          <svg viewBox="0 0 340 172" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+            <polyline points="30,140 30,40 170,40" fill="none" stroke="#E4574C" stroke-width="3.5" stroke-linecap="round"/>
+            <polyline points="185,50 310,50 310,140" fill="none" stroke="#3B7DD8" stroke-width="3.5" stroke-linecap="round"/>
+            <rect x="80" y="78" width="86" height="52" fill="none" stroke="#37A05B" stroke-width="3.5"/>
+            <circle cx="245" cy="100" r="7" fill="#E8A13A" stroke="#fff" stroke-width="1.5"/>
+            <g font-family="monospace" font-size="11">
+              <rect x="78" y="26" width="52" height="16" rx="3" fill="#fff"/><text x="104" y="38" text-anchor="middle" fill="#243B53">12'-6"</text>
+            </g>
+          </svg>
+        </div>
+        <div class="cap">Neutral mid-gray canvas — makes the measurement colors pop and cuts glare. (Toggleable light / mid / dark.)</div>
+      </div>
+
+      <div class="card">
+        <h2>Numbers &amp; type</h2>
+        <div class="spec">
+          <div class="row"><span>Aligned totals</span><span class="num">$1,204.05</span></div>
+          <div class="row"><span></span><span class="num">$18,960.00</span></div>
+          <div class="row"><span></span><span class="num">$7,530.50</span></div>
+          <div class="row" style="margin-top:6px"><span>Slashed zero</span><span class="num" style="font-size:18px;letter-spacing:2px">0 1 O</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Buttons &amp; status</h2>
+        <div class="btnrow"><button class="btn primary">Save estimate</button><button class="btn">Preview PDF</button></div>
+        <div class="pills"><span class="pill ok">Approved</span><span class="pill warn">Pending</span><span class="pill bad">Overdue</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <strong style="font-family:var(--font-head);color:var(--text)">A · Blueprint Blue</strong>
+    <span>Crisp & precise — cool desaturated blue.</span>
+    <span class="sp"></span>
+    <span class="chip"><span class="sw" style="background:var(--accent)"></span>Accent</span>
+    <span class="chip"><span class="sw" style="background:var(--canvas)"></span>Canvas</span>
+    <span class="chip"><span class="sw" style="background:var(--bg);border-color:var(--line)"></span>Surface</span>
+    <span>· Inter</span>
+  </div>
+</div>
+</body></html>

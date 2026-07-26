@@ -168,27 +168,24 @@
       b.addEventListener('click', function () { location.href = '/home.html'; });
     });
 
-    // Account links (Employees / Company / Team) + the account dropdown on the right of the header.
-    var acct = document.createElement('div'); acct.className = 'nav-account';
-    acct.innerHTML = ACCOUNT.map(function (a) {
-      return '<a href="' + a.href + '"' + (a.id ? ' id="' + a.id + '"' : '') + (a.admin ? ' style="display:none"' : '') + '>' + esc(a.label) + '</a>';
-    }).join('') +
-      '<div class="navgroup acctgroup" id="fs-acctgroup">' +
-        '<button class="acct-btn" id="fs-acct-btn" type="button">👤 <span id="fs-acct-name">Account</span> <span class="nav-caret">▾</span></button>' +
-        '<div class="acct-menu">' +
-          '<div class="acct-hdr" id="fs-acct-hdr"></div>' +
-          '<a href="/admin.html" id="fs-acct-users" style="display:none">👥 Manage Users</a>' +
-          '<a href="#" id="fs-acct-pw">🔑 Change Password</a>' +
-          '<a href="#" id="fs-acct-logout">Log Out</a>' +
-        '</div>' +
-      '</div>';
+    // Header shows only the five nav items. No account links, no username menu — Company, Team,
+    // Employees and Change Password live on the Home page. Keep ONE Log Out in the top-right corner
+    // of every page. Standard pages already have #logout-link; the takeoff topbar gets one added.
     var who = document.querySelector('header .who');
-    if (who && who.parentNode) who.parentNode.insertBefore(acct, who);
-    else nav.appendChild(acct); // takeoff topbar has no .who — keep account links inline after the groups
-    if (who) who.style.display = 'none';                 // username now lives in the dropdown button
+    if (who) who.style.display = 'none';                  // don't show the username in the header
     var pageLogout = document.getElementById('logout-link');
-    if (pageLogout) pageLogout.style.display = 'none';   // the menu has Log Out — avoid a duplicate
-    wireAccountMenu();
+    if (pageLogout) {
+      pageLogout.style.display = '';
+    } else {
+      var topbar = document.querySelector('.topbar');
+      if (topbar && !document.getElementById('fs-logout')) {
+        var lo = document.createElement('a');
+        lo.href = '#'; lo.id = 'fs-logout'; lo.textContent = 'Log Out';
+        lo.style.cssText = 'color:#B9C2CB;font-size:13px;text-decoration:none;white-space:nowrap;margin-left:14px;align-self:center';
+        lo.addEventListener('click', function (e) { e.preventDefault(); logout(); });
+        topbar.appendChild(lo);
+      }
+    }
 
     // Mark active group/item.
     nav.querySelectorAll('a[href]').forEach(function (a) {
@@ -227,9 +224,6 @@
         '<a class="navtop navdirect' + (p === '/jobs.html' ? ' active' : '') + '" href="/jobs.html">Jobs</a>' +
         '<a class="navtop navdirect' + (p === '/schedule.html' ? ' active' : '') + '" href="/schedule.html">Schedule</a>';
     }
-    // Keep the account dropdown (Log Out / Change Password) but drop the management links + Manage Users.
-    document.querySelectorAll('.nav-account > a').forEach(function (a) { a.remove(); });
-    var fmu = document.getElementById('fs-acct-users'); if (fmu) fmu.style.display = 'none';
     document.querySelectorAll('header .brand, .topbar .brand').forEach(function (b) {
       var c = b.cloneNode(true); if (b.parentNode) b.parentNode.replaceChild(c, b); // drop the home-click handler
       c.style.cursor = 'pointer'; c.addEventListener('click', function () { location.href = '/jobs.html'; });
@@ -241,62 +235,7 @@
     try { localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); } catch (e) {}
     location.href = '/';
   }
-  function ensurePwModal() {
-    if (document.getElementById('fs-pw-modal')) return;
-    var m = document.createElement('div');
-    m.className = 'fs-modal'; m.id = 'fs-pw-modal';
-    m.innerHTML =
-      '<div class="box">' +
-        '<h3>Change Password</h3>' +
-        '<label>Current password</label><input type="password" id="fs-pw-cur" autocomplete="current-password" />' +
-        '<label>New password</label><input type="password" id="fs-pw-new" autocomplete="new-password" placeholder="at least 8 characters" />' +
-        '<label>Confirm new password</label><input type="password" id="fs-pw-conf" autocomplete="new-password" />' +
-        '<div class="fmsg" id="fs-pw-msg"></div>' +
-        '<div class="frow"><button class="btn ghost" id="fs-pw-cancel" type="button">Cancel</button>' +
-        '<button class="btn" id="fs-pw-save" type="button">Update password</button></div>' +
-      '</div>';
-    document.body.appendChild(m);
-    function close() { m.classList.remove('open'); }
-    m.addEventListener('click', function (e) { if (e.target === m) close(); });
-    document.getElementById('fs-pw-cancel').addEventListener('click', close);
-    document.getElementById('fs-pw-save').addEventListener('click', async function () {
-      var cur = document.getElementById('fs-pw-cur').value, nw = document.getElementById('fs-pw-new').value, cf = document.getElementById('fs-pw-conf').value;
-      var msg = document.getElementById('fs-pw-msg'); msg.className = 'fmsg';
-      if (!cur || !nw) { msg.className = 'fmsg err'; msg.textContent = 'Fill in your current and new password.'; return; }
-      if (nw !== cf) { msg.className = 'fmsg err'; msg.textContent = 'The new passwords don’t match.'; return; }
-      try {
-        var res = await fetch('/api/password', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() }, body: JSON.stringify({ currentPassword: cur, newPassword: nw }) });
-        var data = await res.json().catch(function () { return {}; });
-        if (!res.ok) { msg.className = 'fmsg err'; msg.textContent = data.error || 'Could not change password.'; return; }
-        if (data.token) { try { localStorage.setItem('fieldscale_token', data.token); } catch (e) {} } // keep this session signed in
-        msg.className = 'fmsg ok'; msg.textContent = 'Password updated.';
-        setTimeout(close, 900);
-      } catch (e) { msg.className = 'fmsg err'; msg.textContent = 'Network error — try again.'; }
-    });
-  }
-  function wireAccountMenu() {
-    ensurePwModal();
-    var grp = document.getElementById('fs-acctgroup'), btn = document.getElementById('fs-acct-btn');
-    if (btn) btn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var open = grp.classList.contains('open');
-      document.querySelectorAll('.navgroup.open').forEach(function (o) { o.classList.remove('open'); });
-      if (!open) grp.classList.add('open');
-    });
-    document.addEventListener('click', function () { if (grp) grp.classList.remove('open'); });
-    var lo = document.getElementById('fs-acct-logout');
-    if (lo) lo.addEventListener('click', function (e) { e.preventDefault(); logout(); });
-    var pw = document.getElementById('fs-acct-pw');
-    if (pw) pw.addEventListener('click', function (e) { e.preventDefault(); if (grp) grp.classList.remove('open'); document.getElementById('fs-pw-msg').textContent = ''; document.getElementById('fs-pw-cur').value = ''; document.getElementById('fs-pw-new').value = ''; document.getElementById('fs-pw-conf').value = ''; document.getElementById('fs-pw-modal').classList.add('open'); });
-  }
-
   function gate(me) {
-    // Fill the account dropdown with who's signed in + show Manage Users for admins (all roles).
-    var nm = document.getElementById('fs-acct-name'); if (nm && me) nm.textContent = me.username || 'Account';
-    var hdr = document.getElementById('fs-acct-hdr');
-    if (hdr && me) hdr.textContent = 'Signed in as ' + (me.username || '') + (me.role ? ' · ' + me.role : '');
-    var mu = document.getElementById('fs-acct-users');
-    if (mu) mu.style.display = (me && (me.role === 'admin' || me.role === 'owner' || me.platformAdmin)) ? 'block' : 'none';
     if (me && me.role === 'field') { applyFieldRole(); return; }
     var modules = me && me.modules;
     var enabled = null;

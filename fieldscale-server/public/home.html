@@ -59,6 +59,23 @@
   </div>
 </div>
 
+<div id="pw-modal" style="position:fixed;inset:0;background:rgba(14,42,71,.55);display:none;align-items:center;justify-content:center;z-index:200">
+  <div style="background:#fff;border-radius:6px;padding:22px;width:340px;max-width:92vw;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+    <h3 style="font-family:'Oswald',sans-serif;margin:0 0 6px;color:var(--ink-navy);font-size:18px">Change Password</h3>
+    <label style="display:block;font-size:12px;color:var(--steel);margin:10px 0 3px">Current password</label>
+    <input type="password" id="pw-cur" autocomplete="current-password" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--steel-light);border-radius:3px;font-size:14px" />
+    <label style="display:block;font-size:12px;color:var(--steel);margin:10px 0 3px">New password</label>
+    <input type="password" id="pw-new" autocomplete="new-password" placeholder="at least 8 characters" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--steel-light);border-radius:3px;font-size:14px" />
+    <label style="display:block;font-size:12px;color:var(--steel);margin:10px 0 3px">Confirm new password</label>
+    <input type="password" id="pw-conf" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--steel-light);border-radius:3px;font-size:14px" />
+    <div id="pw-msg" style="font-size:12.5px;margin-top:8px;min-height:16px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn ghost" id="pw-cancel" type="button">Cancel</button>
+      <button class="btn primary" id="pw-save" type="button">Update password</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const TOKEN_STORAGE='fieldscale_token';
 function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
@@ -87,7 +104,9 @@ const CARDS=[
   {href:'/followups.html',icon:'⏰',t:'Follow-ups',d:'Who to chase',mod:null},
   {href:'/reports.html',icon:'📊',t:'Reports',d:'The full picture',mod:null},
   {href:'/employees.html',icon:'👷',t:'Employees',d:'Crew, rates & payroll #',mod:null},
-  {href:'/company.html',icon:'⚙️',t:'Company',d:'Profile & settings',mod:null}
+  {href:'/company.html',icon:'⚙️',t:'Company',d:'Profile & settings',mod:null},
+  {href:'/admin.html',icon:'👤',t:'Team',d:'Logins & user roles',mod:null,admin:true},
+  {action:'pw',icon:'🔑',t:'Change Password',d:'Update your login',mod:null}
 ];
 
 function tile(lab,val,cls,href){
@@ -104,11 +123,18 @@ async function init(){
   document.getElementById('co-name').textContent = coName;
   if(!coName) document.getElementById('co-wrap').style.display='none';
 
-  // Cards — hide ones for modules this company isn't on.
+  // Cards — hide ones for modules this company isn't on, and admin-only cards for non-admins.
   const enabled = Array.isArray(me.modules) ? me.modules : null;
-  const cardsOn = CARDS.filter(c => !c.mod || !enabled || enabled.indexOf(c.mod)>=0);
-  document.getElementById('cards').innerHTML = cardsOn.map(c=>
-    `<a class="card" href="${c.href}"><span class="ic">${c.icon}</span><span><span class="t">${esc(c.t)}</span><br><span class="d">${esc(c.d)}</span></span></a>`).join('');
+  const isAdmin = me.role==='owner' || me.role==='admin' || me.platformAdmin;
+  const cardsOn = CARDS.filter(c => (!c.mod || !enabled || enabled.indexOf(c.mod)>=0) && (!c.admin || isAdmin));
+  document.getElementById('cards').innerHTML = cardsOn.map(c=>{
+    const inner=`<span class="ic">${c.icon}</span><span><span class="t">${esc(c.t)}</span><br><span class="d">${esc(c.d)}</span></span>`;
+    return c.action ? `<button class="card" type="button" data-action="${c.action}" style="text-align:left;font:inherit;cursor:pointer">${inner}</button>`
+                    : `<a class="card" href="${c.href}">${inner}</a>`;
+  }).join('');
+  document.getElementById('cards').addEventListener('click', e=>{
+    const b=e.target.closest('[data-action="pw"]'); if(b) openPwModal();
+  });
 
   // Stats + needs-attention (best-effort; fine if a section is empty).
   try{
@@ -141,6 +167,27 @@ async function init(){
   document.getElementById('loading').style.display='none';
   document.getElementById('content').style.display='block';
 }
+
+// ---- Change Password (moved here from the header account menu) ----
+const pwModal=document.getElementById('pw-modal');
+function openPwModal(){ document.getElementById('pw-msg').textContent=''; document.getElementById('pw-cur').value=''; document.getElementById('pw-new').value=''; document.getElementById('pw-conf').value=''; pwModal.style.display='flex'; }
+function closePwModal(){ pwModal.style.display='none'; }
+pwModal.addEventListener('click', e=>{ if(e.target===pwModal) closePwModal(); });
+document.getElementById('pw-cancel').addEventListener('click', closePwModal);
+document.getElementById('pw-save').addEventListener('click', async ()=>{
+  const cur=document.getElementById('pw-cur').value, nw=document.getElementById('pw-new').value, cf=document.getElementById('pw-conf').value;
+  const msg=document.getElementById('pw-msg'); msg.style.color='var(--danger)';
+  if(!cur||!nw){ msg.textContent='Fill in your current and new password.'; return; }
+  if(nw!==cf){ msg.textContent='The new passwords don’t match.'; return; }
+  try{
+    const res=await fetch('/api/password',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+getToken()},body:JSON.stringify({currentPassword:cur,newPassword:nw})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok){ msg.textContent=data.error||'Could not change password.'; return; }
+    if(data.token){ try{ localStorage.setItem('fieldscale_token',data.token); }catch(e){} }
+    msg.style.color='var(--good)'; msg.textContent='Password updated.';
+    setTimeout(closePwModal,900);
+  }catch(e){ msg.textContent='Network error — try again.'; }
+});
 init();
 </script>
 </body>

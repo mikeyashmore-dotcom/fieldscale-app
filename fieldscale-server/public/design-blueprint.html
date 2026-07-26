@@ -11,8 +11,15 @@
     --canvas:#767A80; --zebra:rgba(18,32,52,.022);
     --font:'Inter', system-ui, sans-serif; --font-head:'Inter', system-ui, sans-serif; --radius:10px;
   }
+  [data-theme="dark"]{
+    --bg:#14181E; --card:#1C222B; --line:#2C333E; --text:#E7EAEE; --text2:#98A2AE;
+    --accent:#5B9CE0; --good:#61B180; --warn:#D6A24A; --bad:#E27567;
+    --good-bg:rgba(97,177,128,.18); --warn-bg:rgba(214,162,74,.18); --bad-bg:rgba(226,117,103,.18);
+    --canvas:#20262E; --zebra:rgba(255,255,255,.035);
+  }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  body,.card,.tile,.btn,header.top,.toggle{transition:background-color .2s ease,border-color .2s ease,color .2s ease}
   .num{font-variant-numeric:tabular-nums slashed-zero;font-feature-settings:"tnum" 1,"zero" 1}
   header.top{display:flex;align-items:center;gap:24px;padding:0 22px;height:58px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
   .brand{font-family:var(--font-head);font-weight:700;letter-spacing:.01em;font-size:19px;display:flex;align-items:center;gap:10px;color:var(--text)}
@@ -23,6 +30,8 @@
   nav a{color:var(--text2);text-decoration:none;font-size:14px;font-weight:500}
   nav a.active{color:var(--accent);font-weight:600}
   .sp{flex:1}.acct{color:var(--text2);font-size:14px}
+  .toggle{border:1px solid var(--line);background:var(--bg);color:var(--text2);border-radius:8px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)}
+  .toggle:hover{color:var(--text);border-color:var(--accent)}
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
   h1{font-family:var(--font-head);font-size:27px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em;line-height:1.2}
   .sub{color:var(--text2);margin:0 0 24px;font-size:14.5px}
@@ -58,13 +67,14 @@
   .note{max-width:66ch;color:var(--text2);font-size:14px;padding:0 16px 16px}
   .foot{margin-top:28px;border-top:1px solid var(--line);padding-top:16px;color:var(--text2);font-size:13px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
   .chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-head)}
-  .sw{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.12)}
+  .sw{width:15px;height:15px;border-radius:4px;border:1px solid rgba(128,128,128,.35)}
 </style></head>
 <body>
 <header class="top">
   <div class="brand"><span class="mk"></span>FIELDSCALE</div>
   <nav><a>Leads</a><a>Takeoff</a><a class="active">Estimate</a><a>Job</a><a>Invoice</a></nav>
   <div class="sp"></div>
+  <button id="mode" class="toggle">🌙 Dark</button>
   <div class="acct">Palmetto Insulation ▾</div>
 </header>
 <div class="wrap">
@@ -119,7 +129,7 @@
             </g>
           </svg>
         </div>
-        <div class="cap">Neutral mid-gray canvas — makes the measurement colors pop and cuts glare. (Toggleable light / mid / dark.)</div>
+        <div class="cap">Neutral gray canvas — makes the measurement colors pop and cuts glare. (Toggleable light / mid / dark.)</div>
       </div>
 
       <div class="card">
@@ -146,8 +156,16 @@
     <span class="sp"></span>
     <span class="chip"><span class="sw" style="background:var(--accent)"></span>Accent</span>
     <span class="chip"><span class="sw" style="background:var(--canvas)"></span>Canvas</span>
-    <span class="chip"><span class="sw" style="background:var(--bg);border-color:var(--line)"></span>Surface</span>
+    <span class="chip"><span class="sw" style="background:var(--bg)"></span>Surface</span>
     <span>· Inter</span>
   </div>
 </div>
+<script>
+(function(){
+  var r=document.documentElement, b=document.getElementById('mode');
+  function set(m){ if(m==='dark'){ r.setAttribute('data-theme','dark'); b.textContent='☀️ Light'; } else { r.removeAttribute('data-theme'); b.textContent='🌙 Dark'; } try{localStorage.setItem('fs-preview-theme',m);}catch(e){} }
+  set((function(){ try{return localStorage.getItem('fs-preview-theme');}catch(e){return null;} })()||'light');
+  b.addEventListener('click',function(){ set(r.getAttribute('data-theme')==='dark'?'light':'dark'); });
+})();
+</script>
 </body></html>

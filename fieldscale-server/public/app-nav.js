@@ -311,3 +311,68 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
   else run();
 })();
+
+// ---- Offline field mode: PWA install + service worker + offline / sync-pending banner ----
+// Injected from here so every app page (which all load app-nav.js) becomes installable and
+// offline-capable without editing each page. Skipped on the public/no-login pages.
+(function () {
+  var PUBLIC_PAGES = /\/(welcome|accept|portal|lead-form|privacy)\.html$/;
+  if (PUBLIC_PAGES.test(location.pathname)) return;
+
+  // Head tags: manifest, theme colour, iOS home-screen icon + standalone hints.
+  function addOnce(sel, make) { if (!document.head.querySelector(sel)) document.head.appendChild(make()); }
+  addOnce('link[rel="manifest"]', function () { var l = document.createElement('link'); l.rel = 'manifest'; l.href = '/manifest.webmanifest'; return l; });
+  addOnce('meta[name="theme-color"]', function () { var m = document.createElement('meta'); m.name = 'theme-color'; m.content = '#0E2A47'; return m; });
+  addOnce('link[rel="apple-touch-icon"]', function () { var l = document.createElement('link'); l.rel = 'apple-touch-icon'; l.href = '/apple-touch-icon.png'; return l; });
+  addOnce('meta[name="apple-mobile-web-app-capable"]', function () { var m = document.createElement('meta'); m.name = 'apple-mobile-web-app-capable'; m.content = 'yes'; return m; });
+  addOnce('meta[name="apple-mobile-web-app-status-bar-style"]', function () { var m = document.createElement('meta'); m.name = 'apple-mobile-web-app-status-bar-style'; m.content = 'black-translucent'; return m; });
+
+  var pending = 0;
+
+  function bar() {
+    var b = document.getElementById('fs-net-bar');
+    if (!b) {
+      b = document.createElement('div');
+      b.id = 'fs-net-bar';
+      b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;display:none;padding:9px 14px;'
+        + 'font:500 13px "IBM Plex Sans",system-ui,sans-serif;color:#fff;text-align:center;box-shadow:0 -2px 10px rgba(14,42,71,.18)';
+      document.body.appendChild(b);
+    }
+    return b;
+  }
+  function render() {
+    var b = bar();
+    var off = !navigator.onLine;
+    if (!off && !pending) { b.style.display = 'none'; return; }
+    b.style.display = 'block';
+    if (off) {
+      b.style.background = '#C25A1B';
+      b.innerHTML = '&#128244; Offline — you can keep working; changes are saved on this device and sync when you’re back online.'
+        + (pending ? ' <b>' + pending + ' waiting</b>' : '');
+    } else {
+      b.style.background = '#1B4B7A';
+      b.innerHTML = '&#128260; ' + pending + ' change' + (pending > 1 ? 's' : '') + ' waiting to sync… '
+        + '<button id="fs-sync-now" style="margin-left:8px;background:#fff;color:#1B4B7A;border:none;border-radius:4px;padding:3px 10px;font:600 12px inherit;cursor:pointer">Sync now</button>';
+      var s = document.getElementById('fs-sync-now');
+      if (s) s.onclick = flush;
+    }
+  }
+  function flush() { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: 'flush' }); }
+
+  window.addEventListener('online', function () { render(); flush(); });
+  window.addEventListener('offline', render);
+
+  function boot() {
+    render();
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(function () {});
+      navigator.serviceWorker.addEventListener('message', function (e) {
+        if (e.data && e.data.type === 'fs-outbox') { pending = e.data.count; render(); }
+      });
+      // ask the worker for the current queued count once it's controlling
+      navigator.serviceWorker.ready.then(function () { if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: 'count' }); });
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();

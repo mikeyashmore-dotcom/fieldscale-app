@@ -702,6 +702,7 @@ const CSP = [
   "script-src 'self' 'unsafe-inline' blob: https://cdnjs.cloudflare.com",
   "worker-src 'self' blob: https://cdnjs.cloudflare.com",
   "connect-src 'self' https://cdnjs.cloudflare.com",
+  "manifest-src 'self'",
   "form-action 'self'"
 ].join('; ');
 function applySecurityHeaders(req, res) {
@@ -747,7 +748,7 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 
 function serveStatic(req, res, pathname) {
   let filePath = pathname === '/' ? '/index.html' : pathname;

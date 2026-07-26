@@ -344,6 +344,12 @@
     border-top:none;border-left:none;border-right:none;
   }
   .panel-tab.active{color:var(--heading);border-bottom-color:var(--orange);font-weight:600;}
+  /* AI takeoff analysis (walls/count/schedule/describe) is deactivated — vision can't trace geometry
+     accurately. Sheet-naming, auto-scale, and the new Auto-tag feature keep using AI. Hide the AI
+     Assist tab + panel and the AI Select tool; the JS stays in place so nothing errors. */
+  .panel-tabs{display:none;}
+  #panel-ai{display:none !important;}
+  .tool[data-tool="ai-select"]{display:none !important;}
   .panel-body{flex:1;overflow-y:auto;min-height:0;}
   .panel-section{display:none;height:100%;flex-direction:column;}
   .panel-section.active{display:flex;}
@@ -909,6 +915,7 @@
     <div class="topbar-spacer"></div>
     <div class="scale-btn-wrap" id="search-btn-wrap">
       <button class="btn" id="search-toggle-btn">🔍 Search Sheets</button>
+      <button class="btn" id="autotag-btn" disabled title="Let AI find the detail/section callouts on this sheet and turn them into clickable links to those sheets">🏷 Auto-tag refs</button>
       <div class="scale-popover" id="search-popover" style="width:360px;">
         <div class="sp-row" style="margin-bottom:0;">
           <input type="text" id="doc-search-input" placeholder="Search all sheets & reference docs…" style="flex:1;font-size:13px;padding:7px 8px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);" disabled />
@@ -1043,7 +1050,7 @@
   <div class="stage-wrap" id="stage-wrap">
     <div class="empty-state" id="empty-state">
       <h2>NO PLAN LOADED</h2>
-      <p>Upload a PDF plan sheet to begin. Calibrate a known dimension first, then use the measurement tools or let AI read a region of the drawing for you.</p>
+      <p>Upload a PDF plan sheet to begin. Calibrate a known dimension first, then use the measurement tools to take off quantities. Use 🏷 Auto-tag refs to turn detail callouts into clickable links.</p>
       <label class="btn primary" for="file-input">Upload Plan (PDF)</label>
     </div>
     <div class="canvas-stack" id="canvas-stack" style="display:none;">
@@ -1383,6 +1390,7 @@ els.fileInput.addEventListener('change', async (e)=>{
   els.zoomControls.style.display='flex';
   document.getElementById('scale-toggle-btn').disabled = false;
   document.getElementById('search-toggle-btn').disabled = false;
+  document.getElementById('autotag-btn').disabled = false;
   state.pdfTextIndex = [];
   state.searchHighlightPage = null;
   state.searchHighlights = [];
@@ -2118,6 +2126,7 @@ async function restoreProjectState(data){
     els.zoomControls.style.display='flex';
     document.getElementById('scale-toggle-btn').disabled = false;
     document.getElementById('search-toggle-btn').disabled = false;
+  document.getElementById('autotag-btn').disabled = false;
     state.pdfTextIndex = [];
     openPagesPanel();
     await renderPage();
@@ -2379,6 +2388,7 @@ function npResetToBlank(name){
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
   document.getElementById('scale-toggle-btn').disabled = true;
+  document.getElementById('autotag-btn').disabled = true;
   refreshCalibrationUI();
   refreshLegendBtn();
   renderTakeoffList();
@@ -2417,6 +2427,7 @@ document.getElementById('np-start').addEventListener('click', async ()=>{
   els.zoomControls.style.display='flex';
   document.getElementById('scale-toggle-btn').disabled = false;
   document.getElementById('search-toggle-btn').disabled = false;
+  document.getElementById('autotag-btn').disabled = false;
   openPagesPanel();
   npOverlay.classList.remove('open');
 
@@ -3868,6 +3879,70 @@ function addRefLinkAt(p){
   markDirty(); redrawOverlay();
 }
 function removeRefLink(r){ state.refLinks = state.refLinks.filter(x=>x.id!==r.id); markDirty(); redrawOverlay(); }
+
+// ---------- Auto-tag references (AI) ----------
+// Reads the whole current sheet, has Claude find the detail/section/elevation callout bubbles
+// (top = detail, bottom = target sheet number), then creates a clickable reference tag for each
+// one whose target sheet is in this set. Reading tag TEXT is what vision does well — position
+// only needs to be roughly right (the badge just has to sit near the callout to be clickable).
+async function renderPageBase64(maxLong){
+  const page = await state.pdfDoc.getPage(state.pageNum);
+  const v1 = page.getViewport({ scale: 1 });
+  const scale = Math.min(4, Math.max(1, maxLong / Math.max(v1.width, v1.height)));
+  const vp = page.getViewport({ scale });
+  const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+  const cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0,0,c.width,c.height);
+  await page.render({ canvasContext: cx, viewport: vp }).promise;
+  return c.toDataURL('image/png').split(',')[1];
+}
+async function autoTagReferences(){
+  if(!state.pdfDoc) return;
+  const btn = document.getElementById('autotag-btn');
+  const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '🏷 Reading sheet…';
+  try{
+    const base64 = await renderPageBase64(2000);
+    const prompt = `You are reading a construction drawing sheet to find its REFERENCE CALLOUTS — the small circular or hexagonal "bubbles" that point the reader to another sheet.
+
+A reference callout is usually a circle or hexagon split by a horizontal line: the TOP holds a detail/section/elevation number or letter, and the BOTTOM holds the TARGET SHEET NUMBER (for example "A3.25", "A6.9", "S2L2", "A5.1"). Section markers, elevation markers, and detail bubbles all count. Include hexagonal type tags (e.g. "CW14") only if they reference a target sheet.
+
+For EACH callout, give its center location — normalised: x=0 is the left edge, x=1 the right edge, y=0 the top, y=1 the bottom — plus the top value ("detail") and the bottom target sheet ("sheet").
+
+Do NOT include: room name/number boxes (e.g. "QQ1-L" over "205"), plain grid bubbles (a single letter or number with no sheet reference), dimension text, door/window schedule tags, or general notes.
+
+Respond ONLY with valid JSON, no markdown, in this shape:
+{"tags":[{"x":0.62,"y":0.31,"detail":"16","sheet":"A3.25"}]}
+If there are no reference callouts, return {"tags":[]}.`;
+    const textOut = await callClaudeVision(base64, prompt, 2000);
+    const cleaned = textOut.replace(/```json|```/g,'').trim();
+    let parsed; try{ parsed = JSON.parse(cleaned); }catch(e){ throw new Error('the AI response was not readable. Try again.'); }
+    const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+    const W = els.pdfCanvas.width, H = els.pdfCanvas.height;
+    let added = 0, unresolved = 0, dup = 0;
+    tags.forEach(t=>{
+      const sheet = String(t.sheet||'').trim(); if(!sheet) return;
+      const targetPage = resolveSheet(sheet);
+      const x = (Number(t.x)||0) * W, y = (Number(t.y)||0) * H;
+      if(!targetPage){ unresolved++; return; }
+      if(targetPage === state.pageNum) return;                       // points to this same sheet
+      const near = state.refLinks.some(r => (r.pageNum||1)===state.pageNum && Math.hypot(r.x-x, r.y-y) < 24);
+      if(near){ dup++; return; }
+      state.refLinks.push({ id:'rl_'+Math.random().toString(36).slice(2,9), pageNum:state.pageNum,
+        x, y, targetPage, detail:String(t.detail||'').trim().slice(0,12), sheetLabel: sheetLabelFor(targetPage) });
+      added++;
+    });
+    if(added) markDirty();
+    redrawOverlay();
+    let msg = added ? `Added ${added} reference tag${added===1?'':'s'} on this sheet — click one to open that sheet.` : 'No new reference tags found on this sheet.';
+    if(dup) msg += ` (${dup} were already tagged.)`;
+    if(unresolved) msg += ` ${unresolved} callout${unresolved===1?'':'s'} pointed to a sheet that isn't in this uploaded set, so ${unresolved===1?'it was':'they were'} skipped.`;
+    alert(msg);
+  }catch(err){
+    alert('Auto-tag failed: ' + err.message);
+  }finally{
+    btn.disabled = false; btn.innerHTML = orig;
+  }
+}
+document.getElementById('autotag-btn').addEventListener('click', autoTagReferences);
 
 // A tiny floating menu shown on right-click (create / go / remove).
 let refMenuEl = null;

@@ -90,6 +90,7 @@
         <option value="complete">Complete</option>
       </select>
       <div class="spacer"></div>
+      <button class="btn ghost fin-hide" id="portal-btn" title="Get a link the customer can open to see this job's status, estimates and invoices">🔗 Client portal</button>
       <button class="btn ghost" id="to-wo-btn" title="Make a work order for the crew">→ Work Order</button>
       <button class="btn ghost" id="to-invoice-btn" title="Bill this job">→ Invoice</button>
       <button class="btn ghost" id="pdf-btn" title="Print or save a job sheet">Generate PDF</button>
@@ -317,6 +318,11 @@
     <div class="block">
       <h3>Notes</h3>
       <textarea id="notes" placeholder="Job notes, instructions, materials to order…"></textarea>
+    </div>
+
+    <div class="block fin-hide">
+      <h3>Message to client (shown on the portal)</h3>
+      <textarea id="client-message" placeholder="A short update your customer sees on their portal — e.g. progress, next steps, what you need from them."></textarea>
     </div>
   </div>
 </div>
@@ -888,7 +894,7 @@ function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 function syncDocFromForm(){
   jobName=val('job-name')||'Untitled Job';
   doc.client={ name:val('cl-name') }; doc.project=val('project');
-  doc.startDate=val('start-date'); doc.dueDate=val('due-date'); doc.notes=val('notes');
+  doc.startDate=val('start-date'); doc.dueDate=val('due-date'); doc.notes=val('notes'); doc.clientMessage=val('client-message');
   doc.crew=(val('crew')||'').split(',').map(s=>s.trim()).filter(Boolean);
   doc.company=doc.company||{}; doc.fromEstimateId=doc.fromEstimateId||'';
   doc.costs=doc.costs||[];
@@ -903,6 +909,15 @@ async function save(){
   await apiFetch('/api/jobs/'+jobId, { method:'PUT', body: JSON.stringify({ name:jobName, client:doc.client.name, status:val('status'), doc }) });
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Job saved.'); refreshDash(); }catch(err){ toast(err.message,true); } });
+document.getElementById('portal-btn').addEventListener('click', async ()=>{
+  try{
+    await save();
+    const r=await apiFetch('/api/jobs/'+jobId+'/portal',{method:'POST'});
+    const url=location.origin+'/portal.html?token='+r.token;
+    try{ await navigator.clipboard.writeText(url); toast('Portal link copied to clipboard.'); }catch(e){ toast('Portal link ready.'); }
+    prompt('Share this link with your customer — they can see the job status, estimates and invoices, and approve change orders:', url);
+  }catch(err){ toast(err.message, true); }
+});
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ await save(); await openJobPDF(); }catch(err){ toast(err.message,true); } });
 
 let _company=null;
@@ -997,7 +1012,7 @@ function fillForm(){
   set('job-name',jobName);
   document.getElementById('status').value = statusVal;
   set('cl-name',(doc.client||{}).name); set('project',doc.project);
-  set('start-date',doc.startDate); set('due-date',doc.dueDate); set('notes',doc.notes);
+  set('start-date',doc.startDate); set('due-date',doc.dueDate); set('notes',doc.notes); set('client-message',doc.clientMessage);
   set('crew', Array.isArray(doc.crew)?doc.crew.join(', '):'');
   const c=doc.costing||{};
   set('c-contract', c.contract!=null ? c.contract : '');

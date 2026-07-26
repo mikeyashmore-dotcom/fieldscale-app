@@ -876,6 +876,57 @@ const server = http.createServer(async (req, res) => {
       saveDB(db);
       return sendJSON(res, 200, { accepted: true, at: doc.signature.at });
     }
+    // Client portal (no login): a customer views their job's status, estimates & invoices by token.
+    if (pathname === '/api/public/portal' && req.method === 'GET') {
+      if (rateLimited('portal', req, 120, 10 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY);
+      const token = (parsed.query && parsed.query.token) || '';
+      const job = token ? db.jobs.find(j => j.portalToken === token) : null;
+      if (!job) return sendJSON(res, 404, { error: 'This link is no longer valid.' });
+      const jd = readJobDoc(job.id) || {};
+      const comp = readCompany(job.companyId) || {};
+      const companyRec = companyById(job.companyId);
+      const estimates = [];
+      if (job.fromEstimateId) {
+        const est = db.estimates.find(e => e.id === job.fromEstimateId && e.companyId === job.companyId);
+        if (est) estimates.push({ name: est.name, status: est.status, total: Number(est.total) || 0,
+          approveToken: est.status === 'accepted' ? '' : (est.shareToken || '') });
+      }
+      const invoices = db.invoices.filter(i => i.companyId === job.companyId &&
+        ((job.fromEstimateId && i.fromEstimateId === job.fromEstimateId) || i.fromJobId === job.id)).map(i => {
+        const idoc = readInvoiceDoc(i.id) || {};
+        const total = Number(i.total) || 0, paid = Number(i.amountPaid) || 0;
+        return { invoiceNo: idoc.invoiceNo || '', name: i.name, total: Math.round(total * 100) / 100,
+          paid: Math.round(paid * 100) / 100, balance: Math.round((total - paid) * 100) / 100,
+          status: invoiceStatus(total, paid), payLink: (idoc.payLink && /^https?:\/\//i.test(idoc.payLink)) ? idoc.payLink : '' };
+      });
+      const changeOrders = (jd.changeOrders || []).map(c => ({ id: c.id, description: c.description || '',
+        priceDelta: Number(c.priceDelta) || 0, status: c.status || 'pending' }));
+      return sendJSON(res, 200, {
+        company: { name: comp.name || (companyRec && companyRec.name) || '', logo: comp.logo || '', phone: comp.phone || '',
+          email: comp.email || '', website: comp.website || '', license: comp.license || '', address: comp.address || '' },
+        job: { name: job.name, client: (jd.client && jd.client.name) || job.client || '', project: jd.project || '',
+          status: job.status || 'scheduled', percentComplete: Math.max(0, Math.min(100, Number(jd.percentComplete) || 0)),
+          startDate: jd.startDate || '', dueDate: jd.dueDate || '' },
+        message: jd.clientMessage || '', estimates, invoices, changeOrders
+      });
+    }
+    // Client portal: the customer approves or declines a change order.
+    if (pathname === '/api/public/portal/co' && req.method === 'POST') {
+      if (rateLimited('portalco', req, 30, 10 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY);
+      const b = await readBody(req);
+      const job = b.token ? db.jobs.find(j => j.portalToken === b.token) : null;
+      if (!job) return sendJSON(res, 404, { error: 'This link is no longer valid.' });
+      const jd = readJobDoc(job.id) || {};
+      const co = (jd.changeOrders || []).find(c => c.id === b.coId);
+      if (!co) return sendJSON(res, 404, { error: 'Change order not found.' });
+      if (co.status === 'approved' || co.status === 'rejected') return sendJSON(res, 200, { status: co.status });
+      co.status = (b.decision === 'approved') ? 'approved' : 'rejected';
+      co.decidedAt = Date.now();
+      writeJobDoc(job.id, jd);
+      job.updatedAt = Date.now();
+      saveDB(db);
+      return sendJSON(res, 200, { status: co.status });
+    }
     // Public lead-capture form: a website visitor submits their info and it becomes a new lead.
     if (pathname === '/api/public/lead' && req.method === 'POST') {
       if (rateLimited('lead', req, 10, 10 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY); // anti-spam
@@ -2357,6 +2408,15 @@ const server = http.createServer(async (req, res) => {
           invoiced: round(invoiced), paid: round(paid), outstanding: round(invoiced - paid), invoiceCount,
           poCommitted: round(poCommitted), poReceived: round(poReceived), poCount
         });
+      }
+      // Create (or fetch) the client-portal link for a job.
+      const jobPortalMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)\/portal$/);
+      if (jobPortalMatch && req.method === 'POST') {
+        if (me.role === 'field') return sendJSON(res, 403, { error: 'Not allowed.' });
+        const job = db.jobs.find(j => j.id === jobPortalMatch[1] && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Job not found.' });
+        if (!job.portalToken) { job.portalToken = crypto.randomBytes(16).toString('hex'); job.updatedAt = Date.now(); saveDB(db); }
+        return sendJSON(res, 200, { token: job.portalToken });
       }
       const jobMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)$/);
       if (jobMatch) {

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Project Portal — Fieldscale</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1C1E22;margin:0;background:#F6F3EA;font-size:14px}
+  .sheet{max-width:760px;margin:24px auto;background:#fff;border:1px solid #E4DFCF;border-radius:6px;padding:32px 34px;box-shadow:0 6px 24px rgba(0,0,0,.06)}
+  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0E2A47;padding-bottom:16px;margin-bottom:18px;flex-wrap:wrap;gap:12px}
+  .co h1{font-family:'Oswald',sans-serif;font-size:22px;margin:0 0 4px;color:#0E2A47}
+  .co .sub{color:#7C8896;font-size:12px;line-height:1.5}
+  .head .doc{text-align:right} .head .doc .big{font-family:'Oswald',sans-serif;font-size:18px;color:#E8722C;letter-spacing:1px}
+  h2{font-family:'Oswald',sans-serif;font-size:15px;margin:24px 0 8px;color:#0E2A47}
+  .status{display:inline-block;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:600;text-transform:capitalize;background:rgba(111,195,228,.2);color:#3E7A96}
+  .bar{height:12px;background:#F6F3EA;border:1px solid #E4DFCF;border-radius:20px;overflow:hidden;margin:10px 0 4px}
+  .bar > span{display:block;height:100%;background:#4A9B6E}
+  .meta{color:#7C8896;font-size:13px}
+  .msg{background:#F6F3EA;border:1px solid #E4DFCF;border-radius:4px;padding:12px 14px;white-space:pre-wrap;line-height:1.55}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid #E4DFCF;font-size:13.5px}
+  th{font-family:'IBM Plex Mono',monospace;color:#7C8896;font-size:11px;text-transform:uppercase}
+  td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+  .btn{display:inline-block;border:none;border-radius:4px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none}
+  .btn.green{background:#4A9B6E;color:#fff} .btn.orange{background:#E8722C;color:#fff}
+  .btn.ghost{background:#fff;color:#0E2A47;border:1px solid #B9C2CB}
+  .btn:disabled{opacity:.5;cursor:default}
+  .co-card{border:1px solid #E4DFCF;border-radius:4px;padding:12px 14px;margin-bottom:10px}
+  .co-card .row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
+  .pill.pending{background:rgba(232,114,44,.15);color:#C25A1B}.pill.approved{background:rgba(74,155,110,.15);color:#4A9B6E}.pill.rejected{background:rgba(192,57,43,.12);color:#C0392B}
+  .msgline{padding:60px 20px;text-align:center;color:#7C8896}
+  .foot{margin-top:26px;color:#7C8896;font-size:11px;text-align:center;border-top:1px solid #E4DFCF;padding-top:12px}
+  @media (max-width:640px){ .sheet{margin:0;border-radius:0;padding:20px 16px} }
+</style>
+</head>
+<body>
+<div id="root"><div class="msgline">Loading…</div></div>
+<script>
+const token=new URLSearchParams(location.search).get('token');
+function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(v){ if(!v) return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; return s; }
+async function api(path, opts={}){
+  const res=await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||'Something went wrong.');
+  return data;
+}
+function render(d){
+  const co=d.company||{}, j=d.job||{};
+  const coLines=[co.phone,co.email,co.website,co.license?('Lic# '+co.license):'',co.address].filter(Boolean).map(esc).join(' · ');
+  const estRows=(d.estimates||[]).map(e=>`<tr>
+    <td>${esc(e.name)||'Estimate'}</td>
+    <td>${money(e.total)}</td>
+    <td><span class="pill ${e.status==='accepted'?'approved':(e.status==='rejected'?'rejected':'pending')}">${esc(e.status||'draft')}</span></td>
+    <td style="text-align:right">${e.approveToken?`<a class="btn green" href="/accept.html?token=${encodeURIComponent(e.approveToken)}">Review &amp; approve</a>`:''}</td></tr>`).join('');
+  const invRows=(d.invoices||[]).map(i=>`<tr>
+    <td>${esc(i.invoiceNo)||esc(i.name)||'Invoice'}</td>
+    <td class="num">${money(i.total)}</td>
+    <td class="num">${money(i.balance)}</td>
+    <td><span class="pill ${i.status==='paid'?'approved':(i.status==='overdue'?'rejected':'pending')}">${esc(i.status||'')}</span></td>
+    <td style="text-align:right">${(i.payLink&&i.balance>0.005)?`<a class="btn green" href="${esc(i.payLink)}" target="_blank" rel="noopener">Pay ${money(i.balance)}</a>`:''}</td></tr>`).join('');
+  const pendingCOs=(d.changeOrders||[]).filter(c=>c.status==='pending');
+  const decidedCOs=(d.changeOrders||[]).filter(c=>c.status!=='pending');
+  const coHtml = (d.changeOrders||[]).length ? `<h2>Change orders</h2>`+
+    pendingCOs.map(c=>`<div class="co-card" data-co="${c.id}"><div class="row">
+        <div><strong>${esc(c.description)||'Change order'}</strong><div class="meta">Price change: ${c.priceDelta>=0?'+':''}${money(c.priceDelta)}</div></div>
+        <div><button class="btn green" data-approve="${c.id}">Approve</button> <button class="btn ghost" data-reject="${c.id}">Decline</button></div>
+      </div></div>`).join('')+
+    decidedCOs.map(c=>`<div class="co-card"><div class="row">
+        <div><strong>${esc(c.description)||'Change order'}</strong><div class="meta">Price change: ${c.priceDelta>=0?'+':''}${money(c.priceDelta)}</div></div>
+        <span class="pill ${c.status}">${esc(c.status)}</span></div></div>`).join('') : '';
+  document.getElementById('root').innerHTML=`<div class="sheet">
+    <div class="head">
+      <div class="co">${co.logo?`<img src="${esc(co.logo)}" style="max-height:52px;max-width:200px;display:block;margin-bottom:8px">`:''}<h1>${esc(co.name||'Project Portal')}</h1><div class="sub">${coLines}</div></div>
+      <div class="doc"><div class="big">PROJECT PORTAL</div><div class="meta" style="margin-top:6px">${esc(j.client||'')}</div></div>
+    </div>
+    <h2>${esc(j.project||j.name||'Your project')}</h2>
+    <div><span class="status">${esc(j.status||'scheduled')}</span></div>
+    <div class="bar"><span style="width:${j.percentComplete||0}%"></span></div>
+    <div class="meta">${j.percentComplete||0}% complete${j.startDate?(' · start '+fmtDate(j.startDate)):''}${j.dueDate?(' · due '+fmtDate(j.dueDate)):''}</div>
+    ${d.message?`<h2>Update from ${esc(co.name||'your contractor')}</h2><div class="msg">${esc(d.message)}</div>`:''}
+    ${(d.estimates||[]).length?`<h2>Estimates</h2><table><thead><tr><th>Estimate</th><th>Total</th><th>Status</th><th></th></tr></thead><tbody>${estRows}</tbody></table>`:''}
+    ${(d.invoices||[]).length?`<h2>Invoices</h2><table><thead><tr><th>Invoice</th><th class="num">Total</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead><tbody>${invRows}</tbody></table>`:''}
+    ${coHtml}
+    <div class="foot">Powered by Fieldscale · ${esc(co.name||'')}</div>
+  </div>`;
+  document.getElementById('root').addEventListener('click', onCO);
+}
+async function onCO(e){
+  const ap=e.target.getAttribute&&e.target.getAttribute('data-approve');
+  const rj=e.target.getAttribute&&e.target.getAttribute('data-reject');
+  const id=ap||rj; if(!id) return;
+  const decision=ap?'approved':'rejected';
+  if(!confirm(decision==='approved'?'Approve this change order?':'Decline this change order?')) return;
+  e.target.disabled=true;
+  try{ await api('/api/public/portal/co',{method:'POST',body:JSON.stringify({token,coId:id,decision})}); load(); }
+  catch(err){ alert(err.message); e.target.disabled=false; }
+}
+async function load(){
+  if(!token){ document.getElementById('root').innerHTML='<div class="msgline">This link is missing its code.</div>'; return; }
+  try{ render(await api('/api/public/portal?token='+encodeURIComponent(token))); }
+  catch(err){ document.getElementById('root').innerHTML='<div class="msgline">'+esc(err.message)+'</div>'; }
+}
+load();
+</script>
+</body>
+</html>

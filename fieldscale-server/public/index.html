@@ -672,11 +672,14 @@
     letter-spacing:0.3px;
   }
   .modal-card .modal-body{padding:16px 20px;display:flex;flex-direction:column;gap:12px;}
-  .modal-card label{font-size:11.5px;font-weight:600;color:var(--charcoal);text-transform:uppercase;letter-spacing:0.4px;display:block;margin-bottom:4px;}
-  .modal-card .modal-body input, .modal-card .modal-body select{color:var(--charcoal);}
+  .modal-card label{font-size:11.5px;font-weight:600;color:var(--heading);text-transform:uppercase;letter-spacing:0.4px;display:block;margin-bottom:4px;}
+  /* Inputs need a theme-aware background — in dark mode a default white input box with light
+     text was unreadable. Give them a surface color so text always contrasts. */
+  .modal-card .modal-body input, .modal-card .modal-body select{color:var(--charcoal);background:var(--surface-2);}
+  .modal-card .modal-body input::placeholder{color:var(--steel);}
   .modal-card input[type=text], .modal-card input[type=password], .modal-card input[type=number], .modal-card select{
     width:100%;font-size:13px;padding:7px 8px;border:1px solid var(--steel-light);border-radius:3px;
-    font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);
+    font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);background:var(--surface-2);
   }
   .modal-card input[type=color]{width:48px;height:34px;border:1px solid var(--steel-light);border-radius:3px;padding:2px;cursor:pointer;}
   .modal-card .field-row{display:flex;gap:10px;align-items:flex-end;}
@@ -3316,13 +3319,11 @@ function toggleAddMenu(){
   addMenu.style.left = Math.max(8, r.right - w)+'px';   // right-aligned so it doesn't run off-screen
 }
 addMenu.addEventListener('click',(e)=>{
-  e.stopPropagation();   // keep the outside-click closer from firing when we swap the menu's contents
-  if(e.target.closest('[data-back]')){ addMenuCat=null; renderAddStep1(); return; }
+  e.stopPropagation();
+  // + is always a NEW item: pick the kind, then go straight into the type builder.
+  // To reuse an existing type, double-click its row in the Quantities panel instead.
   const catBtn = e.target.closest('[data-cat]');
-  if(catBtn){ addMenuCat = catBtn.dataset.cat; renderAddStep2(addMenuCat); return; }
-  if(e.target.closest('[data-new]')){ const cat=addMenuCat; hideAddMenu(); openTypeModal(cat); return; }
-  const tp = e.target.closest('[data-type]');
-  if(tp){ const cat=addMenuCat; state.activeType[cat]=tp.dataset.type; hideAddMenu(); activateTool(cat); return; }
+  if(catBtn){ hideAddMenu(); openTypeModal(catBtn.dataset.cat); return; }
 });
 document.getElementById('add-tool').addEventListener('click',(e)=>{ e.stopPropagation(); toggleAddMenu(); });
 // Click elsewhere closes the chooser
@@ -4343,9 +4344,17 @@ window.addEventListener('keydown',(e)=>{
 
   if(e.key==='Enter'){ finishCurrentDrawing(); }
   if(e.key==='Escape'){
-    state.drawing=null; state.marquee=null; clearSelection();
-    if(state.tool==='cutout'){ state.tool='select'; state.cutTargetId=null; els.overlay.style.cursor='default'; }
-    redrawOverlay(); els.hud.style.display='none'; updateFinishBtn(); hideHint();
+    state.marquee=null;
+    if(['wall','area','linear','count','markup','cutout','measure','calibrate'].includes(state.tool)){
+      // Cancel whatever's being drawn and drop straight back into Select.
+      state.drawing=null; state.cutTargetId=null;
+      els.hud.style.display='none';
+      activateTool('select');
+    } else {
+      state.drawing=null; clearSelection();
+      redrawOverlay(); els.hud.style.display='none'; hideHint();
+    }
+    updateFinishBtn();
   }
 });
 window.addEventListener('keyup', e=>{ if(e.key==='Shift') state.shiftHeld=false; if(e.key===' '){ state.spaceHeld=false; if(!isPanning) els.overlay.style.cursor = (state.tool==='pan')?'default':(state.tool==='select'?'default':'crosshair'); } });
@@ -4698,6 +4707,31 @@ function getActiveType(category){
   return state.typeLibrary[category].find(t=>t.id===state.activeType[category]) || state.typeLibrary[category][0] || null;
 }
 function activeTypeName(category){ const t=getActiveType(category); return t ? escapeHtml(t.name) : '(no type)'; }
+// The display row(s) a type would produce at zero quantity (walls can yield several, one per measure kind).
+function typeDisplayRows(category, typeId){
+  const t = state.typeLibrary[category] && state.typeLibrary[category].find(x=>x.id===typeId);
+  if(!t) return [];
+  if(category==='wall'){
+    const kinds = t.measureKinds || (t.measureKind?[t.measureKind]:['length']);
+    return kinds.map(mk=> resolveItemDisplay({category:'wall', typeId, raw:0, measureKind:mk}));
+  }
+  return [ resolveItemDisplay({category, typeId, raw:0}) ];
+}
+// Put a type in the Quantities panel right away (at 0), even before anything is drawn.
+function ensureStickyForType(category, typeId){
+  state.stickyRows = state.stickyRows || {};
+  typeDisplayRows(category, typeId).forEach(r=>{
+    if(!r || !r.label) return;
+    const key = (r.trade||'General')+'|'+r.label;
+    const prev = state.stickyRows[key];
+    const units = (prev && prev.units) || {SF:false,LF:false,CY:false,EA:false};
+    if(['SF','LF','CY','EA'].includes(r.unit)) units[r.unit]=true;
+    state.stickyRows[key] = {trade:r.trade||'General', label:r.label, color:r.color, category, typeId, units};
+  });
+  renderTakeoffList();
+  if(typeof renderPagesList==='function') renderPagesList();
+  markDirty();
+}
 // Duplicate a saved type (right-click a row in the Quantities panel) and open the copy to tweak.
 function duplicateType(cat, typeId){
   const t = state.typeLibrary[cat] && state.typeLibrary[cat].find(x=>x.id===typeId);
@@ -4725,9 +4759,12 @@ function buildModalFields(category, existing){
   const name = existing ? existing.name : '';
   const color = existing ? existing.color : ['#2E86AB','#E8722C','#4A9B6E','#8E44AD','#C0392B','#D4A017','#16697A'][Math.floor(Math.random()*7)];
   const desc = existing ? (existing.description||'') : '';
+  const code = existing ? (existing.code||'') : '';
+  const CSI = ['','01 General Requirements','02 Existing Conditions','03 Concrete','04 Masonry','05 Metals','06 Wood, Plastics & Composites','07 Thermal & Moisture Protection','08 Openings','09 Finishes','10 Specialties','11 Equipment','12 Furnishings','21 Fire Suppression','22 Plumbing','23 HVAC','26 Electrical','27 Communications','31 Earthwork','32 Exterior Improvements','33 Utilities'];
   let html = `
     <div><label>Name</label><input type="text" id="tf-name" value="${escapeHtml(name)}" placeholder="e.g. 2x6 Exterior Wall" /></div>
     <div><label>Description <span style="text-transform:none;font-weight:400;color:var(--steel)">(optional — carries onto the estimate line)</span></label><input type="text" id="tf-desc" value="${escapeHtml(desc)}" placeholder="e.g. Frame exterior walls incl. plates & headers" /></div>
+    <div><label>Construction code <span style="text-transform:none;font-weight:400;color:var(--steel)">(matches the estimate line)</span></label><select id="tf-code">${CSI.map(c=>`<option value="${escapeHtml(c)}" ${c===code?'selected':''}>${c||'— none —'}</option>`).join('')}</select></div>
     <div><label>Color</label><input type="color" id="tf-color" value="${color}" /></div>
   `;
   if(category==='wall'){
@@ -4852,7 +4889,8 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
   if(!name){ alert('Please enter a name for this type.'); return; }
   const color = document.getElementById('tf-color').value;
   const description = (document.getElementById('tf-desc')||{}).value ? document.getElementById('tf-desc').value.trim() : '';
-  let entry = { id: modalState.editId || ('type_'+Math.random().toString(36).slice(2,9)), name, color, description };
+  const codeVal = (document.getElementById('tf-code')||{}).value || '';
+  let entry = { id: modalState.editId || ('type_'+Math.random().toString(36).slice(2,9)), name, color, description, code: codeVal };
   if(category==='wall'){
     const measureKinds = Array.from(document.querySelectorAll('.tf-measure-cb')).filter(cb=>cb.checked).map(cb=>cb.value);
     if(measureKinds.length===0){ alert('Pick at least one thing to measure (Length, Face Area, Volume, or Stud Count).'); return; }
@@ -4885,8 +4923,10 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
   populateTypeDropdown(category);
   markDirty();
   closeTypeModal();
-  // The type is designed and selected — arm its takeoff tool so you can draw right away.
+  // The type is designed and selected — arm its takeoff tool so you can draw right away,
+  // and drop it into the Quantities panel immediately (at 0) even before you draw a line.
   activateTool(category);
+  ensureStickyForType(category, entry.id);
   if(category==='wall') redrawOverlay();
 });
 
@@ -5143,10 +5183,10 @@ function computeTakeoffSummary(){
     if(!r || !Number(r.qty)) return;
     const type = state.typeLibrary[it.category] && state.typeLibrary[it.category].find(x=>x.id===it.typeId);
     const key=(r.trade||'General')+'|'+r.label+'|'+r.unit;
-    if(!agg[key]) agg[key]={label:r.label, unit:r.unit, trade:r.trade||'General', qty:0, description:(type&&type.description)||''};
+    if(!agg[key]) agg[key]={label:r.label, unit:r.unit, trade:r.trade||'General', qty:0, description:(type&&type.description)||'', code:(type&&type.code)||''};
     agg[key].qty += Number(r.qty)||0;
   });
-  return Object.values(agg).map(x=>({label:x.label, qty:Math.round(x.qty*100)/100, unit:x.unit, trade:x.trade, description:x.description||''}))
+  return Object.values(agg).map(x=>({label:x.label, qty:Math.round(x.qty*100)/100, unit:x.unit, trade:x.trade, description:x.description||'', code:x.code||''}))
     .sort((a,b)=> a.trade<b.trade?-1:a.trade>b.trade?1:(a.label<b.label?-1:1));
 }
 
@@ -5235,7 +5275,7 @@ function renderTakeoffList(){
         const v = g? g.sums[u] : 0; const disp=(v%1===0)?v:v.toFixed(1);
         return `<span class="qty-col${zero?' zero':''}">${disp}</span>`; };
       const canReactivate = cat && typeId;
-      html += `<div class="item-row${zero?' zero-row':''}" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" ${canReactivate?`data-cat="${cat}" data-typeid="${typeId}" style="cursor:pointer;"`:''} title="${canReactivate?'Click to keep using this type · Right-click to edit it':''}">
+      html += `<div class="item-row${zero?' zero-row':''}" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" ${canReactivate?`data-cat="${cat}" data-typeid="${typeId}" style="cursor:pointer;"`:''} title="${canReactivate?'Double-click to draw this type again · Right-click to edit it':''}">
         <span class="swatch" style="background:${color}"></span>
         <span class="name" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
         ${UNIT_COLS.map(cellFor).join('')}
@@ -5247,13 +5287,13 @@ function renderTakeoffList(){
   els.takeoffList.innerHTML = html;
   els.takeoffList.querySelectorAll('.item-row').forEach(row=>{
     if(!row.dataset.cat) return;
-    row.addEventListener('click', (e)=>{
+    row.addEventListener('dblclick', (e)=>{
       if(e.target.classList.contains('del')) return;
       const cat = row.dataset.cat, typeId = row.dataset.typeid;
       if(!state.typeLibrary[cat].find(t=>t.id===typeId)) return;
       state.activeType[cat] = typeId;
       populateTypeDropdown(cat);
-      activateTool(cat);   // re-arm that takeoff tool (the + button group)
+      activateTool(cat);   // re-arm that takeoff type for drawing
     });
     row.addEventListener('contextmenu', (e)=>{
       e.preventDefault();

@@ -531,7 +531,7 @@ document.getElementById('tko-add').addEventListener('click', ()=>{
   }).filter(Boolean);
   if(!picked.length){ toast('Tick at least one item.', true); return; }
   picked.forEach(r=>{
-    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:r.label, description:r.description||'', code:r.trade||'', unit:r.unit||'', qty:r.finalQty, mode:'flat', unitPrice:0, material:0, laborHours:0, laborRate:0, unitCost:0 });
+    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:r.label, description:r.description||'', code:r.code||r.trade||'', unit:r.unit||'', qty:r.finalQty, mode:'flat', unitPrice:0, material:0, laborHours:0, laborRate:0, unitCost:0 });
   });
   closeTko();
   renderLines();

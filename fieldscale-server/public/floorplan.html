@@ -176,7 +176,15 @@ const FIX = {
   bed:    { label:'Bed', w:5, h:6.7, cat:'other', ico:'🛏', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,3); c.stroke(); c.beginPath(); c.moveTo(-w/2,-h/2+h*0.28); c.lineTo(w/2,-h/2+h*0.28); c.stroke(); rr(c,-w/2+4,-h/2+4,w/2-6,h*0.28-8,2); c.stroke(); rr(c,3,-h/2+4,w/2-6,h*0.28-8,2); c.stroke(); } },
   sofa:   { label:'Sofa', w:6.5, h:3, cat:'other', ico:'🛋', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,4); c.stroke(); c.beginPath(); c.moveTo(-w/2,-h/2+6); c.lineTo(w/2,-h/2+6); c.stroke(); } },
   table:  { label:'Table', w:4, h:3, cat:'other', ico:'▱', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,3); c.stroke(); } },
-  car:    { label:'Car', w:6.5, h:15, cat:'other', ico:'🚗', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,10); c.stroke(); } },
+  car:    { label:'Car', w:6.5, h:15, cat:'other', ico:'🚗', draw(c,w,h){
+              rr(c,-w/2,-h/2,w,h,w*0.32); c.stroke();                         // body
+              rr(c,-w*0.42,-h*0.16,w*0.84,h*0.44,w*0.16); c.stroke();          // cabin/roof
+              c.beginPath(); c.moveTo(-w*0.42,-h*0.16); c.lineTo(-w*0.30,-h*0.30); c.lineTo(w*0.30,-h*0.30); c.lineTo(w*0.42,-h*0.16); c.stroke(); // windshield
+              c.beginPath(); c.moveTo(-w*0.42,h*0.28); c.lineTo(-w*0.30,h*0.40); c.lineTo(w*0.30,h*0.40); c.lineTo(w*0.42,h*0.28); c.stroke();   // rear window
+              c.beginPath(); c.moveTo(0,-h*0.14); c.lineTo(0,h*0.26); c.stroke();  // console line
+              c.beginPath(); c.arc(-w*0.26,-h*0.44,w*0.08,0,7); c.stroke(); c.beginPath(); c.arc(w*0.26,-h*0.44,w*0.08,0,7); c.stroke(); // headlights
+              c.beginPath(); c.moveTo(-w/2,-h*0.12); c.lineTo(-w/2-w*0.13,-h*0.12); c.moveTo(w/2,-h*0.12); c.lineTo(w/2+w*0.13,-h*0.12); c.stroke(); // mirrors
+            } },
   dresser:{ label:'Dresser', w:5, h:1.7, cat:'other', ico:'▤', draw(c,w,h){ c.strokeRect(-w/2,-h/2,w,h); c.beginPath(); c.moveTo(0,-h/2); c.lineTo(0,h/2); c.moveTo(-w/2,0); c.lineTo(w/2,0); c.stroke(); [[-w/4,-h/4],[w/4,-h/4],[-w/4,h/4],[w/4,h/4]].forEach(p=>{ c.beginPath(); c.arc(p[0],p[1],0.8,0,7); c.stroke(); }); } },
   nstand: { label:'Side table', w:1.7, h:1.7, cat:'other', ico:'▫', draw(c,w,h){ c.strokeRect(-w/2,-h/2,w,h); c.beginPath(); c.arc(0,0,Math.min(w,h)*0.18,0,7); c.stroke(); } },
   chair:  { label:'Chair', w:1.6, h:1.7, cat:'other', ico:'🪑', draw(c,w,h){ rr(c,-w/2,-h/2+2,w,h-2,2); c.stroke(); c.beginPath(); c.moveTo(-w/2,-h/2+2); c.lineTo(w/2,-h/2+2); c.stroke(); } },
@@ -621,7 +629,7 @@ function drawTitleBlock(c,x,y,w,h,k){
   ty+=2*k; line(ty); ty+=pad;
   // quantities
   const floorArea=doc.items.filter(i=>i.type==='room').reduce((s,i)=>s+i.w*i.h,0);
-  const wallArea=doc.walls.reduce((s,wl)=>s+dist(wl.x1,wl.y1,wl.x2,wl.y2)*(wl.height||8),0);
+  const wallArea=doc.walls.reduce((s,wl)=>s+(wl.kind==='line'?0:dist(wl.x1,wl.y1,wl.x2,wl.y2)*(wl.height||8)),0);
   c.fillStyle='#98a2ad'; c.font='600 '+(9*k)+'px "IBM Plex Mono", monospace'; c.fillText('QUANTITIES', x+pad, ty); ty+=13*k;
   c.font=(12*k)+'px "IBM Plex Sans", sans-serif';
   const qty=(t)=>{ c.fillStyle='#243B53'; c.fillText(t, x+pad, ty); ty+=16*k; };
@@ -633,7 +641,12 @@ function drawTitleBlock(c,x,y,w,h,k){
   c.fillStyle='#c9c2ae'; c.fillText('Prepared with Fieldscale', x+w/2, y+h-6*k);
 }
 function cutText(c,s,maxw){ s=String(s); if(c.measureText(s).width<=maxw) return s; while(s.length>1 && c.measureText(s+'…').width>maxw) s=s.slice(0,-1); return s+'…'; }
-function drawWallOn(c,wl){ const {a,b}=wallShape(c, wl, '#243B53'); const len=dist(wl.x1,wl.y1,wl.x2,wl.y2); const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2}; if(len>0.5) labelOn(c,ftIn(len),mid.x,mid.y-8); }
+function drawWallOn(c,wl){
+  let a,b;
+  if(wl.kind==='line'){ a=W2S({x:wl.x1,y:wl.y1}); b=W2S({x:wl.x2,y:wl.y2}); c.strokeStyle='#243B53'; c.lineWidth=Math.max(1.6, zoom*0.06); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+  else { ({a,b}=wallShape(c, wl, '#243B53')); }
+  const len=dist(wl.x1,wl.y1,wl.x2,wl.y2); const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2}; if(len>0.5) labelOn(c,ftIn(len),mid.x,mid.y-8);
+}
 function drawItemOn(c,it){ const p=W2S({x:it.x,y:it.y}); const wpx=it.w*zoom,hpx=it.h*zoom; c.save(); c.translate(p.x,p.y); c.rotate((it.rot||0)*Math.PI/180);
   if(it.type==='room'){ c.fillStyle='rgba(111,195,228,.10)'; c.fillRect(-wpx/2,-hpx/2,wpx,hpx); c.strokeStyle='#3E7A96'; c.lineWidth=1.5; c.strokeRect(-wpx/2,-hpx/2,wpx,hpx); c.fillStyle='#17293D'; c.textAlign='center'; c.textBaseline='middle'; c.font='600 13px Oswald, sans-serif'; c.fillText(it.label||'Room',0,-6); c.font='11px monospace'; c.fillStyle='#3E7A96'; c.fillText((it.w*it.h).toFixed(0)+' sq ft',0,10); }
   else if(it.type==='text'){ c.fillStyle='#17293D'; c.textAlign='center'; c.textBaseline='middle'; c.font='600 14px Oswald, sans-serif'; c.fillText(it.label||'Text',0,0); }

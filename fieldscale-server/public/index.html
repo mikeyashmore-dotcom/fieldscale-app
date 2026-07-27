@@ -2991,8 +2991,19 @@ function renderPagesList(){
     pageOrder = pageOrder.filter(p=> sheetSearchCounts[p]>0 || sheetSearchNamePages.has(p));
     pageOrder.sort((a,b)=>{ const an=sheetSearchNamePages.has(a)?0:1, bn=sheetSearchNamePages.has(b)?0:1; return an-bn || a-b; });
   }
+  // When searching, show a "sheet name matches" group on top and a "found on the plans" group
+  // below, separated by a labeled divider — but only when BOTH groups have results.
+  const hasName = sheetSearchActive && pageOrder.some(p=>sheetSearchNamePages.has(p));
+  const hasContent = sheetSearchActive && pageOrder.some(p=> sheetSearchCounts[p]>0 && !sheetSearchNamePages.has(p));
+  let didNameHdr=false, didContentHdr=false;
+  const grpHdr=(t,top)=>`<div style="padding:5px 10px 3px;font-size:9.5px;color:var(--steel);text-transform:uppercase;letter-spacing:.06em;font-weight:600;${top?'':'border-top:1px solid var(--paper-line);margin-top:4px;'}">${t}</div>`;
   for(const p of pageOrder){
     if(isHidden(p) && !state.showHiddenPages) continue;
+    if(sheetSearchActive && hasName && hasContent){
+      const isName=sheetSearchNamePages.has(p);
+      if(isName && !didNameHdr){ html+=grpHdr('In the sheet name',true); didNameHdr=true; }
+      if(!isName && !didContentHdr){ html+=grpHdr('Found on the plans',false); didContentHdr=true; }
+    }
     const pn = state.pageNames[p];
     let label, pending=false, hasError=false, tooltip='';
     if(pn && (pn.name||pn.number)){

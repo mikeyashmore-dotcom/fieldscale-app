@@ -257,6 +257,9 @@ function draw(){
 
   // items first (so walls sit on top of room fills)
   doc.items.forEach((it,i)=> drawItem(it, sel&&sel.kind==='item'&&sel.i===i));
+  // elevation windows/doors knock a hole in the surface material, then redraw on top
+  drawSurfaceCuts(ctx);
+  doc.items.forEach((it,i)=>{ if(cutsSurface(it.type) && overlapsASurface(it)) drawItem(it, sel&&sel.kind==='item'&&sel.i===i); });
   // walls
   doc.walls.forEach((wl,i)=> drawWall(wl, sel&&sel.kind==='wall'&&sel.i===i));
   // openings break the wall — erase the wall faces where a door/window sits, then redraw it on top
@@ -378,6 +381,24 @@ function drawWall(wl, selected){
   const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
   if(len>0.5) label(ctx, ftIn(len), mid.x, mid.y - (Math.abs(a.y-b.y)>Math.abs(a.x-b.x)?0:12));
   if(selected){ [a,b].forEach(p=>{ ctx.fillStyle='#fff'; ctx.strokeStyle='#2F6DB0'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(p.x,p.y,5,0,7); ctx.fill(); ctx.stroke(); }); }
+}
+// ---- Elevation openings cut the surface material (so brick/siding doesn't run across a window) ----
+function cutsSurface(t){ return t==='elevwin'||t==='elevdoor'||t==='garage'||t==='door'||t==='ddoor'||t==='window'||t==='opening'; }
+function fixtureCorners(it){
+  const rot=(it.rot||0)*Math.PI/180, co=Math.cos(rot), s=Math.sin(rot), hw=it.w/2, hh=it.h/2;
+  return [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([lx,ly])=>({ x: it.x + lx*co - ly*s, y: it.y + lx*s + ly*co }));
+}
+function overlapsASurface(it){
+  return doc.items.some(s=> s.type==='surface' && Math.abs(s.x-it.x) < (s.w+it.w)/2 && Math.abs(s.y-it.y) < (s.h+it.h)/2);
+}
+function drawSurfaceCuts(c){
+  doc.items.forEach(it=>{
+    if(!cutsSurface(it.type) || !overlapsASurface(it)) return;
+    const cs=fixtureCorners(it).map(p=>W2S(p));
+    c.save(); c.globalCompositeOperation='destination-out';
+    c.beginPath(); cs.forEach((p,i)=> i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y)); c.closePath(); c.fill();
+    c.restore();
+  });
 }
 // Fill a w×h box (local coords, centered at 0) with an elevation surface material pattern.
 function drawMaterial(c, wpx, hpx, mat){
@@ -742,7 +763,9 @@ function renderSheet(px, aspect){
   // faint scale grid
   for(let gx=Math.floor(b.minx-padFt); gx<=Math.ceil(b.maxx+padFt); gx++){ const s=W2S({x:gx,y:0}); c.strokeStyle=gx%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(s.x,planY); c.lineTo(s.x,planY+usedH); c.stroke(); }
   for(let gy=Math.floor(b.miny-padFt); gy<=Math.ceil(b.maxy+padFt); gy++){ const s=W2S({x:0,y:gy}); c.strokeStyle=gy%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(planX,s.y); c.lineTo(planX+usedW,s.y); c.stroke(); }
-  doc.items.forEach(it=>drawItemOn(c,it)); doc.walls.forEach(w=>drawWallOn(c,w));
+  doc.items.forEach(it=>drawItemOn(c,it));
+  drawSurfaceCuts(c); doc.items.forEach(it=>{ if(cutsSurface(it.type) && overlapsASurface(it)) drawItemOn(c,it); });  // elevation openings cut the surface
+  doc.walls.forEach(w=>drawWallOn(c,w));
   drawOpeningCuts(c); doc.items.forEach(it=>{ if(isOpening(it.type)) drawItemOn(c,it); });  // openings break the wall
   drawScaleBar(c, planX+12*k, planY+usedH-16*k, z, k);
   c.restore();

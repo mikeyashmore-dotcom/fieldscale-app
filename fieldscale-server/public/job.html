@@ -224,14 +224,10 @@
       <span id="receipt-status" style="font-size:12px;color:var(--steel);margin-left:10px"></span>
     </div>
 
-    <div class="block fin-hide" style="padding:0;overflow:hidden">
-      <div style="padding:14px 14px 0"><h3 style="margin:0">Change orders</h3></div>
-      <div class="lines-scroll">
-        <table class="lines co-table">
-          <thead><tr><th>Description</th><th class="num">Price change</th><th class="num">Cost change</th><th>Status</th><th></th></tr></thead>
-          <tbody id="co-lines"></tbody>
-        </table>
-      </div>
+    <div class="block fin-hide" style="padding:14px">
+      <div><h3 style="margin:0 0 4px">Change orders</h3>
+        <p style="font-size:12px;color:var(--steel);margin:0 0 8px">Each change order is a mini estimate — add line items, then download or email the PDF to the customer.</p></div>
+      <div id="co-list"></div>
     </div>
     <div class="fin-hide" style="margin:10px 0 18px"><button class="btn ghost" id="add-co">＋ Add change order</button> <button class="btn ghost" id="ai-co-btn" style="display:none" title="Describe the change in plain words; AI drafts it">✨ Draft with AI</button></div>
 
@@ -981,42 +977,99 @@ document.getElementById('receipts').addEventListener('click', async (e)=>{
     catch(err){ toast(err.message,true); } }
 });
 
+function coTotal(co){ return (co.lines||[]).reduce((s,l)=>s+(Number(l.qty)||0)*(Number(l.unitPrice)||0),0); }
+function syncCOprice(co){ co.priceDelta = Math.round(coTotal(co)*100)/100; }
 function renderChangeOrders(){
-  const tb=document.getElementById('co-lines');
+  const wrap=document.getElementById('co-list');
   const cos=doc.changeOrders||[];
-  if(!cos.length){ tb.innerHTML=`<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--steel)">No change orders. Add one when the job scope changes after signing.</td></tr>`; return; }
-  tb.innerHTML=cos.map((co,i)=>`
-    <tr>
-      <td><input type="text" data-ci="${i}" data-cf="description" value="${escapeHtml(co.description)}" placeholder="What changed" /></td>
-      <td class="num"><input class="num" data-ci="${i}" data-cf="priceDelta" value="${co.priceDelta}" inputmode="decimal" style="width:96px" /></td>
-      <td class="num"><input class="num" data-ci="${i}" data-cf="costDelta" value="${co.costDelta}" inputmode="decimal" style="width:96px" /></td>
-      <td><select data-ci="${i}" data-cf="status">
-        <option value="pending"${co.status==='pending'?' selected':''}>Pending</option>
-        <option value="approved"${co.status==='approved'?' selected':''}>Approved</option>
-        <option value="rejected"${co.status==='rejected'?' selected':''}>Rejected</option>
-      </select></td>
-      <td class="num"><button class="rowdel" data-codel="${i}" title="Remove">✕</button></td>
-    </tr>`).join('');
+  if(!cos.length){ wrap.innerHTML=`<div style="color:var(--steel);font-size:13px;padding:6px 0">No change orders yet. Add one when the scope changes after signing.</div>`; return; }
+  wrap.innerHTML=cos.map((co,i)=>{
+    const rows=(co.lines||[]).map((l,j)=>`
+      <tr>
+        <td><input type="text" data-ci="${i}" data-cj="${j}" data-cf="name" value="${escapeHtml(l.name||'')}" placeholder="What changed" /></td>
+        <td class="num"><input class="num" data-ci="${i}" data-cj="${j}" data-cf="qty" value="${l.qty==null?'':l.qty}" inputmode="decimal" style="width:56px"/></td>
+        <td><input data-ci="${i}" data-cj="${j}" data-cf="unit" value="${escapeHtml(l.unit||'')}" placeholder="ea" style="width:48px"/></td>
+        <td class="num"><input class="num" data-ci="${i}" data-cj="${j}" data-cf="unitPrice" value="${l.unitPrice==null?'':l.unitPrice}" inputmode="decimal" style="width:80px"/></td>
+        <td class="num co-linetotal" style="white-space:nowrap">${money((Number(l.qty)||0)*(Number(l.unitPrice)||0))}</td>
+        <td class="num"><button class="rowdel" data-colinedel="${i}:${j}" title="Remove line">✕</button></td>
+      </tr>`).join('');
+    return `<div class="co-card" style="border:1px solid var(--paper-line);border-radius:6px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <input type="text" data-ci="${i}" data-cf="title" value="${escapeHtml(co.title||'')}" placeholder="Change order title" style="flex:1;min-width:140px;font-weight:600"/>
+        <input type="date" data-ci="${i}" data-cf="date" value="${escapeHtml(co.date||'')}"/>
+        <select data-ci="${i}" data-cf="status">
+          <option value="pending"${co.status==='pending'?' selected':''}>Pending</option>
+          <option value="approved"${co.status==='approved'?' selected':''}>Approved</option>
+          <option value="rejected"${co.status==='rejected'?' selected':''}>Rejected</option>
+        </select>
+        <button class="rowdel" data-codel="${i}" title="Delete change order">✕</button>
+      </div>
+      <div class="lines-scroll"><table class="lines"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn ghost" data-colineadd="${i}">＋ Add line</button>
+        <span class="co-cardtotal" style="margin-left:auto;font-family:'IBM Plex Mono',monospace;color:var(--heading)">Total: ${money(coTotal(co))}</span>
+        <button class="btn ghost" data-copdf="${i}">📄 PDF</button>
+        <button class="btn ghost" data-coemail="${i}">✉ Email</button>
+      </div>
+    </div>`;
+  }).join('');
 }
-document.getElementById('co-lines').addEventListener('input', e=>{
-  const el=e.target, i=el.getAttribute('data-ci'), f=el.getAttribute('data-cf');
-  if(i===null) return;
-  if(f==='priceDelta'||f==='costDelta') doc.changeOrders[i][f]=parseFloat(el.value)||0;
-  else doc.changeOrders[i][f]=el.value;
-  if(f==='priceDelta'||f==='costDelta') renderCosting();
+document.getElementById('co-list').addEventListener('input', e=>{
+  const el=e.target, i=el.getAttribute('data-ci'), f=el.getAttribute('data-cf'), j=el.getAttribute('data-cj');
+  if(i===null||i===undefined) return;
+  const co=doc.changeOrders[Number(i)]; if(!co) return;
+  if(j!==null && j!==undefined){
+    const line=(co.lines||[])[Number(j)]; if(!line) return;
+    if(f==='qty'||f==='unitPrice') line[f]=parseFloat(el.value)||0; else line[f]=el.value;
+    syncCOprice(co);
+    const tr=el.closest('tr'); if(tr){ const tot=tr.querySelector('.co-linetotal'); if(tot) tot.textContent=money((Number(line.qty)||0)*(Number(line.unitPrice)||0)); }
+    const card=el.closest('.co-card'); if(card){ const ct=card.querySelector('.co-cardtotal'); if(ct) ct.textContent='Total: '+money(coTotal(co)); }
+    renderCosting();
+  } else if(f==='title'||f==='date'){ co[f]=el.value; }
 });
-document.getElementById('co-lines').addEventListener('change', e=>{
-  const el=e.target; if(el.getAttribute('data-cf')==='status'){ doc.changeOrders[el.getAttribute('data-ci')].status=el.value; renderCosting(); }
+document.getElementById('co-list').addEventListener('change', e=>{
+  const el=e.target; if(el.getAttribute('data-cf')==='status'){ doc.changeOrders[Number(el.getAttribute('data-ci'))].status=el.value; renderCosting(); }
 });
-document.getElementById('co-lines').addEventListener('click', e=>{
-  const d=e.target.getAttribute && e.target.getAttribute('data-codel');
-  if(d!==null && d!==undefined){ doc.changeOrders.splice(Number(d),1); renderChangeOrders(); renderCosting(); }
+document.getElementById('co-list').addEventListener('click', e=>{
+  const g=(a)=> e.target.getAttribute && e.target.getAttribute(a);
+  const add=g('data-colineadd'); if(add!==null&&add!==undefined){ const co=doc.changeOrders[Number(add)]; co.lines=co.lines||[]; co.lines.push({id:'col_'+Math.random().toString(16).slice(2,8),name:'',qty:1,unit:'',unitPrice:0}); syncCOprice(co); renderChangeOrders(); renderCosting(); return; }
+  const ld=g('data-colinedel'); if(ld){ const [i,j]=ld.split(':').map(Number); doc.changeOrders[i].lines.splice(j,1); syncCOprice(doc.changeOrders[i]); renderChangeOrders(); renderCosting(); return; }
+  const cd=g('data-codel'); if(cd!==null&&cd!==undefined){ if(!confirm('Delete this change order?')) return; doc.changeOrders.splice(Number(cd),1); renderChangeOrders(); renderCosting(); return; }
+  const pd=g('data-copdf'); if(pd!==null&&pd!==undefined){ openChangeOrderPDF(doc.changeOrders[Number(pd)]); return; }
+  const em=g('data-coemail'); if(em!==null&&em!==undefined){ emailChangeOrder(doc.changeOrders[Number(em)]); return; }
 });
 document.getElementById('add-co').addEventListener('click', ()=>{
   doc.changeOrders=doc.changeOrders||[];
-  doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), description:'', priceDelta:0, costDelta:0, status:'pending' });
+  doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), title:'', date:'', status:'pending', costDelta:0, lines:[{id:'col_'+Math.random().toString(16).slice(2,8),name:'',qty:1,unit:'',unitPrice:0}] });
   renderChangeOrders();
 });
+function openChangeOrderPDF(co){
+  if(!co) return; const cl=doc.client||{}, comp=doc.company||{};
+  const rows=(co.lines||[]).filter(l=>(l.name||'').trim()).map(l=>`<tr><td>${escapeHtml(l.name)}</td><td class="r">${l.qty||0} ${escapeHtml(l.unit||'')}</td><td class="r">${money(l.unitPrice||0)}</td><td class="r">${money((Number(l.qty)||0)*(Number(l.unitPrice)||0))}</td></tr>`).join('') || '<tr><td colspan="4" style="color:#888">No line items.</td></tr>';
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Change Order — ${escapeHtml(co.title||'')}</title>
+<style>body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1E242C;max-width:760px;margin:0 auto;padding:40px;font-size:14px}
+h1{font-size:22px;margin:0 0 2px} .muted{color:#5C6672;font-size:13px} .r{text-align:right}
+table{width:100%;border-collapse:collapse;margin-top:18px} th,td{padding:8px 6px;border-bottom:1px solid #E4E8EE;text-align:left} th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#5C6672}
+.tot{font-size:16px;font-weight:700;text-align:right;margin-top:12px} .sign{margin-top:44px;display:flex;gap:40px}
+.bar{position:fixed;top:0;left:0;right:0;background:#17293D;padding:10px;text-align:center}.bar button{background:#2F6DB0;color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer}@media print{.noprint{display:none}body{padding:0}@page{margin:18mm}}.sp{height:46px}</style></head>
+<body><div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="sp noprint"></div>
+<h1>Change Order</h1>
+<div class="muted">${escapeHtml(comp.name||'')}${co.date?(' · '+escapeHtml(co.date)):''}</div>
+<div style="margin-top:14px"><b>${escapeHtml(co.title||'Change Order')}</b><br><span class="muted">For: ${escapeHtml(cl.name||'')} — ${escapeHtml(doc.project||jobName||'')}</span></div>
+<table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="tot">Change order total: ${money(coTotal(co))}</div>
+<div class="sign"><div>Customer: ____________________<br><span class="muted">Date: __________</span></div><div>${escapeHtml(comp.name||'Contractor')}: ____________________<br><span class="muted">Date: __________</span></div></div>
+</body></html>`;
+  const w=window.open('','_blank'); if(!w){ toast('Allow pop-ups to open the change order PDF.', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+function emailChangeOrder(co){
+  const cl=doc.client||{}, to=cl.email||'';
+  const subject='Change Order'+(co.title?(' — '+co.title):'')+' · '+(doc.project||jobName||'your project');
+  const lines=(co.lines||[]).filter(l=>(l.name||'').trim()).map(l=>'• '+l.name+' — '+(l.qty||0)+' '+(l.unit||'')+' @ '+money(l.unitPrice||0)+' = '+money((Number(l.qty)||0)*(Number(l.unitPrice)||0))).join('\n');
+  const body='Here is a change order for your review:\n\n'+lines+'\n\nChange order total: '+money(coTotal(co))+'\n\nPlease reply to approve. Thank you.';
+  window.location.href='mailto:'+to+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+}
 
 // ---- Daily logs (a record of each day on site) ----
 function renderDailyLogs(){
@@ -1234,6 +1287,11 @@ async function init(){
     statusVal = j.status || 'scheduled';
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[]; doc.receiptLinks = doc.receiptLinks||{};
+    // Migrate old single-row change orders into the new line-item shape.
+    doc.changeOrders.forEach(co=>{
+      if(!co.lines){ co.lines=[{ id:'col_'+Math.random().toString(16).slice(2,8), name:co.description||co.title||'', qty:1, unit:'', unitPrice:Number(co.priceDelta)||0 }]; }
+      if(co.title===undefined) co.title=co.description||'';
+    });
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
     doc.tasks = doc.tasks||[]; doc.punch = doc.punch||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
     doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[]; doc.rfis = doc.rfis||[]; doc.submittals = doc.submittals||[];

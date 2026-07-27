@@ -915,6 +915,10 @@ function renderReceipts(){
       <span class="ic">${(r.mime||'').indexOf('pdf')>=0?'📄':'🧾'}</span>
       <span class="nm">${escapeHtml(r.name)}</span>
       <span class="meta">${fmtSize(r.size)} · ${r.uploadedAt?new Date(r.uploadedAt).toLocaleDateString():''}</span>
+      ${window.__hideFin?'':`<select class="rcpt-link" data-rlink="${r.id}" title="Link this invoice to a scope line item" style="font-size:11px;max-width:150px;padding:2px 4px">
+        <option value="">— link to line —</option>
+        ${(doc.lines||[]).filter(l=>(l.name||'').trim()).map(l=>`<option value="${l.id}" ${(doc.receiptLinks&&doc.receiptLinks[r.id]===l.id)?'selected':''}>${escapeHtml(l.name)}</option>`).join('')}
+      </select>`}
       ${window.__hideFin?'':`<a class="view" data-rread="${r.id}" title="Read this invoice/receipt with AI and add the cost">✨ Read</a>`}
       <a class="view" data-view="${r.id}">View</a>
       <button class="rowdel" data-rdel="${r.id}" title="Remove">✕</button>
@@ -940,6 +944,12 @@ document.getElementById('add-receipt').addEventListener('click', ()=>document.ge
 document.getElementById('add-photo').addEventListener('click', ()=>document.getElementById('photo-input').click());
 document.getElementById('receipt-input').addEventListener('change', e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; if(f.length) uploadFiles(f); });
 document.getElementById('photo-input').addEventListener('change', e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; if(f.length) uploadFiles(f); });
+document.getElementById('receipts').addEventListener('change', async (e)=>{
+  const id=e.target.getAttribute && e.target.getAttribute('data-rlink'); if(!id) return;
+  doc.receiptLinks=doc.receiptLinks||{};
+  if(e.target.value) doc.receiptLinks[id]=e.target.value; else delete doc.receiptLinks[id];
+  try{ await save(); toast(e.target.value?'Invoice linked to the line item.':'Link removed.'); }catch(err){ toast(err.message,true); }
+});
 document.getElementById('receipts').addEventListener('click', async (e)=>{
   const rr=e.target.getAttribute && e.target.getAttribute('data-rread');
   if(rr){ try{
@@ -1223,7 +1233,7 @@ async function init(){
     jobName = j.name || 'Untitled Job';
     statusVal = j.status || 'scheduled';
     doc = Object.assign({ client:{}, lines:[] }, j.doc||{});
-    doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
+    doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[]; doc.receiptLinks = doc.receiptLinks||{};
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
     doc.tasks = doc.tasks||[]; doc.punch = doc.punch||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
     doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[]; doc.rfis = doc.rfis||[]; doc.submittals = doc.submittals||[];

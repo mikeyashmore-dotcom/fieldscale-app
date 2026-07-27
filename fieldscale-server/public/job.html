@@ -97,6 +97,15 @@
       <button class="btn primary" id="save-btn">Save</button>
     </div>
 
+    <div class="block" id="sec-panel">
+      <div id="sec-hdr" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <h3 style="margin:0">Sections on this job</h3>
+        <span style="font-size:12px;color:var(--steel)">— tick only the tables this job needs</span>
+        <span style="margin-left:auto;color:var(--steel)" id="sec-caret">▾</span>
+      </div>
+      <div id="sec-list" style="display:none;flex-wrap:wrap;gap:10px 20px;margin-top:12px"></div>
+    </div>
+
     <div class="block dash fin-hide" id="dash"><div class="cost-out" id="dash-out"></div></div>
 
     <div class="grid2">
@@ -665,6 +674,70 @@ const renderMaterials = bindListSection('materials','mat-lines','add-mat',[
   {f:'supplier',ph:'Supplier'},
   {f:'status',type:'select',opts:['To order','Ordered','Delivered','Used']}
 ], ()=>({item:'',qty:0,unit:'',supplier:'',status:'To order'}));
+
+// ---- Per-job section visibility: show/hide the tables a given job actually needs ----
+// Each entry is [key, section title as shown in its <h3>]. Client & Schedule stay always on.
+const SECTION_DEFS = [
+  ['scope','Scope of work'],
+  ['costing','Job costing'],
+  ['budget','Budget vs actual & cost-to-complete'],
+  ['actualcosts','Actual costs'],
+  ['time','Time & labor'],
+  ['receipts','Receipts & documents'],
+  ['changeorders','Change orders'],
+  ['draws','Progress billing (draws)'],
+  ['tasks','Task checklist'],
+  ['punch','Punch list'],
+  ['dailylogs','Daily logs'],
+  ['selections','Customer selections & allowances'],
+  ['materials','Material tracking'],
+  ['inspections','Inspections & deliveries'],
+  ['rfis','RFIs & submittals'],
+  ['warranty','Warranty'],
+  ['notes','Notes'],
+  ['clientmsg','Message to client'],
+];
+function setupSectionToggles(){
+  const norm = s => (s||'').replace(/\s+/g,' ').trim().toLowerCase();
+  const blocks = Array.from(document.querySelectorAll('#content .block'));
+  const els = {};
+  SECTION_DEFS.forEach(([key,title])=>{
+    let el;
+    if(key==='scope'){ const lines=document.getElementById('lines'); el = lines && lines.closest('.block'); }
+    else { el = blocks.find(b=>{ const h=b.querySelector('h3'); return h && norm(h.textContent).indexOf(norm(title))===0; }); }
+    if(el){ el.setAttribute('data-sec',key); els[key]=el; }
+  });
+  doc.hiddenSections = Array.isArray(doc.hiddenSections) ? doc.hiddenSections : [];
+  const hidden = new Set(doc.hiddenSections);
+  // Apply the saved visibility for everyone (respecting financial hiding).
+  SECTION_DEFS.forEach(([key])=>{
+    const el = els[key]; if(!el) return;
+    if(hideFin && el.classList.contains('fin-hide')) return; // stays hidden regardless
+    el.style.display = hidden.has(key) ? 'none' : '';
+  });
+  // Only full-access users configure this shared setting; others just get the applied visibility.
+  if(hideFin){ const p=document.getElementById('sec-panel'); if(p) p.style.display='none'; return; }
+  const list = document.getElementById('sec-list');
+  const rows = [];
+  SECTION_DEFS.forEach(([key,title])=>{
+    const el = els[key]; if(!el) return;
+    const on = !hidden.has(key);
+    rows.push(`<label style="display:flex;gap:6px;align-items:center;font-size:13px;white-space:nowrap"><input type="checkbox" data-seckey="${key}" ${on?'checked':''}/> ${title}</label>`);
+  });
+  list.innerHTML = rows.join('');
+  const hdr=document.getElementById('sec-hdr'), caret=document.getElementById('sec-caret');
+  hdr.addEventListener('click', ()=>{ const open=list.style.display==='none'; list.style.display=open?'flex':'none'; caret.textContent=open?'▴':'▾'; });
+  // If this job already hides some sections, open the panel so it's obvious why tables are missing.
+  if(doc.hiddenSections.length){ list.style.display='flex'; caret.textContent='▴'; }
+  list.addEventListener('change', async e=>{
+    const key = e.target.getAttribute && e.target.getAttribute('data-seckey'); if(!key) return;
+    const el = els[key]; if(!el) return;
+    const show = e.target.checked;
+    el.style.display = show ? '' : 'none';
+    doc.hiddenSections = SECTION_DEFS.map(([k])=>k).filter(k=>{ const cb=list.querySelector('[data-seckey="'+k+'"]'); return cb && !cb.checked; });
+    try{ await save(); toast(show?'Section shown.':'Section hidden.'); }catch(err){ toast(err.message,true); }
+  });
+}
 // ---- Progress billing (draws) ----
 function jobContract(){ const co=(doc.changeOrders||[]).reduce((a,x)=>a+(x.status==='approved'?(Number(x.priceDelta)||0):0),0); return (parseFloat((document.getElementById('c-contract')||{}).value)||Number((doc.costing||{}).contract)||0)+co; }
 function updateDrawSub(){ const contract=jobContract(); const arr=doc.draws||[]; const pct=arr.reduce((s,d)=>s+(Number(d.percent)||0),0); const billedPct=arr.filter(d=>d.billed).reduce((s,d)=>s+(Number(d.percent)||0),0); const el=document.getElementById('draw-sub'); if(el) el.textContent=`Contract ${money(contract)} · draws total ${pct}% · billed ${billedPct}%.`; }
@@ -1148,6 +1221,7 @@ async function init(){
     // financial summary + company fetch (both blocked server-side for them anyway).
     // No financial access → hide costing/dashboard/change-order/draws sections (server also blocks the data).
     if(hideFin){ document.querySelectorAll('.fin-hide').forEach(el=>el.style.display='none'); }
+    setupSectionToggles();
     if(isField){ const tr=document.getElementById('tmpl-row'); if(tr) tr.style.display='none'; }
     else {
       if(!hideFin) refreshDash();

@@ -1347,6 +1347,7 @@ const state = {
   marquee:null,   // {start,end} while dragging a selection box
   clipboard:[],   // copied geometry, pasteable onto any sheet
   moveDrag:null,  // {last:{x,y}} while dragging the selection around
+  vertexDrag:null, // {kind,id,index} while dragging one corner of a selected wall/area
   typeLibrary:{ wall:[], linear:[], area:[], count:[] }, // saved reusable presets per category
   activeType:{ wall:null, linear:null, area:null, count:null }, // currently selected type id per category
   pdfTextIndex:[], // [{pageNum, items:[{str,x,y,width,height}], fullText}] — built once per document
@@ -3222,6 +3223,7 @@ function activateTool(toolName){
   state.drawing = null;
   state.marquee = null;
   state.moveDrag = null;
+  state.vertexDrag = null;
   if(toolName!=='select') clearSelection();
   els.overlay.style.cursor = (toolName==='pan') ? 'default'
                            : (toolName==='select') ? 'default' : 'crosshair';
@@ -3403,6 +3405,24 @@ function pickAt(p){
     if(c.kind==='area'  && (pointInPolygon(p, c.pts) || nearPolyline(p, [...c.pts, c.pts[0]], tol))) return c;
   }
   return null;
+}
+
+// A corner handle of a *selected* wall/area under the cursor — so you can drag one point.
+// Only selected items show handles, so only they are editable point-by-point.
+function vertexHandleAt(p){
+  const tol = 8 / state.zoom;   // a touch bigger than the 4px handle, so it's easy to grab
+  for(const sel of state.selection){
+    if(sel.kind==='wall'){ const w=state.walls.find(x=>x.id===sel.id); if(w){ for(let i=0;i<w.points.length;i++){ if(dist(p,w.points[i])<=tol) return {kind:'wall', id:sel.id, index:i}; } } }
+    else if(sel.kind==='area'){ const a=state.areas.find(x=>x.id===sel.id); if(a){ for(let i=0;i<a.points.length;i++){ if(dist(p,a.points[i])<=tol) return {kind:'area', id:sel.id, index:i}; } } }
+  }
+  return null;
+}
+// After a corner is dragged, re-figure the measured quantity from the new geometry.
+function recomputeItemRaw(kind, id){
+  if(!state.calibration) return;
+  const u = state.calibration.unitsPerNativePixel;
+  if(kind==='area'){ const a=state.areas.find(x=>x.id===id); if(!a) return; const real=shoelace(a.points)*u*u; state.items.forEach(it=>{ if(it.areaId===id) it.raw=real; }); }
+  else if(kind==='wall'){ const w=state.walls.find(x=>x.id===id); if(!w) return; let px=0; for(let i=1;i<w.points.length;i++) px+=dist(w.points[i-1],w.points[i]); const real=px*u; state.items.forEach(it=>{ if(it.wallId===id) it.raw=real; }); }
 }
 
 function applyMarquee(rect, crossing, additive){
@@ -3645,6 +3665,14 @@ els.overlay.addEventListener('mousedown',(e)=>{
   }
 
   if(state.tool==='select'){
+    // A corner handle of a selected wall/area → drag just that point (clicking the middle still
+    // moves the whole shape, below).
+    const vh = vertexHandleAt(p);
+    if(vh){
+      state.vertexDrag = vh; state.moveDrag = null;
+      isDown = true; els.overlay.style.cursor = 'grabbing';
+      e.preventDefault(); return;
+    }
     const hit = pickAt(p);
     const additive = e.shiftKey;
     if(hit){
@@ -3721,6 +3749,13 @@ els.overlay.addEventListener('mousemove',(e)=>{
   let p = getNativePoint(e);
 
   if(state.tool==='select'){
+    if(state.vertexDrag){
+      const vd=state.vertexDrag;
+      const obj=(vd.kind==='wall'?state.walls:state.areas).find(o=>o.id===vd.id);
+      if(obj && obj.points[vd.index]) obj.points[vd.index] = {x:p.x, y:p.y};
+      redrawOverlay();
+      return;
+    }
     if(state.moveDrag){
       moveSelection(p.x - state.moveDrag.last.x, p.y - state.moveDrag.last.y);
       state.moveDrag.last = p;
@@ -3774,7 +3809,12 @@ els.overlay.addEventListener('mousemove',(e)=>{
 els.overlay.addEventListener('mouseup',(e)=>{
   if(state.tool==='select' && isDown){
     isDown = false;
-    if(state.moveDrag){
+    if(state.vertexDrag){
+      recomputeItemRaw(state.vertexDrag.kind, state.vertexDrag.id);   // corner moved → update the quantity
+      renderTakeoffList(); markDirty();
+      state.vertexDrag = null;
+      els.overlay.style.cursor = 'default';
+    } else if(state.moveDrag){
       if(state.moveDrag.moved){ renderTakeoffList(); markDirty(); }
       state.moveDrag = null;
       els.overlay.style.cursor = 'default';

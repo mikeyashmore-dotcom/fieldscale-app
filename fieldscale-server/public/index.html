@@ -3436,6 +3436,9 @@ function polylineInRect(pts, r){ return pts.every(p=>pointInRect(p,r)); }
 function selectableOnPage(){
   const onPage = o => (o.pageNum || 1) === state.pageNum;
   return [
+    // Highlights first = lowest pick priority, so a wall/area on top of one still wins the click.
+    ...state.highlights.filter(onPage).map(h=>({kind:'highlight', id:h.id,
+      pts:[{x:h.x,y:h.y},{x:h.x+h.w,y:h.y},{x:h.x+h.w,y:h.y+h.h},{x:h.x,y:h.y+h.h}]})),
     ...state.walls.filter(onPage).map(w=>({kind:'wall',  id:w.id, pts:w.points})),
     ...state.areas.filter(onPage).map(a=>({kind:'area',  id:a.id, pts:a.points})),
     ...state.items.filter(it=>it.category==='count' && it.point && onPage(it))
@@ -3461,6 +3464,7 @@ function pickAt(p){
       if(a.kind==='line' || a.kind==='arrow'){ if(nearPolyline(p, c.pts, Math.max(tol,6))) return c; }
       else if(pointInPolygon(p, c.pts) || nearPolyline(p, [...c.pts, c.pts[0]], Math.max(tol,6))) return c;
     }
+    if(c.kind==='highlight' && pointInPolygon(p, c.pts)) return c;
   }
   return null;
 }
@@ -3527,6 +3531,9 @@ function moveSelection(dx, dy){
     } else if(sel.kind==='anno'){
       const a = state.annotations.find(x=>x.id===sel.id);
       if(a){ if(a.kind==='line'||a.kind==='arrow'){ a.x1+=dx; a.y1+=dy; a.x2+=dx; a.y2+=dy; } else { a.x+=dx; a.y+=dy; } }
+    } else if(sel.kind==='highlight'){
+      const h = state.highlights.find(x=>x.id===sel.id);
+      if(h){ h.x+=dx; h.y+=dy; }
     }
   });
 }
@@ -3538,10 +3545,12 @@ function deleteSelection(){
   const areaIds  = new Set(state.selection.filter(s=>s.kind==='area').map(s=>s.id));
   const countIds = new Set(state.selection.filter(s=>s.kind==='count').map(s=>s.id));
   const annoIds  = new Set(state.selection.filter(s=>s.kind==='anno').map(s=>s.id));
+  const hlIds    = new Set(state.selection.filter(s=>s.kind==='highlight').map(s=>s.id));
 
   state.walls = state.walls.filter(w=>!wallIds.has(w.id));
   state.areas = state.areas.filter(a=>!areaIds.has(a.id));
   state.annotations = state.annotations.filter(a=>!annoIds.has(a.id));
+  state.highlights = state.highlights.filter(h=>!hlIds.has(h.id));
   // Drop the geometry AND the takeoff rows that were measuring it — otherwise you'd
   // delete a wall off the sheet and its footage would quietly stay in the total.
   state.items = state.items.filter(it=>{
@@ -3660,6 +3669,10 @@ function drawSelection(){
       if(!a || !onPage(a)) return;
       if(a.kind==='line'||a.kind==='arrow'){ drawHandle({x:a.x1,y:a.y1}); drawHandle({x:a.x2,y:a.y2}); }
       else { const b=annoBBox(a); octx.strokeRect(b.x,b.y,b.w,b.h); annoCorners(a).forEach(p=>drawHandle(p)); }
+    } else if(sel.kind==='highlight'){
+      const h = state.highlights.find(x=>x.id===sel.id);
+      if(!h || !onPage(h)) return;
+      octx.strokeRect(h.x, h.y, h.w, h.h);
     } else {
       const it = state.items.find(x=>x.id===sel.id);
       if(!it || !it.point || !onPage(it)) return;

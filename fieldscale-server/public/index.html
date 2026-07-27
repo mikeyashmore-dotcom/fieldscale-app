@@ -2065,6 +2065,7 @@ async function serializeProjectState(){
     projectName: document.getElementById('proj-name').value,
     typeLibrary: state.typeLibrary,
     activeType: state.activeType,
+    takeoffSummary: computeTakeoffSummary(),   // flat rollup so estimates can pull items in
     items: state.items,
     walls: state.walls,
     areas: state.areas,
@@ -4787,6 +4788,21 @@ function resolveItemDisplay(item){
     return {label:t.name, qty, unit, trade, color:t.color, type};
   }
   return {label:'Item', qty:item.raw||0, unit:'', trade:'General', color:'#999999', type:'Linear'};
+}
+
+// Flat, saveable rollup of the takeoff (one row per trade+label+unit) so an estimate can
+// pull items in. Lives on the saved project as `takeoffSummary`.
+function computeTakeoffSummary(){
+  const agg={};
+  (state.items||[]).forEach(it=>{
+    const r=resolveItemDisplay(it);
+    if(!r || !Number(r.qty)) return;
+    const key=(r.trade||'General')+'|'+r.label+'|'+r.unit;
+    if(!agg[key]) agg[key]={label:r.label, unit:r.unit, trade:r.trade||'General', qty:0};
+    agg[key].qty += Number(r.qty)||0;
+  });
+  return Object.values(agg).map(x=>({label:x.label, qty:Math.round(x.qty*100)/100, unit:x.unit, trade:x.trade}))
+    .sort((a,b)=> a.trade<b.trade?-1:a.trade>b.trade?1:(a.label<b.label?-1:1));
 }
 
 function requireCalibration(){

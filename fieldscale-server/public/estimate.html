@@ -194,6 +194,26 @@
       <select id="pb-select"><option value="">Add from price book…</option></select>
       <button class="btn ghost" id="add-pb">＋ Add item</button>
       <button class="btn ghost" id="add-blank">＋ Blank line</button>
+      <button class="btn ghost" id="add-takeoff">📐 From Takeoff</button>
+    </div>
+
+    <div id="tko-overlay" style="position:fixed;inset:0;background:rgba(14,42,71,.5);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 12px;overflow:auto">
+      <div style="background:var(--surface);border-radius:6px;width:520px;max-width:96vw;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+        <div style="padding:16px 18px;border-bottom:1px solid var(--paper-line);display:flex;align-items:center;gap:10px">
+          <h3 style="font-family:'Oswald',sans-serif;margin:0;color:var(--heading);font-size:17px;flex:1">Pull items from a Takeoff</h3>
+          <button class="btn ghost" id="tko-close" type="button">✕</button>
+        </div>
+        <div style="padding:14px 18px">
+          <label style="display:block;font-size:12px;color:var(--steel);margin-bottom:4px">Takeoff project</label>
+          <select id="tko-project" style="width:100%;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:14px"><option value="">Loading…</option></select>
+          <div id="tko-items" style="margin-top:14px;max-height:44vh;overflow:auto"></div>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid var(--paper-line);display:flex;gap:8px;justify-content:flex-end;align-items:center">
+          <label style="font-size:12.5px;color:var(--steel);margin-right:auto"><input type="checkbox" id="tko-all"/> Select all</label>
+          <button class="btn ghost" id="tko-cancel" type="button">Cancel</button>
+          <button class="btn primary" id="tko-add" type="button">Add selected</button>
+        </div>
+      </div>
     </div>
 
     <div class="bottom">
@@ -449,6 +469,56 @@ document.getElementById('lines').addEventListener('click', e=>{
 document.getElementById('add-blank').addEventListener('click', ()=>{
   doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:'', description:'', code:'', unit:'', qty:1, mode:'flat', unitPrice:0, material:0, laborHours:0, laborRate:0, unitCost:0 });
   renderLines();
+});
+
+// ---- Pull items from a Takeoff project ----
+const tkoOverlay=document.getElementById('tko-overlay');
+function closeTko(){ tkoOverlay.style.display='none'; }
+document.getElementById('tko-close').addEventListener('click', closeTko);
+document.getElementById('tko-cancel').addEventListener('click', closeTko);
+tkoOverlay.addEventListener('click', e=>{ if(e.target===tkoOverlay) closeTko(); });
+document.getElementById('add-takeoff').addEventListener('click', async ()=>{
+  if(window.__estLocked){ toast('This estimate is locked — it was converted to a job.', true); return; }
+  tkoOverlay.style.display='flex';
+  document.getElementById('tko-items').innerHTML='<div style="color:var(--steel);font-size:13px;padding:8px 0">Pick a project above.</div>';
+  const sel=document.getElementById('tko-project');
+  sel.innerHTML='<option value="">Loading…</option>';
+  try{
+    const list=await apiFetch('/api/projects');
+    if(!list.length){ sel.innerHTML='<option value="">No takeoff projects yet</option>'; return; }
+    sel.innerHTML='<option value="">Choose a project…</option>'+list.map(p=>`<option value="${p.id}">${escapeHtml(p.name||'Untitled')}</option>`).join('');
+  }catch(err){ sel.innerHTML='<option value="">Could not load projects</option>'; toast(err.message,true); }
+});
+document.getElementById('tko-project').addEventListener('change', async e=>{
+  const id=e.target.value; const box=document.getElementById('tko-items');
+  document.getElementById('tko-all').checked=false;
+  if(!id){ box.innerHTML='<div style="color:var(--steel);font-size:13px;padding:8px 0">Pick a project above.</div>'; return; }
+  box.innerHTML='<div style="color:var(--steel);font-size:13px;padding:8px 0">Loading items…</div>';
+  try{
+    const proj=await apiFetch('/api/projects/'+id);
+    const sum=(proj.data&&proj.data.takeoffSummary)||[];
+    if(!sum.length){ box.innerHTML='<div style="color:var(--steel);font-size:13px;padding:8px 0">No measured items on this takeoff yet. Open it, take off some quantities and save, then try again.</div>'; return; }
+    box.innerHTML=sum.map((r,i)=>`<label style="display:flex;gap:9px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--paper-line);font-size:13.5px">
+      <input type="checkbox" class="tko-cb" data-i="${i}" checked/>
+      <span style="flex:1">${escapeHtml(r.label)} <span style="color:var(--steel);font-size:12px">· ${escapeHtml(r.trade||'')}</span></span>
+      <span style="font-family:'IBM Plex Mono',monospace;color:var(--heading)">${r.qty} ${escapeHtml(r.unit||'')}</span>
+    </label>`).join('');
+    box._summary=sum;
+  }catch(err){ box.innerHTML='<div style="color:var(--danger);font-size:13px;padding:8px 0">Could not load this takeoff.</div>'; toast(err.message,true); }
+});
+document.getElementById('tko-all').addEventListener('change', e=>{
+  document.querySelectorAll('#tko-items .tko-cb').forEach(cb=>cb.checked=e.target.checked);
+});
+document.getElementById('tko-add').addEventListener('click', ()=>{
+  const box=document.getElementById('tko-items'); const sum=box._summary||[];
+  const picked=Array.from(document.querySelectorAll('#tko-items .tko-cb')).filter(cb=>cb.checked).map(cb=>sum[Number(cb.getAttribute('data-i'))]).filter(Boolean);
+  if(!picked.length){ toast('Tick at least one item.', true); return; }
+  picked.forEach(r=>{
+    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:r.label, description:'', code:r.trade||'', unit:r.unit||'', qty:Number(r.qty)||0, mode:'flat', unitPrice:0, material:0, laborHours:0, laborRate:0, unitCost:0 });
+  });
+  closeTko();
+  renderLines();
+  toast(`Added ${picked.length} item${picked.length===1?'':'s'} from the takeoff — set your prices.`);
 });
 document.getElementById('add-pb').addEventListener('click', ()=>{
   const sel=document.getElementById('pb-select');

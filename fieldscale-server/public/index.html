@@ -1040,8 +1040,8 @@
   </div>
 
   <div class="rail" id="rail">
-    <button class="tool active" data-tool="pan" title="Pan">✥<span class="tip">Pan the sheet</span></button>
-    <button class="tool" data-tool="select" title="Select">⬚<span class="tip">Select · move · copy · delete</span></button>
+    <button class="tool" data-tool="pan" title="Pan (or hold Space, or middle-mouse drag)">✥<span class="tip">Pan the sheet — or just hold Space / middle-mouse drag</span></button>
+    <button class="tool active" data-tool="select" title="Select">⬚<span class="tip">Select · move · copy · delete (this is the default)</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="calibrate" title="Calibrate Scale">📏<span class="tip">Calibrate scale</span></button>
     <button class="tool" data-tool="measure" title="Quick Measure">📐<span class="tip">Quick measure (not added to takeoff)</span></button>
@@ -1321,7 +1321,7 @@ catch(e){ VIEW_ONLY = window.innerWidth < 820; }
 // ---------- State ----------
 const state = {
   pdfDoc:null, pageNum:1, numPages:1, zoom:1.0, renderScale:2, // renderScale = internal PDF render pixel density
-  tool:'pan',
+  tool:'select',
   calibration:null,  // the CURRENT page's scale — derived from calibrations[pageNum]. Read-only; set it via setCalibration().
   calibrations:{},   // {pageNum: {unitsPerNativePixel, unitLabel, source}} — every sheet keeps its own scale
   items:[], // {id, label, trade, type, qty, unit, color}
@@ -3647,8 +3647,8 @@ let legendDrag=null;
 const MEASURE_TOOLS = ['linear','wall','area','measure'];
 
 els.overlay.addEventListener('mousedown',(e)=>{
-  if(e.button===1){
-    // Middle-click (mouse wheel press) drag pans the sheet, regardless of active tool.
+  if(e.button===1 || (e.button===0 && state.spaceHeld)){
+    // Middle-click drag — or hold Space + left drag — pans the sheet from any tool.
     isPanning = true;
     panStart = {x:e.clientX, y:e.clientY, scrollLeft:els.stageWrap.scrollLeft, scrollTop:els.stageWrap.scrollTop};
     els.overlay.style.cursor='grabbing';
@@ -3738,9 +3738,9 @@ document.addEventListener('mousemove',(e)=>{
   }
 });
 document.addEventListener('mouseup',(e)=>{
-  if(e.button===1 && isPanning){
+  if(isPanning && (e.button===1 || e.button===0)){
     isPanning=false;
-    els.overlay.style.cursor = state.tool==='pan' ? 'default':'crosshair';
+    els.overlay.style.cursor = state.spaceHeld ? 'grab' : (state.tool==='pan'||state.tool==='select') ? 'default':'crosshair';
   }
 });
 
@@ -4165,6 +4165,9 @@ window.addEventListener('keydown',(e)=>{
   const t = e.target;
   const typing = t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.tagName==='SELECT' || t.isContentEditable);
 
+  // Hold Space to pan from any tool (like Figma). Guard against typing + page scroll.
+  if(e.key===' ' && !typing){ if(!state.spaceHeld){ state.spaceHeld=true; els.overlay.style.cursor='grab'; } e.preventDefault(); }
+
   if(!typing){
     if((e.key==='Delete' || e.key==='Backspace') && state.selection.length){
       e.preventDefault();
@@ -4191,7 +4194,7 @@ window.addEventListener('keydown',(e)=>{
     redrawOverlay(); els.hud.style.display='none'; updateFinishBtn(); hideHint();
   }
 });
-window.addEventListener('keyup', e=>{ if(e.key==='Shift') state.shiftHeld=false; });
+window.addEventListener('keyup', e=>{ if(e.key==='Shift') state.shiftHeld=false; if(e.key===' '){ state.spaceHeld=false; if(!isPanning) els.overlay.style.cursor = (state.tool==='pan')?'default':(state.tool==='select'?'default':'crosshair'); } });
 
 function finishCurrentDrawing(){
   if(state.tool==='linear' && state.drawing) finishLinear();
@@ -5833,7 +5836,7 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
 (function(){
   if(!VIEW_ONLY) return;
   document.body.classList.add('viewonly');
-  try{ activateTool('pan'); }catch(e){}
+  try{ activateTool('select'); }catch(e){}
   var bn=document.createElement('div');
   bn.className='viewonly-banner';
   bn.innerHTML='<b>View-only on mobile.</b> Open a saved plan under 📂 Projects to see its quantities. To do a takeoff, use Fieldscale on a computer.';

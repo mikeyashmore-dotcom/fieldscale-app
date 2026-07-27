@@ -92,7 +92,8 @@
       <button class="tool" data-tool="line"><span class="ico">╱</span> Line</button>
       <button class="tool" data-tool="room"><span class="ico">▭</span> Room (box)</button>
       <button class="tool" data-tool="poly"><span class="ico">⬠</span> Room (polygon)</button>
-      <button class="tool" data-tool="surface"><span class="ico">▨</span> Surface</button>
+      <button class="tool" data-tool="surface"><span class="ico">▨</span> Surface (box)</button>
+      <button class="tool" data-tool="polysurf"><span class="ico">⬡</span> Surface (polygon)</button>
       <div class="wallh-row">Material <select id="surf-mat"><option value="siding">Siding (lap)</option><option value="brick">Brick</option><option value="shingle">Shingles</option><option value="board">Board &amp; batten</option><option value="stucco">Stucco</option><option value="stone">Stone</option></select></div>
       <button class="tool" data-tool="text"><span class="ico">T</span> Label</button>
       <h4>Elevation</h4>
@@ -278,7 +279,7 @@ function draw(){
     const last=drawPts[drawPts.length-1];
     if(tip){ const len=dist(last.x,last.y,tip.x,tip.y); const mid=W2S({x:(last.x+tip.x)/2,y:(last.y+tip.y)/2}); label(ctx, ftIn(len)+'  ·  '+Math.round(len*wallHeight)+' sf', mid.x, mid.y-6); }
   }
-  if(cursor && (tool==='wall'||tool==='line'||tool==='poly'||tool==='room'||tool==='surface'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
+  if(cursor && (tool==='wall'||tool==='line'||tool==='poly'||tool==='polysurf'||tool==='room'||tool==='surface'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
   // room drag preview
   if(roomDrag){ const a=W2S(roomDrag.a), b=W2S(snapMaybe(cursor)); ctx.strokeStyle='#1B4B7A'; ctx.setLineDash([5,4]); ctx.strokeRect(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(b.x-a.x),Math.abs(b.y-a.y)); ctx.setLineDash([]); }
   updateTotals();
@@ -382,6 +383,8 @@ function drawWall(wl, selected){
   if(len>0.5) label(ctx, ftIn(len), mid.x, mid.y - (Math.abs(a.y-b.y)>Math.abs(a.x-b.x)?0:12));
   if(selected){ [a,b].forEach(p=>{ ctx.fillStyle='#fff'; ctx.strokeStyle='#2F6DB0'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(p.x,p.y,5,0,7); ctx.fill(); ctx.stroke(); }); }
 }
+// Point-based items (defined by a list of corner points, not x/y/w/h): polygon room & surface.
+function isPointItem(t){ return t==='poly'||t==='polysurface'; }
 // ---- Elevation openings cut the surface material (so brick/siding doesn't run across a window) ----
 function cutsSurface(t){ return t==='elevwin'||t==='elevdoor'||t==='garage'||t==='door'||t==='ddoor'||t==='window'||t==='opening'; }
 function fixtureCorners(it){
@@ -389,7 +392,12 @@ function fixtureCorners(it){
   return [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([lx,ly])=>({ x: it.x + lx*co - ly*s, y: it.y + lx*s + ly*co }));
 }
 function overlapsASurface(it){
-  return doc.items.some(s=> s.type==='surface' && Math.abs(s.x-it.x) < (s.w+it.w)/2 && Math.abs(s.y-it.y) < (s.h+it.h)/2);
+  return doc.items.some(s=>{
+    if(s.type==='surface') return Math.abs(s.x-it.x) < (s.w+it.w)/2 && Math.abs(s.y-it.y) < (s.h+it.h)/2;
+    if(s.type==='polysurface'){ const pts=s.points||[]; if(!pts.length) return false; const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+      return it.x>=Math.min(...xs)-it.w/2 && it.x<=Math.max(...xs)+it.w/2 && it.y>=Math.min(...ys)-it.h/2 && it.y<=Math.max(...ys)+it.h/2; }
+    return false;
+  });
 }
 function drawSurfaceCuts(c){
   doc.items.forEach(it=>{
@@ -400,10 +408,9 @@ function drawSurfaceCuts(c){
     c.restore();
   });
 }
-// Fill a w×h box (local coords, centered at 0) with an elevation surface material pattern.
-function drawMaterial(c, wpx, hpx, mat){
-  const x0=-wpx/2, y0=-hpx/2, ft=zoom;
-  c.save(); c.beginPath(); c.rect(x0,y0,wpx,hpx); c.clip();
+// Paint a material pattern across a bounding box [x0,y0,w,h] (no clip — caller sets it).
+function paintMaterial(c, x0, y0, wpx, hpx, mat){
+  const ft=zoom;
   c.fillStyle='rgba(120,110,95,0.05)'; c.fillRect(x0,y0,wpx,hpx);
   c.strokeStyle='#7a7365'; c.lineWidth=1;
   if(mat==='siding'){ const sp=Math.max(4,0.7*ft); for(let y=y0+sp; y<y0+hpx; y+=sp){ c.beginPath(); c.moveTo(x0,y); c.lineTo(x0+wpx,y); c.stroke(); } }
@@ -412,10 +419,28 @@ function drawMaterial(c, wpx, hpx, mat){
   else if(mat==='shingle'){ const rh=Math.max(5,0.5*ft), sw=Math.max(8,0.5*ft); let row=0; for(let y=y0; y<=y0+hpx; y+=rh){ c.lineWidth=1.5; c.beginPath(); c.moveTo(x0,y); c.lineTo(x0+wpx,y); c.stroke(); c.lineWidth=1; const off=(row%2)?sw/2:0; for(let x=x0+off; x<=x0+wpx; x+=sw){ c.beginPath(); c.moveTo(x,y); c.lineTo(x,y+rh*0.6); c.stroke(); } row++; } }
   else if(mat==='stucco'){ c.fillStyle='#9a9184'; for(let y=y0+3; y<y0+hpx; y+=5){ for(let x=x0+3; x<x0+wpx; x+=5){ const jx=((x*13+y*7)%5)-2, jy=((x*7+y*13)%5)-2; c.beginPath(); c.arc(x+jx,y+jy,0.6,0,7); c.fill(); } } }
   else if(mat==='stone'){ const rh=Math.max(6,0.6*ft); let row=0; for(let y=y0; y<=y0+hpx; y+=rh){ c.beginPath(); c.moveTo(x0,y); c.lineTo(x0+wpx,y); c.stroke(); let x=x0+((row*17)%13); while(x<=x0+wpx){ const bw2=rh*(0.8+((Math.abs(x)*7+Math.abs(y)*3)%10)/12); c.beginPath(); c.moveTo(x,y); c.lineTo(x,y+rh); c.stroke(); x+=Math.max(6,bw2); } row++; } }
+}
+// A w×h box (local coords, centered at 0) filled with a material pattern.
+function drawMaterial(c, wpx, hpx, mat){
+  c.save(); c.beginPath(); c.rect(-wpx/2,-hpx/2,wpx,hpx); c.clip();
+  paintMaterial(c, -wpx/2, -hpx/2, wpx, hpx, mat);
   c.restore();
+}
+// A polygon surface: clip to the polygon (screen coords) and paint the material over its bbox.
+function drawPolySurface(c, it, selected){
+  const pts=(it.points||[]).map(p=>W2S(p)); if(pts.length<2) return;
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y); const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+  c.save();
+  c.beginPath(); pts.forEach((p,i)=> i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y)); c.closePath(); c.clip();
+  paintMaterial(c, minx, miny, maxx-minx, maxy-miny, it.material||'siding');
+  c.restore();
+  c.beginPath(); pts.forEach((p,i)=> i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y)); c.closePath();
+  c.strokeStyle=selected?'#2F6DB0':'#5b6b7b'; c.lineWidth=1.5; c.stroke();
+  if(selected){ pts.forEach(p=>{ c.fillStyle='#fff'; c.strokeStyle='#2F6DB0'; c.lineWidth=2; c.beginPath(); c.arc(p.x,p.y,4,0,7); c.fill(); c.stroke(); }); }
 }
 function drawItem(it, selected){
   if(it.type==='poly'){ drawPoly(it, selected); return; }
+  if(it.type==='polysurface'){ drawPolySurface(ctx, it, selected); return; }
   const c=W2S({x:it.x,y:it.y});
   const wpx=it.w*zoom, hpx=it.h*zoom;
   ctx.save(); ctx.translate(c.x,c.y); ctx.rotate((it.rot||0)*Math.PI/180);
@@ -458,7 +483,7 @@ function drawHandles(it,c,wpx,hpx){
 // ---------- Hit testing ----------
 function hitItem(wx,wy){
   for(let i=doc.items.length-1;i>=0;i--){ const it=doc.items[i];
-    if(it.type==='poly'){ if(pointInPoly(wx,wy,it.points||[])) return i; continue; }
+    if(isPointItem(it.type)){ if(pointInPoly(wx,wy,it.points||[])) return i; continue; }
     const a=-(it.rot||0)*Math.PI/180; const dx=wx-it.x, dy=wy-it.y;
     const lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a);
     if(Math.abs(lx)<=it.w/2+0.25 && Math.abs(ly)<=it.h/2+0.25) return i;
@@ -485,12 +510,12 @@ canvas.addEventListener('pointerdown', e=>{
   const {sx,sy}=evPos(e); const wpt=S2W(sx,sy); cursor=wpt;
   if(placeType){ placeFixture(placeType, snapMaybe(wpt)); return; }
   if(tool==='wall'||tool==='line'){ addWallPoint(snapMaybe(wpt)); return; }
-  if(tool==='poly'){ addPolyPoint(snapMaybe(wpt), sx, sy); return; }
+  if(tool==='poly'||tool==='polysurf'){ addPolyPoint(snapMaybe(wpt), sx, sy); return; }
   if(tool==='surface'){ roomDrag={a:snapMaybe(wpt), surface:true}; return; }
   if(tool==='room'){ roomDrag={a:snapMaybe(wpt)}; return; }
   if(tool==='text'){ const t=prompt('Label text:'); if(t){ doc.items.push({type:'text',x:snap(wpt.x),y:snap(wpt.y),w:2,h:0.6,rot:0,label:t}); markDirty(); } setTool('select'); draw(); return; }
   // select tool
-  if(sel && sel.kind==='item' && doc.items[sel.i].type!=='poly'){ const it=doc.items[sel.i]; const hp=handlePts(it);
+  if(sel && sel.kind==='item' && !isPointItem(doc.items[sel.i].type)){ const it=doc.items[sel.i]; const hp=handlePts(it);
     if(it.type!=='text' && nearScreen(sx,sy,hp.br)){ drag={mode:'resize', start:wpt, w0:it.w, h0:it.h}; return; }
     if(it.type!=='text' && it.type!=='room' && nearScreen(sx,sy,hp.rotH)){ drag={mode:'rotate'}; return; }
   }
@@ -500,7 +525,7 @@ canvas.addEventListener('pointerdown', e=>{
   }
   const ii=hitItem(wpt.x,wpt.y);
   if(ii>=0){ sel={kind:'item',i:ii}; const it2=doc.items[ii];
-    if(it2.type==='poly'){ drag={mode:'movepoly', start:wpt, pts0:it2.points.map(p=>({x:p.x,y:p.y}))}; }
+    if(isPointItem(it2.type)){ drag={mode:'movepoly', start:wpt, pts0:it2.points.map(p=>({x:p.x,y:p.y}))}; }
     else { drag={mode:'move', start:wpt, ox:it2.x, oy:it2.y}; }
     showProps(); draw(); return; }
   const wi=hitWall(wpt.x,wpt.y);
@@ -523,7 +548,7 @@ canvas.addEventListener('pointermove', e=>{
   // hover tooltips over the selection handles (only in select mode, when not dragging)
   if(tool==='select' && sel && !drag){
     let tip='', cur='';
-    if(sel.kind==='item' && doc.items[sel.i].type!=='poly'){ const it=doc.items[sel.i]; const hp=handlePts(it);
+    if(sel.kind==='item' && !isPointItem(doc.items[sel.i].type)){ const it=doc.items[sel.i]; const hp=handlePts(it);
       if(it.type!=='text' && nearScreen(sx,sy,hp.br)){ tip = it.type==='room' ? 'Drag to resize the room (updates its square footage)' : 'Drag to resize'; cur='nwse-resize'; }
       else if(it.type!=='text' && it.type!=='room' && nearScreen(sx,sy,hp.rotH)){ tip='Drag to rotate (hold Shift for any angle)'; cur='grab'; }
     } else if(sel.kind==='wall'){ const w=doc.walls[sel.i]; const a=W2S({x:w.x1,y:w.y1}), b=W2S({x:w.x2,y:w.y2});
@@ -531,7 +556,7 @@ canvas.addEventListener('pointermove', e=>{
     }
     showTip(tip, sx, sy); canvas.style.cursor = cur;
   } else if(!drag){ showTip(''); if(tool==='select') canvas.style.cursor=''; }
-  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='line' || tool==='poly' || tool==='room' || tool==='surface') draw();
+  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='line' || tool==='poly' || tool==='polysurf' || tool==='room' || tool==='surface') draw();
 });
 function showTip(txt,sx,sy){ const t=document.getElementById('fp-tip'); if(!txt){ t.className='fp-tip'; return; } t.textContent=txt; t.className='fp-tip show'; t.style.left=(sx+16)+'px'; t.style.top=sy+'px'; }
 canvas.addEventListener('pointerleave', ()=> showTip(''));
@@ -545,7 +570,7 @@ canvas.addEventListener('pointerup', e=>{
       sel={kind:'item',i:doc.items.length-1}; markDirty(); showProps();
     } setTool('select'); draw(); }
 });
-canvas.addEventListener('dblclick', ()=>{ if(drawPts){ tool==='poly' ? finishPoly() : finishWall(); } });
+canvas.addEventListener('dblclick', ()=>{ if(drawPts){ (tool==='poly'||tool==='polysurf') ? finishPoly() : finishWall(); } });
 canvas.addEventListener('wheel', e=>{ e.preventDefault(); const {sx,sy}=evPos(e); const before=S2W(sx,sy); zoom*=(e.deltaY<0?1.12:0.89); zoom=Math.max(4,Math.min(80,zoom)); const after=S2W(sx,sy); panX+=before.x-after.x; panY+=before.y-after.y; draw(); }, {passive:false});
 
 function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts[drawPts.length-1];
@@ -573,8 +598,8 @@ function addPolyPoint(p, sx, sy){
 function finishPoly(){
   if(drawPts && drawPts.length>=3){
     const pts=drawPts.map(p=>({x:p.x,y:p.y}));
-    const nm=prompt('Room name:','Room')||'Room';
-    doc.items.push({type:'poly', points:pts, label:nm});
+    if(tool==='polysurf'){ const mat=(document.getElementById('surf-mat')||{}).value||'siding'; doc.items.push({type:'polysurface', points:pts, material:mat, label:''}); }
+    else { const nm=prompt('Room name:','Room')||'Room'; doc.items.push({type:'poly', points:pts, label:nm}); }
     sel={kind:'item', i:doc.items.length-1}; markDirty(); showProps();
   }
   drawPts=null; setTool('select'); draw();
@@ -616,6 +641,7 @@ function setHint(){ const h=document.getElementById('hint');
     : tool==='room' ? 'Drag a box for the room; you’ll name it and it shows square footage.'
     : tool==='poly' ? 'Click each corner of the room; click the first point again (or double-click / Enter) to close it. Shows square footage.'
     : tool==='surface' ? 'Drag a box to fill with the chosen material (siding, brick, shingles…) — for elevation surfaces. Pick the material above first.'
+    : tool==='polysurf' ? 'Click each corner, then click the first point (or double-click / Enter) to close — fills the shape with the chosen material. Pick the material above first.'
     : tool==='text' ? 'Click where you want a label.'
     : 'Drag empty space to pan · scroll to zoom · click an item to select · Delete to remove.';
   h.textContent=m;
@@ -661,6 +687,16 @@ function showProps(){ const el=document.getElementById('props');
       +'<div class="row"><button class="btn" id="pp-del">Delete</button></div>';
     document.getElementById('pp-plabel').addEventListener('input',ev=>{ it.label=ev.target.value; markDirty(); draw(); });
     document.getElementById('pp-del').addEventListener('click',deleteSel);
+  } else if(sel.kind==='item' && doc.items[sel.i] && doc.items[sel.i].type==='polysurface'){
+    const it=doc.items[sel.i]; const mats=[['siding','Siding (lap)'],['brick','Brick'],['shingle','Shingles'],['board','Board & batten'],['stucco','Stucco'],['stone','Stone']];
+    el.innerHTML='<div style="font-weight:600;color:var(--heading)">Surface (polygon)</div>'
+      +'<label>Material</label><select id="pp-pmat">'+mats.map(m=>'<option value="'+m[0]+'"'+((it.material||'siding')===m[0]?' selected':'')+'>'+m[1]+'</option>').join('')+'</select>'
+      +'<label>Label</label><input id="pp-plabel" value="'+escAttr(it.label||'')+'">'
+      +'<div class="meta" style="color:var(--steel)">Drag to move it. Delete to remove.</div>'
+      +'<div class="row"><button class="btn" id="pp-del">Delete</button></div>';
+    document.getElementById('pp-pmat').addEventListener('change',ev=>{ it.material=ev.target.value; markDirty(); draw(); });
+    document.getElementById('pp-plabel').addEventListener('input',ev=>{ it.label=ev.target.value; markDirty(); draw(); });
+    document.getElementById('pp-del').addEventListener('click',deleteSel);
   } else { const it=doc.items[sel.i];
     let html='<div style="font-weight:600;color:var(--heading)">'+(it.type==='room'?'Room':it.type==='surface'?'Surface':it.type==='text'?'Label':(FIX[it.type]?FIX[it.type].label:'Item'))+'</div>';
     html+='<label>Label</label><input id="pp-label" value="'+escAttr(it.label||'')+'">';
@@ -688,8 +724,8 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Shift'){ shiftHeld=true; if(drawPts||roomDrag) draw(); }
   if(/input|textarea/i.test((e.target.tagName||''))) return;
   if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
-  else if(e.key==='Escape'){ if(drawPts){ tool==='poly' ? finishPoly() : finishWall(); } else { setTool('select'); } }
-  else if(e.key==='Enter'){ if(drawPts){ e.preventDefault(); tool==='poly' ? finishPoly() : finishWall(); } }
+  else if(e.key==='Escape'){ if(drawPts){ (tool==='poly'||tool==='polysurf') ? finishPoly() : finishWall(); } else { setTool('select'); } }
+  else if(e.key==='Enter'){ if(drawPts){ e.preventDefault(); (tool==='poly'||tool==='polysurf') ? finishPoly() : finishWall(); } }
   else if(e.key==='v') setTool('select');
   else if(e.key==='w') setTool('wall');
   else if(e.key==='r') setTool('room');
@@ -700,7 +736,7 @@ document.getElementById('z-in').onclick=()=>{ zoomAt(1.2); };
 document.getElementById('z-out').onclick=()=>{ zoomAt(0.83); };
 document.getElementById('z-fit').onclick=fitView;
 function zoomAt(f){ const cx=canvas.width/DPR/2, cy=canvas.height/DPR/2; const before=S2W(cx,cy); zoom=Math.max(4,Math.min(80,zoom*f)); const after=S2W(cx,cy); panX+=before.x-after.x; panY+=before.y-after.y; draw(); }
-function fitView(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{ if(it.type==='poly'){ (it.points||[]).forEach(p=>pts.push({x:p.x,y:p.y})); } else { pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2}); } });
+function fitView(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{ if(isPointItem(it.type)){ (it.points||[]).forEach(p=>pts.push({x:p.x,y:p.y})); } else { pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2}); } });
   if(!pts.length){ zoom=16; panX=-2; panY=-2; draw(); return; }
   let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity; pts.forEach(p=>{minx=Math.min(minx,p.x);miny=Math.min(miny,p.y);maxx=Math.max(maxx,p.x);maxy=Math.max(maxy,p.y);});
   const vw=canvas.width/DPR, vh=canvas.height/DPR; const pad=2; const zw=vw/((maxx-minx)+pad*2), zh=vh/((maxy-miny)+pad*2);
@@ -737,7 +773,7 @@ async function doPrint(orientation){ hideModal(); await loadLogo();
   w.document.close();
 }
 function loadLogo(){ return new Promise(res=>{ const url=companyProfile.logo; if(!url){ logoImg=null; return res(); } if(logoImg && logoImg.src===url){ return res(); } const im=new Image(); im.onload=()=>{ logoImg=im; res(); }; im.onerror=()=>{ logoImg=null; res(); }; im.src=url; }); }
-function planBounds(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{ if(it.type==='poly'){ (it.points||[]).forEach(p=>pts.push({x:p.x,y:p.y})); } else { pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2}); } });
+function planBounds(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{ if(isPointItem(it.type)){ (it.points||[]).forEach(p=>pts.push({x:p.x,y:p.y})); } else { pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2}); } });
   let minx=0,miny=0,maxx=20,maxy=15; if(pts.length){ minx=Math.min(...pts.map(p=>p.x));miny=Math.min(...pts.map(p=>p.y));maxx=Math.max(...pts.map(p=>p.x));maxy=Math.max(...pts.map(p=>p.y)); } return {minx,miny,maxx,maxy}; }
 function renderSheet(px, aspect){
   const k=px/1800;                         // scale factor for fonts/margins
@@ -822,6 +858,7 @@ function drawWallOn(c,wl){
   const len=dist(wl.x1,wl.y1,wl.x2,wl.y2); const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2}; if(len>0.5) labelOn(c,ftIn(len),mid.x,mid.y-8);
 }
 function drawItemOn(c,it){
+  if(it.type==='polysurface'){ drawPolySurface(c, it, false); return; }
   if(it.type==='poly'){ const pts=it.points||[]; if(pts.length<2) return; c.save();
     c.beginPath(); pts.forEach((p,i)=>{ const s=W2S(p); i?c.lineTo(s.x,s.y):c.moveTo(s.x,s.y); }); c.closePath();
     c.fillStyle='rgba(111,195,228,.10)'; c.fill(); c.strokeStyle='#3E7A96'; c.lineWidth=1.5; c.stroke();

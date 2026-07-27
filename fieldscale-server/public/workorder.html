@@ -101,6 +101,11 @@
       <button class="btn ghost" id="add-task" style="margin-top:6px">＋ Add task</button>
     </div>
 
+    <div class="block" id="job-materials-block" style="margin-bottom:18px;display:none">
+      <h3>Materials required for install <span style="font-size:12px;font-weight:400;color:var(--steel)">— from the linked job</span></h3>
+      <div id="job-materials"></div>
+    </div>
+
     <div class="grid2">
       <div class="block" style="margin-bottom:0"><h3>Materials needed</h3><textarea id="materials" placeholder="List materials to bring / order"></textarea></div>
       <div class="block" style="margin-bottom:0"><h3>Equipment needed</h3><textarea id="equipment" placeholder="Tools / equipment"></textarea></div>
@@ -177,8 +182,22 @@ function syncDocFromForm(){
 async function save(){
   syncDocFromForm();
   await apiFetch('/api/workorders/'+woId, { method:'PUT', body: JSON.stringify({
-    title:woTitle, assignee:val('assignee'), jobName:val('job-name'),
+    title:woTitle, assignee:val('assignee'), jobName:val('job-name'), jobId:jobIdVal||undefined,
     status:val('status'), scheduledDate:val('sched-date'), doc }) });
+}
+// Show the linked job's material-tracking list (read-only) so the crew sees what to install.
+async function loadJobMaterials(){
+  const block=document.getElementById('job-materials-block'), wrap=document.getElementById('job-materials');
+  if(!jobIdVal){ block.style.display='none'; return; }
+  try{
+    const j=await apiFetch('/api/jobs/'+jobIdVal);
+    const mats=(j.doc && j.doc.materials) || [];
+    if(!mats.length){ block.style.display='none'; return; }
+    wrap.innerHTML='<table class="lines" style="width:100%"><thead><tr><th>Material</th><th class="num">Qty</th><th>Unit</th><th>Supplier</th><th>Status</th></tr></thead><tbody>'+
+      mats.map(m=>`<tr><td>${escapeHtml(m.item||'')}</td><td class="num">${m.qty==null?'':m.qty}</td><td>${escapeHtml(m.unit||'')}</td><td>${escapeHtml(m.supplier||'')}</td><td>${escapeHtml(m.status||'')}</td></tr>`).join('')+
+      '</tbody></table>';
+    block.style.display='block';
+  }catch(e){ block.style.display='none'; }
 }
 document.getElementById('save-btn').addEventListener('click', async ()=>{ try{ await save(); toast('Work order saved.'); }catch(err){ toast(err.message,true); } });
 document.getElementById('pdf-btn').addEventListener('click', async ()=>{ try{ await save(); await openWorkOrderPDF(); }catch(err){ toast(err.message,true); } });
@@ -247,18 +266,19 @@ function fillForm(){
   set('instructions',doc.instructions); set('materials',doc.materials); set('equipment',doc.equipment); set('notes',doc.notes);
   renderTasks();
 }
-let assigneeVal='', jobNameVal='', schedVal='';
+let assigneeVal='', jobNameVal='', schedVal='', jobIdVal='';
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{
     const w = await apiFetch('/api/workorders/'+woId);
     woTitle=w.title||'Untitled Work Order'; statusVal=w.status||'open';
-    assigneeVal=w.assignee||''; jobNameVal=w.jobName||''; schedVal=w.scheduledDate||'';
+    assigneeVal=w.assignee||''; jobNameVal=w.jobName||''; schedVal=w.scheduledDate||''; jobIdVal=w.jobId||'';
     doc = Object.assign({ tasks:[] }, w.doc||{});
     doc.tasks = doc.tasks||[];
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     fillForm();
+    loadJobMaterials();
   }catch(err){ document.getElementById('loading').textContent='Could not load work order: '+err.message; }
 }
 init();

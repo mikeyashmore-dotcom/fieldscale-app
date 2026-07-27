@@ -94,6 +94,14 @@
       <tbody id="wip-rows"></tbody>
     </table></div>
 
+    <h2>Unbilled change orders</h2>
+    <p class="section-sub">Change orders you've created but not yet marked billed — so none slip through unbilled. Tick "Billed" on a change order (on its job) once it's been invoiced.</p>
+    <div class="tiles" id="unbilledco-tiles"></div>
+    <div class="card"><table>
+      <thead><tr><th>Change order</th><th>Job</th><th>Date</th><th>Status</th><th class="num">Amount</th></tr></thead>
+      <tbody id="unbilledco-rows"></tbody>
+    </table></div>
+
     <h2>Accounts receivable <button class="btn ghost" id="invcsv-btn" style="font-size:12px;padding:4px 12px;margin-left:8px" title="Download every invoice as a CSV you can import into QuickBooks, Xero or a spreadsheet">⬇ Export invoices (QuickBooks CSV)</button></h2>
     <p class="section-sub">Money customers still owe you — and how overdue it is (based on each invoice's due date).</p>
     <div class="tiles" id="ar-tiles"></div>
@@ -271,6 +279,22 @@ function renderWip(w){
     <td class="num ${r.variance<-0.005?'neg':(r.variance>0.005?'pos':'')}">${r.variance<0?'('+money(-r.variance)+')':money(r.variance)}</td>
   </tr>`).join('');
 }
+function renderUnbilledCOs(d){
+  const t=d.totals||{count:0,amount:0,approved:0};
+  document.getElementById('unbilledco-tiles').innerHTML =
+    tile('Unbilled change orders', t.count) +
+    tile('Total value', money(t.amount), t.amount>0.005?'neg':'') +
+    tile('Approved & unbilled', money(t.approved), t.approved>0.005?'neg':'');
+  const tb=document.getElementById('unbilledco-rows');
+  if(!d.rows.length){ tb.innerHTML='<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--steel)">No unbilled change orders — all caught up.</td></tr>'; return; }
+  tb.innerHTML=d.rows.map(r=>`<tr>
+    <td><a href="/job.html?id=${encodeURIComponent(r.jobId)}" style="color:var(--ink-navy)">${esc(r.title)}</a></td>
+    <td>${esc(r.job)}${r.client?`<div style="font-size:11px;color:var(--steel)">${esc(r.client)}</div>`:''}</td>
+    <td>${esc(r.date)||'—'}</td>
+    <td>${esc(r.status)}</td>
+    <td class="num">${money(r.amount)}</td>
+  </tr>`).join('');
+}
 function renderDashboard(a){
   document.getElementById('dash-tiles').innerHTML =
     tile('Invoiced (all time)', money(a.totalInvoiced)) +
@@ -310,6 +334,7 @@ async function init(){
     document.getElementById('content').style.display='block';
     try{ renderDashboard(await apiFetch('/api/reports/analytics')); }catch(e){}
     try{ renderWip(await apiFetch('/api/reports/wip')); }catch(e){}
+    try{ renderUnbilledCOs(await apiFetch('/api/reports/unbilled-co')); }catch(e){}
     setupAiRisk();
   }catch(err){ document.getElementById('loading').textContent='Could not load reports: '+err.message; }
 }

@@ -2691,6 +2691,26 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { rows, totals });
       }
 
+      // ---- Change orders created but not yet billed (each CO carries its own 'billed' flag) ----
+      if (pathname === '/api/reports/unbilled-co' && req.method === 'GET') {
+        if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'No access to financial reports.' });
+        const rows = [];
+        db.jobs.filter(j => j.companyId === me.companyId).forEach(j => {
+          const jd = readJobDoc(j.id) || {};
+          (jd.changeOrders || []).forEach(co => {
+            if (co.status === 'rejected' || co.billed) return;      // rejected or already billed → skip
+            const amount = Number(co.priceDelta) || (co.lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0);
+            rows.push({ jobId: j.id, job: j.name, client: j.client || '',
+              title: co.title || co.description || 'Change order', date: co.date || '',
+              status: co.status || 'pending', amount: Math.round(amount * 100) / 100 });
+          });
+        });
+        rows.sort((a, b) => b.amount - a.amount);
+        const totals = { count: rows.length, amount: Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100,
+          approved: Math.round(rows.filter(r => r.status === 'approved').reduce((s, r) => s + r.amount, 0) * 100) / 100 };
+        return sendJSON(res, 200, { rows, totals });
+      }
+
       // ---- Schedule: jobs with their start/due dates for the calendar ----
       if (pathname === '/api/schedule' && req.method === 'GET') {
         const list = db.jobs.filter(j => j.companyId === me.companyId)

@@ -93,6 +93,7 @@
       <button class="btn ghost fin-hide" id="portal-btn" title="Get a link the customer can open to see this job's status, estimates and invoices">🔗 Client portal</button>
       <button class="btn ghost" id="to-wo-btn" title="Make a work order for the crew">→ Work Order</button>
       <button class="btn ghost" id="to-invoice-btn" title="Bill this job">→ Invoice</button>
+      <button class="btn ghost fin-hide" id="complete-invoice-btn" title="Mark the job complete and create the final invoice">✅ Complete &amp; Invoice</button>
       <button class="btn ghost" id="pdf-btn" title="Print or save a job sheet">Generate PDF</button>
       <button class="btn primary" id="save-btn">Save</button>
     </div>
@@ -1078,6 +1079,7 @@ function renderChangeOrders(){
           <option value="approved"${co.status==='approved'?' selected':''}>Approved</option>
           <option value="rejected"${co.status==='rejected'?' selected':''}>Rejected</option>
         </select>
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap" title="Tick once this change order has been invoiced/billed"><input type="checkbox" data-ci="${i}" data-cf="billed" ${co.billed?'checked':''}/> Billed</label>
         <button class="rowdel" data-codel="${i}" title="Delete change order">✕</button>
       </div>
       <div class="lines-scroll"><table class="lines"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -1104,7 +1106,9 @@ document.getElementById('co-list').addEventListener('input', e=>{
   } else if(f==='title'||f==='date'){ co[f]=el.value; }
 });
 document.getElementById('co-list').addEventListener('change', e=>{
-  const el=e.target; if(el.getAttribute('data-cf')==='status'){ doc.changeOrders[Number(el.getAttribute('data-ci'))].status=el.value; renderCosting(); }
+  const el=e.target, f=el.getAttribute('data-cf');
+  if(f==='status'){ doc.changeOrders[Number(el.getAttribute('data-ci'))].status=el.value; renderCosting(); }
+  else if(f==='billed'){ doc.changeOrders[Number(el.getAttribute('data-ci'))].billed=el.checked; }
 });
 document.getElementById('co-list').addEventListener('click', e=>{
   const g=(a)=> e.target.getAttribute && e.target.getAttribute(a);
@@ -1333,6 +1337,38 @@ document.getElementById('to-invoice-btn').addEventListener('click', async ()=>{
   if(!confirm('Create an invoice from this job’s estimate?')) return;
   try{ await save(); const r=await apiFetch('/api/invoices/from-estimate',{method:'POST',body:JSON.stringify({estimateId:doc.fromEstimateId})}); location.href='/invoice.html?id='+encodeURIComponent(r.id); }
   catch(err){ toast(err.message,true); }
+});
+// Complete Job & Invoice — closeout warnings (change orders billed, lien waivers), mark complete, then bill.
+document.getElementById('complete-invoice-btn').addEventListener('click', ()=>{
+  const unbilled=(doc.changeOrders||[]).filter(c=>c.status!=='rejected' && !c.billed);
+  const coWarn = unbilled.length
+    ? `<div style="color:#C0392B;margin-bottom:10px">⚠ ${unbilled.length} change order${unbilled.length===1?'':'s'} not marked <b>Billed</b> — make sure ${unbilled.length===1?'it gets':'they get'} invoiced.</div>`
+    : `<div style="color:var(--good,#2e7d46);margin-bottom:10px">✓ All change orders are marked billed.</div>`;
+  if(typeof fsModal!=='function'){ toast('Please reload the page and try again.',true); return; }
+  fsModal({ title:'Complete job & invoice',
+    bodyHTML: coWarn +
+      '<label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px"><input type="checkbox" id="ci-co" style="margin-top:3px"> I’ve invoiced / billed any change orders on this job.</label>'+
+      '<label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px"><input type="checkbox" id="ci-lien" style="margin-top:3px"> I’ve collected any required lien waivers.</label>'+
+      '<p style="font-size:12px;color:var(--steel);margin:8px 0 0">This marks the job <b>Complete</b> and takes you to the invoice.</p>',
+    buttons:[
+      { label:'Complete & invoice', primary:true, onClick:async(close,card)=>{
+          if(!card.querySelector('#ci-co').checked || !card.querySelector('#ci-lien').checked){ toast('Please confirm both boxes first.',true); return false; }
+          close();
+          try{
+            const sel=document.getElementById('status'); if(sel) sel.value='complete';
+            await save();
+            if(doc.fromEstimateId){
+              const r=await apiFetch('/api/invoices/from-estimate',{method:'POST',body:JSON.stringify({estimateId:doc.fromEstimateId})});
+              location.href='/invoice.html?id='+encodeURIComponent(r.id);
+            } else {
+              toast('Job marked complete — no source estimate to auto-bill, opening invoices.');
+              setTimeout(()=>location.href='/invoices.html', 1000);
+            }
+          }catch(err){ toast(err.message,true); }
+        } },
+      { label:'Cancel' }
+    ]
+  });
 });
 
 function fillForm(){

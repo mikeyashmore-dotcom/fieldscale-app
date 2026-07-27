@@ -1074,6 +1074,11 @@
       <input id="sheet-search-input" placeholder="Search all sheets…" style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 22px 5px 7px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal)" />
       <span id="sheet-search-clear" title="Clear search" style="position:absolute;right:12px;top:4px;cursor:pointer;color:var(--steel);font-size:14px;display:none">✕</span>
       <div id="sheet-search-note" style="font-size:11px;color:var(--steel);padding:3px 2px 0"></div>
+      <div id="sheet-search-nav" style="display:none;align-items:center;gap:6px;margin-top:4px">
+        <button class="btn" id="sheet-search-prev" style="padding:2px 9px;font-size:13px" title="Previous match on this sheet">‹</button>
+        <button class="btn" id="sheet-search-next" style="padding:2px 9px;font-size:13px" title="Next match on this sheet">›</button>
+        <span id="sheet-search-matchcount" style="font-size:11px;color:var(--steel)"></span>
+      </div>
     </div>
     <div class="pages-list" id="pages-list"></div>
     <div class="pages-resize" id="pages-resize" title="Drag to resize the sheet list"></div>
@@ -2840,8 +2845,9 @@ document.getElementById('pages-reopen-tab').addEventListener('click', openPagesP
 })();
 
 // ---- #5 Sheet search: the 🔍 rail tool filters the Sheets list to pages containing a word,
-// with a per-sheet match count. Reuses the background text index via searchDocument().
-let sheetSearchActive=false, sheetSearchCounts={};
+// with a per-sheet match count. It ALSO highlights the matches on the sheet you're viewing and
+// lets you step through them with ‹ / › (or Enter). Reuses the background text index.
+let sheetSearchActive=false, sheetSearchCounts={}, sheetSearchQuery='', sheetSearchMatchIdx=-1;
 function toggleSheetSearch(){
   const wrap=document.getElementById('sheet-search-wrap');
   const open = wrap.style.display==='none';
@@ -2851,20 +2857,50 @@ function toggleSheetSearch(){
   else { clearSheetSearch(); }
 }
 function clearSheetSearch(){
-  sheetSearchActive=false; sheetSearchCounts={};
+  sheetSearchActive=false; sheetSearchCounts={}; sheetSearchQuery=''; sheetSearchMatchIdx=-1;
+  state.searchHighlightPage=null; state.searchHighlights=[];
   const inp=document.getElementById('sheet-search-input'); if(inp) inp.value='';
   const clr=document.getElementById('sheet-search-clear'); if(clr) clr.style.display='none';
   const note=document.getElementById('sheet-search-note'); if(note) note.textContent='';
-  renderPagesList();
+  updateSheetMatchNav();
+  renderPagesList(); redrawOverlay();
+}
+// Highlight the active query's matches on the CURRENT sheet (and reset the step index).
+function applyPageHighlights(results){
+  if(!sheetSearchActive || !sheetSearchQuery){ state.searchHighlightPage=null; state.searchHighlights=[]; sheetSearchMatchIdx=-1; updateSheetMatchNav(); redrawOverlay(); return; }
+  const res=(results||searchDocument(sheetSearchQuery)).find(r=>r.source==='main' && r.pageNum===state.pageNum);
+  state.searchHighlights = res ? res.matchingItems : [];
+  state.searchHighlightPage = res ? state.pageNum : null;
+  sheetSearchMatchIdx = -1;
+  updateSheetMatchNav(); redrawOverlay();
+}
+function updateSheetMatchNav(){
+  const nav=document.getElementById('sheet-search-nav'), cnt=document.getElementById('sheet-search-matchcount');
+  const n=(state.searchHighlightPage===state.pageNum)?state.searchHighlights.length:0;
+  if(nav) nav.style.display=(sheetSearchActive && n>0)?'flex':'none';
+  if(cnt) cnt.textContent = n ? ((sheetSearchMatchIdx>=0?(sheetSearchMatchIdx+1)+' / ':'')+n+' on this sheet') : '';
+}
+function centerOnBox(box){
+  if(!box || !els.stageWrap) return; const z=state.zoom||1;
+  els.stageWrap.scrollLeft=(box.x+box.width/2)*z - els.stageWrap.clientWidth/2;
+  els.stageWrap.scrollTop =(box.y+box.height/2)*z - els.stageWrap.clientHeight/2;
+}
+function gotoSheetMatch(dir){
+  if(state.searchHighlightPage!==state.pageNum || !state.searchHighlights.length) return;
+  const n=state.searchHighlights.length;
+  sheetSearchMatchIdx = sheetSearchMatchIdx<0 ? (dir<0?n-1:0) : (sheetSearchMatchIdx+dir+n)%n;
+  centerOnBox(state.searchHighlights[sheetSearchMatchIdx]);
+  updateSheetMatchNav(); redrawOverlay();
 }
 function runSheetSearch(q){
-  q=(q||'').trim();
+  q=(q||'').trim(); sheetSearchQuery=q;
   const note=document.getElementById('sheet-search-note');
   const clr=document.getElementById('sheet-search-clear'); if(clr) clr.style.display = q ? 'block' : 'none';
-  if(!q){ sheetSearchActive=false; sheetSearchCounts={}; if(note) note.textContent=''; renderPagesList(); return; }
+  if(!q){ clearSheetSearch(); return; }
   if(!state.pdfDoc) return;
+  const results=searchDocument(q);
   sheetSearchCounts={};
-  searchDocument(q).filter(r=>r.source==='main').forEach(r=>{ sheetSearchCounts[r.pageNum]=r.matchCount||1; });
+  results.filter(r=>r.source==='main').forEach(r=>{ sheetSearchCounts[r.pageNum]=r.matchCount||1; });
   sheetSearchActive=true;
   const nSheets=Object.keys(sheetSearchCounts).length;
   const nHits=Object.values(sheetSearchCounts).reduce((a,b)=>a+b,0);
@@ -2872,15 +2908,21 @@ function runSheetSearch(q){
     : nSheets ? (nSheets+' sheet'+(nSheets===1?'':'s')+' · '+nHits+' match'+(nHits===1?'':'es'))
     : 'No matches on any sheet.';
   renderPagesList();
+  applyPageHighlights(results);
 }
 (function(){
   const inp=document.getElementById('sheet-search-input');
   if(inp){
     inp.addEventListener('input', (e)=>runSheetSearch(e.target.value));
-    inp.addEventListener('keydown', (e)=>{ if(e.key==='Escape') toggleSheetSearch(); });
+    inp.addEventListener('keydown', (e)=>{
+      if(e.key==='Escape'){ toggleSheetSearch(); }
+      else if(e.key==='Enter'){ e.preventDefault(); gotoSheetMatch(e.shiftKey?-1:1); }
+    });
   }
   const clr=document.getElementById('sheet-search-clear');
   if(clr) clr.addEventListener('click', ()=>{ clearSheetSearch(); inp && inp.focus(); });
+  const prev=document.getElementById('sheet-search-prev'); if(prev) prev.addEventListener('click', ()=>gotoSheetMatch(-1));
+  const next=document.getElementById('sheet-search-next'); if(next) next.addEventListener('click', ()=>gotoSheetMatch(1));
 })();
 function renderPagesList(){
   const container = document.getElementById('pages-list');
@@ -2984,6 +3026,8 @@ function renderPagesList(){
       state.searchHighlightPage = null;
       state.searchHighlights = [];
       await renderPage();
+      // Keep an active sheet-search alive: re-highlight matches on the sheet you just opened.
+      if(sheetSearchActive) applyPageHighlights();
     });
   });
 }
@@ -5667,11 +5711,11 @@ function redrawOverlay(){
   // draw search-result highlights, if the current page has an active search match
   if(state.searchHighlightPage===state.pageNum && state.searchHighlights.length){
     octx.save();
-    octx.fillStyle = 'rgba(255,229,10,0.55)';
-    octx.strokeStyle = '#E8722C';
-    octx.lineWidth = 1.5;
-    state.searchHighlights.forEach(hi=>{
-      const pad=2;
+    state.searchHighlights.forEach((hi,idx)=>{
+      const pad=2, active=(idx===sheetSearchMatchIdx);
+      octx.fillStyle = active ? 'rgba(232,114,44,0.6)' : 'rgba(255,229,10,0.55)';
+      octx.strokeStyle = active ? '#C0392B' : '#E8722C';
+      octx.lineWidth = active ? 2.5 : 1.5;
       octx.fillRect(hi.x-pad, hi.y-pad, hi.width+pad*2, hi.height+pad*2);
       octx.strokeRect(hi.x-pad, hi.y-pad, hi.width+pad*2, hi.height+pad*2);
     });

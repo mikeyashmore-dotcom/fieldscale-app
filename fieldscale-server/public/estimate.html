@@ -150,13 +150,13 @@
           <div class="field"><label>Email</label><input id="co-email" /></div>
           <div class="field"><label>License #</label><input id="co-license" /></div>
         </div>
-        <div class="field"><label>Address</label><input id="co-address" /></div>
+        <div class="field"><label>Address</label><span id="co-addr"></span></div>
       </div>
       <div class="block">
         <h3>Client</h3>
         <div class="field"><label>Client name</label><input id="cl-name" placeholder="Customer name" /></div>
         <div class="field"><label>Client email</label><input id="cl-email" type="email" placeholder="name@email.com — used when you email the proposal" /></div>
-        <div class="field"><label>Client address</label><input id="cl-address" /></div>
+        <div class="field"><label>Client address</label><span id="cl-addr"></span></div>
         <div class="field"><label>Project / job</label><input id="project" placeholder="e.g. Kitchen remodel — 123 Main St" /></div>
         <div class="row3">
           <div class="field"><label>Estimate #</label><input id="est-no" /></div>
@@ -578,9 +578,10 @@ document.getElementById('t-disc-type').addEventListener('click', ()=>{
 // ---- collect the editable header fields back into `doc` ----
 function syncDocFromForm(){
   estName=document.getElementById('est-name').value || 'Untitled Estimate';
-  doc.company={ name:val('co-name'), phone:val('co-phone'), email:val('co-email'), license:val('co-license'), address:val('co-address'),
+  const coAddr=fsAddr.parts('co-addr'), clAddr=fsAddr.parts('cl-addr');
+  doc.company={ name:val('co-name'), phone:val('co-phone'), email:val('co-email'), license:val('co-license'), address:fsAddr.line(coAddr), addressParts:coAddr,
     website:(doc.company&&doc.company.website)||'', logo:(doc.company&&doc.company.logo)||'' };
-  doc.client={ name:val('cl-name'), email:val('cl-email'), address:val('cl-address') };
+  doc.client={ name:val('cl-name'), email:val('cl-email'), address:fsAddr.line(clAddr), addressParts:clAddr };
   doc.project=val('project'); doc.estimateNo=val('est-no'); doc.date=val('est-date'); doc.validUntil=val('est-valid');
   doc.notes=val('notes'); doc.terms=val('terms');
   doc.markupPct=parseFloat(document.getElementById('t-markup').value)||0;
@@ -607,6 +608,8 @@ function val(id){ return document.getElementById(id).value; }
 
 async function save(){
   if(window.__estLocked){ toast('This estimate is locked — click Edit Estimate to change it.', true); return; }
+  const aErr=fsAddr.validate('co-addr')||fsAddr.validate('cl-addr');
+  if(aErr){ toast(aErr, true); throw new Error(aErr); }
   syncDocFromForm();
   const total=computeTotals().total;
   const status=document.getElementById('est-status').value;
@@ -905,8 +908,10 @@ async function downloadProposalPDF(){
 function fillForm(){
   document.getElementById('est-name').value=estName;
   const co=doc.company||{}, cl=doc.client||{};
-  set('co-name',co.name); set('co-phone',co.phone); set('co-email',co.email); set('co-license',co.license); set('co-address',co.address);
-  set('cl-name',cl.name); set('cl-email',cl.email); set('cl-address',cl.address);
+  document.getElementById('co-addr').innerHTML=fsAddr.html('co-addr');
+  document.getElementById('cl-addr').innerHTML=fsAddr.html('cl-addr');
+  set('co-name',co.name); set('co-phone',co.phone); set('co-email',co.email); set('co-license',co.license); fsAddr.set('co-addr', co.addressParts||co.address);
+  set('cl-name',cl.name); set('cl-email',cl.email); fsAddr.set('cl-addr', cl.addressParts||cl.address);
   set('project',doc.project); set('est-no',doc.estimateNo); set('est-date',doc.date); set('est-valid',doc.validUntil);
   set('notes',doc.notes); set('terms',doc.terms);
   document.getElementById('t-markup').value=doc.markupPct||0;
@@ -966,7 +971,7 @@ async function init(){
     companyProfile = prof;
     if(!doc.company.name && !doc.company.phone && !doc.company.email && !doc.company.address){
       doc.company = { name:prof.name||'', phone:prof.phone||'', email:prof.email||'', license:prof.license||'',
-        website:prof.website||'', address:prof.address||'', logo:prof.logo||'' };
+        website:prof.website||'', address:prof.address||'', addressParts:prof.addressParts||null, logo:prof.logo||'' };
     }
     pricebook = pb.items || [];
     assemblies = pb.assemblies || [];

@@ -1168,7 +1168,7 @@
         </div>
         <div>
           <label>Project address</label>
-          <input type="text" id="np-address" placeholder="e.g. 1400 Ocean Blvd, Myrtle Beach, SC" autocomplete="off" />
+          <span id="np-addr"></span>
         </div>
         <div class="field-row">
           <div>
@@ -2335,7 +2335,8 @@ function openNewProjectModal(){
   document.getElementById('projects-popover').classList.remove('open');
   npMsg('');
   npDoc = null; npBuf = null; npSheets = [];
-  ['np-name','np-client','np-address','np-plan-date','np-bid-due'].forEach(id=> document.getElementById(id).value = '');
+  ['np-name','np-client','np-plan-date','np-bid-due'].forEach(id=> document.getElementById(id).value = '');
+  if(window.fsAddr){ document.getElementById('np-addr').innerHTML = fsAddr.html('np-addr'); }
   document.getElementById('np-discard').checked = false;
   document.getElementById('np-unsaved-row').style.display = projectHasWork() ? 'flex' : 'none';
   document.getElementById('np-drop-idle').style.display = 'block';
@@ -2513,8 +2514,10 @@ document.getElementById('np-start').addEventListener('click', async ()=>{
   if(!included.length){ npMsg('Keep at least one sheet — you can hide the rest.', 'error'); return; }
 
   npResetToBlank(document.getElementById('np-name').value.trim() || 'Untitled Project');
+  const npAddr = window.fsAddr ? fsAddr.parts('np-addr') : {street:'',city:'',state:'',zip:''};
   state.projectMeta = {
-    address:  document.getElementById('np-address').value.trim(),
+    address:  window.fsAddr ? fsAddr.line(npAddr) : '',
+    addressParts: npAddr,
     client:   document.getElementById('np-client').value.trim(),
     planDate: document.getElementById('np-plan-date').value,
     bidDue:   document.getElementById('np-bid-due').value

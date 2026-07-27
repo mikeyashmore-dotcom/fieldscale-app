@@ -525,11 +525,30 @@
     },
     set: function (p, val) {
       var g = function (s) { return document.getElementById(p + '-' + s); };
-      var o = (val && typeof val === 'object') ? val : { street: (typeof val === 'string' ? val : '') };
+      var o = (val && typeof val === 'object') ? val : this.parse(val);
       if (g('street')) g('street').value = o.street || '';
       if (g('city')) g('city').value = o.city || '';
       if (g('state')) g('state').value = o.state || '';
       if (g('zip')) g('zip').value = o.zip || '';
+    },
+    // Best-effort split of a legacy one-line address ("123 Main St, Columbia, SC 29201") into parts,
+    // so old records populate all four fields instead of dumping everything into Street.
+    parse: function (str) {
+      var out = { street: '', city: '', state: '', zip: '' };
+      if (!str || typeof str !== 'string') return out;
+      var parts = str.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      if (!parts.length) return out;
+      var last = parts[parts.length - 1];
+      var m = last.match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);   // "SC 29201"
+      if (m) { out.state = m[1]; out.zip = m[2]; parts.pop(); }
+      else if (/^\d{5}(-\d{4})?$/.test(last)) { out.zip = last; parts.pop(); }
+      else if (/^[A-Za-z]{2}$/.test(last)) { out.state = last; parts.pop(); }
+      var gotStateZip = !!(out.state || out.zip);
+      // A single remaining token is the city if we already pulled a state/zip (e.g. "Columbia, SC"),
+      // otherwise treat it as the street (e.g. "789 Pine Rd" with no city/state given).
+      if (parts.length >= 2 || (parts.length === 1 && gotStateZip)) out.city = parts.pop();
+      out.street = parts.join(', ');
+      return out;
     },
     parts: function (p) {
       var v = function (s) { var el = document.getElementById(p + '-' + s); return el ? String(el.value || '').trim() : ''; };

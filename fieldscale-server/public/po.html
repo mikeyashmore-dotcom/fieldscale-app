@@ -95,7 +95,7 @@
           <div class="field"><label>Contact</label><input id="sp-contact" /></div>
           <div class="field"><label>Phone / email</label><input id="sp-phone" /></div>
         </div>
-        <div class="field"><label>Address</label><input id="sp-address" /></div>
+        <div class="field"><label>Address</label><span id="sp-addr"></span></div>
       </div>
       <div class="block">
         <h3>Order details</h3>
@@ -239,11 +239,13 @@ function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
 function syncDocFromForm(){
   poName=val('po-name')||'Untitled PO';
-  doc.supplier={ name:val('sp-name'), contact:val('sp-contact'), phone:val('sp-phone'), address:val('sp-address') };
+  const spAddr=fsAddr.parts('sp-addr');
+  doc.supplier={ name:val('sp-name'), contact:val('sp-contact'), phone:val('sp-phone'), address:fsAddr.line(spAddr), addressParts:spAddr };
   doc.jobId=val('job-id'); doc.poNo=val('po-no'); doc.date=val('po-date'); doc.neededBy=val('po-need');
   doc.notes=val('notes');
 }
 async function save(){
+  const aErr=fsAddr.validate('sp-addr'); if(aErr){ toast(aErr,true); throw new Error(aErr); }
   syncDocFromForm();
   await apiFetch('/api/purchase-orders/'+poId, { method:'PUT', body: JSON.stringify({
     name:poName, supplier:doc.supplier.name, jobId:doc.jobId||'', total:total(), status:val('status'), doc }) });
@@ -328,7 +330,8 @@ function fillJobs(jobs){
 function fillForm(){
   set('po-name',poName);
   const sp=doc.supplier||{};
-  set('sp-name',sp.name); set('sp-contact',sp.contact); set('sp-phone',sp.phone); set('sp-address',sp.address);
+  document.getElementById('sp-addr').innerHTML=fsAddr.html('sp-addr');
+  set('sp-name',sp.name); set('sp-contact',sp.contact); set('sp-phone',sp.phone); fsAddr.set('sp-addr', sp.addressParts||sp.address);
   set('po-no',doc.poNo); set('po-date',doc.date); set('po-need',doc.neededBy); set('notes',doc.notes);
   document.getElementById('job-id').value=doc.jobId||'';
 }

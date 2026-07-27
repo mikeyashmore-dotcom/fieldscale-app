@@ -4018,6 +4018,19 @@ els.overlay.addEventListener('mousemove',(e)=>{
 });
 
 els.overlay.addEventListener('mouseup',(e)=>{
+  // Releasing the legend must be handled BEFORE the select-tool branch — grabbing the legend in
+  // Select mode also sets isDown, so without this the drag/resize never clears (legend sticks to
+  // the mouse). Check it first.
+  if(legendResize){
+    legendResize = null; isDown = false; markDirty();
+    els.overlay.style.cursor = (state.tool==='pan'||state.tool==='select') ? 'default' : 'crosshair';
+    return;
+  }
+  if(legendDrag){
+    legendDrag = null; isDown = false; markDirty();
+    els.overlay.style.cursor = (state.tool==='pan'||state.tool==='select') ? 'default' : 'crosshair';
+    return;
+  }
   if(state.tool==='select' && isDown){
     isDown = false;
     if(state.vertexDrag){
@@ -4039,16 +4052,6 @@ els.overlay.addEventListener('mouseup',(e)=>{
     }
     selectionSummary();
     redrawOverlay();
-    return;
-  }
-  if(legendResize){
-    legendResize = null; isDown = false; markDirty();
-    els.overlay.style.cursor = (state.tool==='pan'||state.tool==='select') ? 'default' : 'crosshair';
-    return;
-  }
-  if(legendDrag){
-    legendDrag = null; markDirty();
-    els.overlay.style.cursor = (state.tool==='pan'||state.tool==='select') ? 'default' : 'crosshair';
     return;
   }
   if(state.tool==='ai-select' && isDown){
@@ -4383,6 +4386,19 @@ els.overlay.addEventListener('dblclick',(e)=>{
     if(hit && hit.kind==='anno' && hit.anno && hit.anno.kind==='text'){
       const nv = prompt('Edit text:', hit.anno.text||'');
       if(nv!==null){ hit.anno.text = nv.trim(); markDirty(); redrawOverlay(); }
+      return;
+    }
+    // Double-click a drawn wall/area/count → re-arm that takeoff type to keep drawing more of it.
+    if(hit && ['wall','area','count'].includes(hit.kind)){
+      const cat = hit.kind;
+      const typeId = cat==='wall' ? (state.walls.find(w=>w.id===hit.id)||{}).typeId
+                   : cat==='area' ? (state.areas.find(a=>a.id===hit.id)||{}).typeId
+                   : (state.items.find(it=>it.id===hit.id)||{}).typeId;
+      if(typeId && (state.typeLibrary[cat]||[]).find(t=>t.id===typeId)){
+        state.activeType[cat] = typeId;
+        populateTypeDropdown(cat);
+        activateTool(cat);
+      }
     }
   }
 });
@@ -4420,16 +4436,11 @@ window.addEventListener('keydown',(e)=>{
 
   if(e.key==='Enter'){ finishCurrentDrawing(); }
   if(e.key==='Escape'){
-    state.marquee=null;
-    if(['wall','area','linear','count','markup','cutout','measure','calibrate'].includes(state.tool)){
-      // Cancel whatever's being drawn and drop straight back into Select.
-      state.drawing=null; state.cutTargetId=null;
-      els.hud.style.display='none';
-      activateTool('select');
-    } else {
-      state.drawing=null; clearSelection();
-      redrawOverlay(); els.hud.style.display='none'; hideHint();
-    }
+    // Escape from ANY tool cancels what's in progress and drops fully back into Select.
+    state.marquee=null; state.drawing=null; state.cutTargetId=null;
+    els.hud.style.display='none'; hideHint(); clearSelection();
+    activateTool('select');
+    redrawOverlay();
     updateFinishBtn();
   }
 });

@@ -120,7 +120,7 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;'
 // Quick-link cards, grouped to match the top-nav sections (Leads / Takeoff / Estimate / Job /
 // Invoice) plus an Account & setup group for the rest. Each ties to a module so we can hide ones
 // the company isn't on.
-const CARD_GROUPS = ['Leads', 'Takeoff', 'Estimate', 'Job', 'Invoice', 'Account & setup'];
+const CARD_GROUPS = ['Leads', 'Estimate', 'Job', 'Invoice', 'Takeoff', 'Account & setup'];
 const CARDS=[
   {href:'/leads.html',icon:'🎯',t:'Leads',d:'New opportunities',mod:'crm',group:'Leads'},
   {href:'/customers.html',icon:'👥',t:'Customers',d:'Everyone in one place',mod:'crm',group:'Leads'},
@@ -134,7 +134,7 @@ const CARDS=[
   {href:'/schedule.html',icon:'📅',t:'Schedule',d:'Jobs on a calendar',mod:'jobs',group:'Job'},
   {href:'/workorders.html',icon:'🧾',t:'Work Orders',d:'Send crews out',mod:'jobs',group:'Job'},
   {href:'/purchase-orders.html',icon:'📦',t:'Purchase Orders',d:'Order materials',mod:'jobs',group:'Job'},
-  {href:'/subs.html',icon:'🤝',t:'Subcontractors',d:'Subs & compliance',mod:'jobs',group:'Job'},
+  {href:'/subs.html',icon:'🤝',t:'Subs & Vendors',d:'Subs & compliance',mod:'jobs',group:'Job'},
   {href:'/invoices.html',icon:'💵',t:'Invoices',d:'Bill & get paid',mod:'invoicing',group:'Invoice'},
   {href:'/reports.html',icon:'📊',t:'Reports',d:'The full picture',mod:null,group:'Invoice'},
   {href:'/employees.html',icon:'👷',t:'Employees',d:'Crew, rates & payroll #',mod:null,group:'Account & setup'},

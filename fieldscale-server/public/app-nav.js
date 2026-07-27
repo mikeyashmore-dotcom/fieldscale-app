@@ -39,13 +39,13 @@
 
   // The menu: a few top groups, each with items (or a direct link). module gates visibility;
   // items with no module are always shown. Company/Owner live on the right as account links.
+  // Header order (Mike's spec): Leads · Estimate · Job · Invoice · Takeoff.
   var MENU = [
     { label: 'Leads', items: [
       { label: 'Leads', href: '/leads.html', module: 'crm' },
       { label: 'Customers', href: '/customers.html', module: 'crm' },
       { label: 'Follow-ups', href: '/followups.html' }
     ] },
-    { label: 'Takeoff', href: '/', module: 'takeoff' },
     { label: 'Estimate', items: [
       { label: 'Estimates', href: '/proposals.html', module: 'estimating' },
       { label: 'Price Book', href: '/estimates.html', module: 'estimating' },
@@ -57,12 +57,13 @@
       { label: 'Schedule', href: '/schedule.html', module: 'jobs' },
       { label: 'Work Orders', href: '/workorders.html', module: 'jobs' },
       { label: 'Purchase Orders', href: '/purchase-orders.html', module: 'jobs' },
-      { label: 'Subcontractors', href: '/subs.html', module: 'jobs' }
+      { label: 'Subs & Vendors', href: '/subs.html', module: 'jobs' }
     ] },
     { label: 'Invoice', items: [
       { label: 'Invoices', href: '/invoices.html', module: 'invoicing' },
       { label: 'Reports', href: '/reports.html' }
-    ] }
+    ] },
+    { label: 'Takeoff', href: '/', module: 'takeoff' }
   ];
   var ACCOUNT = [
     { label: 'Employees', href: '/employees.html' },

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Fieldscale — Subcontractors</title>
+<title>Fieldscale — Subs &amp; Vendors</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/fs-theme.css">
@@ -52,7 +52,7 @@
 <div class="wrap">
   <div id="loading" class="loading" style="padding:40px;text-align:center;color:var(--steel)">Loading…</div>
   <div id="content" style="display:none">
-    <h1 style="font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px">Subcontractors</h1>
+    <h1 style="font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px">Subs &amp; Vendors</h1>
     <p class="sub-head">Your subs and their compliance — W-9 on file, insurance (COI) and license expiration dates. Fieldscale flags anything expired or expiring within 30 days so you don't assign an out-of-compliance sub.</p>
 
     <div class="alertbar" id="alertbar"></div>
@@ -120,7 +120,7 @@ function render(){
   if(!subs.length){ tb.innerHTML=`<tr><td colspan="10" class="empty">No subcontractors yet.${canEdit?' Click <strong>＋ Add subcontractor</strong>.':''}</td></tr>`; renderAlerts(); return; }
   const dis = canEdit ? '' : 'disabled';
   tb.innerHTML=subs.map((s,i)=>`<tr>
-    <td><input data-i="${i}" data-f="name" value="${esc(s.name)}" placeholder="Company / name" ${dis} /></td>
+    <td><input data-i="${i}" data-f="name" value="${esc(s.name)}" placeholder="Company / name" ${dis} />${complianceBadge(s)}</td>
     <td><input data-i="${i}" data-f="trade" value="${esc(s.trade)}" placeholder="e.g. Electrical" ${dis} /></td>
     <td><input data-i="${i}" data-f="contact" value="${esc(s.contact)}" placeholder="Contact person" ${dis} /></td>
     <td><input data-i="${i}" data-f="phone" value="${esc(s.phone)}" placeholder="000-000-0000" ${dis} /></td>
@@ -133,6 +133,19 @@ function render(){
   </tr>`).join('');
   renderAlerts();
 }
+// Which compliance docs are NOT in the system for this sub/vendor.
+function complianceMissing(s){
+  const hasCOI = (s.docs||[]).some(d=>d.kind==='coi') || !!s.coiExpires;
+  const hasW9 = !!s.w9 || (s.docs||[]).some(d=>d.kind==='w9');
+  const hasLicense = !!s.licenseExpires;
+  const miss=[]; if(!hasCOI) miss.push('COI'); if(!hasW9) miss.push('W-9'); if(!hasLicense) miss.push('license');
+  return miss;
+}
+function complianceBadge(s){
+  if(!s.name) return '';
+  const miss=complianceMissing(s);
+  return miss.length ? ` <span title="Missing: ${esc(miss.join(', '))}" style="color:#C0392B;font-weight:700;cursor:help">⚠</span>` : '';
+}
 function renderAlerts(){
   const issues=[];
   subs.forEach(s=>{
@@ -141,7 +154,7 @@ function renderAlerts(){
     else if(expStatus(s.coiExpires)==='soon') issues.push(`${nm}: insurance expiring soon`);
     if(expStatus(s.licenseExpires)==='exp') issues.push(`${nm}: license expired`);
     else if(expStatus(s.licenseExpires)==='soon') issues.push(`${nm}: license expiring soon`);
-    if(s.name && !s.w9) issues.push(`${nm}: no W-9 on file`);
+    if(s.name){ const miss=complianceMissing(s); if(miss.length) issues.push(`${nm}: missing ${miss.join(', ')} on file`); }
   });
   const bar=document.getElementById('alertbar');
   if(issues.length){ bar.style.display='block'; bar.innerHTML='⚠ '+issues.map(esc).join(' · '); }

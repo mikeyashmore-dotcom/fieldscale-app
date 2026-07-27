@@ -741,8 +741,7 @@ function setupSectionToggles(){
   list.innerHTML = rows.join('');
   const hdr=document.getElementById('sec-hdr'), caret=document.getElementById('sec-caret');
   hdr.addEventListener('click', ()=>{ const open=list.style.display==='none'; list.style.display=open?'flex':'none'; caret.textContent=open?'▴':'▾'; });
-  // If this job already hides some sections, open the panel so it's obvious why tables are missing.
-  if(doc.hiddenSections.length){ list.style.display='flex'; caret.textContent='▴'; }
+  // Collapsed by default — Mike's preference. Click the header to expand it.
   list.addEventListener('change', async e=>{
     const key = e.target.getAttribute && e.target.getAttribute('data-seckey'); if(!key) return;
     const el = els[key]; if(!el) return;
@@ -1115,9 +1114,19 @@ document.getElementById('co-list').addEventListener('click', e=>{
   const pd=g('data-copdf'); if(pd!==null&&pd!==undefined){ openChangeOrderPDF(doc.changeOrders[Number(pd)]); return; }
   const em=g('data-coemail'); if(em!==null&&em!==undefined){ emailChangeOrder(doc.changeOrders[Number(em)]); return; }
 });
+// Default change-order number: CO #01, CO #02… If the contractor renamed the last one to their
+// own scheme (any prefix ending in a number), keep counting in THAT scheme.
+function nextCOTitle(){
+  const cos=doc.changeOrders||[];
+  for(let i=cos.length-1;i>=0;i--){
+    const t=(cos[i].title||'').trim(); const m=t.match(/^(.*?)(\d+)\s*$/);
+    if(m){ return m[1] + String(parseInt(m[2],10)+1).padStart(m[2].length,'0'); }
+  }
+  return 'CO #'+String(cos.length+1).padStart(2,'0');
+}
 document.getElementById('add-co').addEventListener('click', ()=>{
   doc.changeOrders=doc.changeOrders||[];
-  doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), title:'', date:'', status:'pending', costDelta:0, lines:[{id:'col_'+Math.random().toString(16).slice(2,8),name:'',qty:1,unit:'',unitPrice:0}] });
+  doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), title:nextCOTitle(), date:'', status:'pending', costDelta:0, lines:[{id:'col_'+Math.random().toString(16).slice(2,8),name:'',qty:1,unit:'',unitPrice:0}] });
   renderChangeOrders();
 });
 function openChangeOrderPDF(co){
@@ -1423,7 +1432,8 @@ function setupAiJob(){
       render:(r)=>{ const c=r.changeOrder||{}; return (c.title?c.title+'\n\n':'')+(c.scope||'')+(c.reason?('\n\nReason: '+c.reason):'')+(c.priceNote?('\n\nPricing: '+c.priceNote):''); },
       insertLabel:'Add as change order',
       onInsert:(text,r)=>{ const c=r.changeOrder||{}; doc.changeOrders=doc.changeOrders||[];
-        doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), description:((c.title?c.title+' — ':'')+(c.scope||'')).slice(0,500), priceDelta:0, costDelta:0, status:'pending' });
+        doc.changeOrders.push({ id:'co_'+Math.random().toString(16).slice(2,8), title:(c.title||nextCOTitle()), date:'', status:'pending', costDelta:0,
+          lines:[{ id:'col_'+Math.random().toString(16).slice(2,8), name:(c.scope||c.title||'').slice(0,200), qty:1, unit:'', unitPrice:0 }] });
         renderChangeOrders(); toast('Change order added — set the price.'); }
     });
   });

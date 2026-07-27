@@ -3406,7 +3406,23 @@ function undoLastPoint(){
 
 // Snaps a raw point to horizontal/vertical relative to the last placed point.
 // Holding Shift temporarily inverts whichever mode is active (standard CAD convention).
+// Snap to a nearby existing takeoff vertex (endpoint of a wall/area/count, or the
+// first point of the shape being drawn) — so runs join up and shapes close cleanly.
+function snapToVertex(p){
+  const tol = 11/state.zoom;   // ~11px on screen, regardless of zoom
+  let best=null, bestD=tol;
+  const consider=(v)=>{ if(!v||v.x==null) return; const d=dist(p,v); if(d<bestD){ bestD=d; best=v; } };
+  const onPage=(o)=> (o.pageNum||1)===state.pageNum;
+  (state.walls||[]).forEach(w=>{ if(onPage(w)) (w.points||[]).forEach(consider); });
+  (state.areas||[]).forEach(a=>{ if(onPage(a)) (a.points||[]).forEach(consider); });
+  (state.items||[]).forEach(it=>{ if(it.category==='count' && it.point && onPage(it)) consider(it.point); });
+  // the first point of the shape currently being drawn (lets you close an area/wall onto its start)
+  if(state.drawing && state.drawing.points && state.drawing.points.length>=2) consider(state.drawing.points[0]);
+  return best ? {x:best.x, y:best.y} : null;
+}
 function applySnap(lastPoint, rawPoint){
+  const v = snapToVertex(rawPoint);
+  if(v) return v;   // snapping onto a real point wins over ortho
   const effectiveOrtho = state.shiftHeld ? (state.snapMode!=='ortho') : (state.snapMode==='ortho');
   if(!effectiveOrtho || !lastPoint) return rawPoint;
   const dx = rawPoint.x-lastPoint.x, dy = rawPoint.y-lastPoint.y;

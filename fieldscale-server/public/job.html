@@ -325,13 +325,23 @@
     </div>
 
     <div class="block" style="padding:0;overflow:hidden">
-      <div style="padding:14px 14px 0"><h3 style="margin:0">RFIs &amp; submittals</h3>
-        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Track requests for information and submittals — what was sent, to whom, and where it stands.</p></div>
+      <div style="padding:14px 14px 0"><h3 style="margin:0">RFIs</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Requests for information — what you asked, to whom, and where it stands.</p></div>
       <div class="lines-scroll"><table class="lines">
-        <thead><tr><th>Subject</th><th>Type</th><th>To</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <thead><tr><th>Subject</th><th>To</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
         <tbody id="rfi-lines"></tbody>
       </table></div>
-      <div style="padding:10px 14px"><button class="btn ghost" id="add-rfi">＋ Add RFI / submittal</button></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-rfi">＋ Add RFI</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Submittals</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Product data, samples and shop drawings sent for approval — what was sent, to whom, and where it stands.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Item</th><th>To</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="sub-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-sub">＋ Add submittal</button></div>
     </div>
 
     <div class="block" style="padding:0;overflow:hidden">
@@ -692,7 +702,8 @@ const SECTION_DEFS = [
   ['selections','Customer selections & allowances'],
   ['materials','Material tracking'],
   ['inspections','Inspections & deliveries'],
-  ['rfis','RFIs & submittals'],
+  ['rfis','RFIs'],
+  ['submittals','Submittals'],
   ['warranty','Warranty'],
   ['notes','Notes'],
   ['clientmsg','Message to client'],
@@ -775,12 +786,18 @@ const renderInspections = bindListSection('inspections','insp-lines','add-insp',
 ], ()=>({label:'',type:'Inspection',date:'',status:'Scheduled',notes:''}));
 const renderRfis = bindListSection('rfis','rfi-lines','add-rfi',[
   {f:'subject',ph:'e.g. Beam size clarification'},
-  {f:'type',type:'select',opts:['RFI','Submittal']},
   {f:'to',ph:'Architect / GC'},
   {f:'date',type:'date'},
-  {f:'status',type:'select',opts:['Open','Answered','Approved','Rejected','Closed']},
+  {f:'status',type:'select',opts:['Open','Answered','Closed']},
   {f:'notes',ph:''}
 ], ()=>({subject:'',type:'RFI',to:'',date:'',status:'Open',notes:''}));
+const renderSubmittals = bindListSection('submittals','sub-lines','add-sub',[
+  {f:'subject',ph:'e.g. Window product data'},
+  {f:'to',ph:'Architect / GC'},
+  {f:'date',type:'date'},
+  {f:'status',type:'select',opts:['Draft','Sent','Approved','Rejected','Closed']},
+  {f:'notes',ph:''}
+], ()=>({subject:'',type:'Submittal',to:'',date:'',status:'Draft',notes:''}));
 document.getElementById('tasks-wrap').addEventListener('input', e=>{
   const t=e.target.getAttribute('data-tt'); if(t!==null){ doc.tasks[t].text=e.target.value; }
 });
@@ -1151,7 +1168,8 @@ async function openJobPDF(){
     + ((doc.selections||[]).length?`<div class="sec"><h4>Selections &amp; allowances</h4></div><table><thead><tr><th>Item</th><th class="r">Allowance</th><th class="r">Actual</th><th>Status</th></tr></thead><tbody>${doc.selections.map(s=>`<tr><td>${escapeHtml(s.item)}</td><td class="r">${money(s.allowance)}</td><td class="r">${money(s.actual)}</td><td>${escapeHtml(s.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + ((doc.materials||[]).length?`<div class="sec"><h4>Materials</h4></div><table><thead><tr><th>Material</th><th class="r">Qty</th><th>Unit</th><th>Supplier</th><th>Status</th></tr></thead><tbody>${doc.materials.map(m=>`<tr><td>${escapeHtml(m.item)}</td><td class="r">${Number(m.qty)||0}</td><td>${escapeHtml(m.unit||'')}</td><td>${escapeHtml(m.supplier||'')}</td><td>${escapeHtml(m.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + ((doc.inspections||[]).length?`<div class="sec"><h4>Inspections &amp; deliveries</h4></div><table><thead><tr><th>What</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody>${doc.inspections.map(x=>`<tr><td>${escapeHtml(x.label)}</td><td>${escapeHtml(x.type||'')}</td><td>${escapeHtml(pdfDate(x.date))}</td><td>${escapeHtml(x.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
-    + ((doc.rfis||[]).length?`<div class="sec"><h4>RFIs &amp; submittals</h4></div><table><thead><tr><th>Subject</th><th>Type</th><th>To</th><th>Date</th><th>Status</th></tr></thead><tbody>${doc.rfis.map(x=>`<tr><td>${escapeHtml(x.subject)}</td><td>${escapeHtml(x.type||'')}</td><td>${escapeHtml(x.to||'')}</td><td>${escapeHtml(pdfDate(x.date))}</td><td>${escapeHtml(x.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.rfis||[]).length?`<div class="sec"><h4>RFIs</h4></div><table><thead><tr><th>Subject</th><th>To</th><th>Date</th><th>Status</th></tr></thead><tbody>${doc.rfis.map(x=>`<tr><td>${escapeHtml(x.subject)}</td><td>${escapeHtml(x.to||'')}</td><td>${escapeHtml(pdfDate(x.date))}</td><td>${escapeHtml(x.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
+    + ((doc.submittals||[]).length?`<div class="sec"><h4>Submittals</h4></div><table><thead><tr><th>Item</th><th>To</th><th>Date</th><th>Status</th></tr></thead><tbody>${doc.submittals.map(x=>`<tr><td>${escapeHtml(x.subject)}</td><td>${escapeHtml(x.to||'')}</td><td>${escapeHtml(pdfDate(x.date))}</td><td>${escapeHtml(x.status||'')}</td></tr>`).join('')}</tbody></table>`:'')
     + (doc.notes?`<div class="sec"><h4>Notes</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:'')
     + `<div class="foot">${escapeHtml(co.name||'')} — job sheet</div>`;
   printWindow(jobName||'Job', body);
@@ -1187,7 +1205,7 @@ function fillForm(){
   renderSelections();
   renderMaterials();
   renderInspections();
-  renderRfis();
+  renderRfis(); renderSubmittals();
   renderDraws();
   renderWarranty();
   renderTime();
@@ -1208,7 +1226,12 @@ async function init(){
     doc.client = doc.client||{}; doc.lines = doc.lines||[]; doc.changeOrders = doc.changeOrders||[];
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
     doc.tasks = doc.tasks||[]; doc.punch = doc.punch||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
-    doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[]; doc.rfis = doc.rfis||[];
+    doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[]; doc.rfis = doc.rfis||[]; doc.submittals = doc.submittals||[];
+    // One-time migration: the old combined list stored submittals in doc.rfis with type:'Submittal'. Move them out.
+    if(doc.rfis.some(r=>r.type==='Submittal')){
+      doc.submittals = doc.submittals.concat(doc.rfis.filter(r=>r.type==='Submittal'));
+      doc.rfis = doc.rfis.filter(r=>r.type!=='Submittal');
+    }
     receipts = j.receipts || [];
     // Migrate a legacy single "actual cost to date" number into one logged line so nothing is lost.
     if(!doc.costs.length && doc.costing && Number(doc.costing.actualCost)>0){

@@ -2041,7 +2041,9 @@ const server = http.createServer(async (req, res) => {
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         if (req.method === 'GET') {
           return sendJSON(res, 200, { id: est.id, name: est.name, client: est.client, total: est.total,
-            status: est.status, jobId: est.jobId || '', createdAt: est.createdAt, updatedAt: est.updatedAt, doc: readEstimateDoc(est.id) });
+            status: est.status, jobId: est.jobId || '',
+            jobNumber: est.jobId ? ((db.jobs.find(j => j.id === est.jobId) || {}).number || '') : '',
+            createdAt: est.createdAt, updatedAt: est.updatedAt, doc: readEstimateDoc(est.id) });
         }
         if (req.method === 'PUT') {
           // Once an estimate is converted to a job it's locked — the job is the source of truth from then on.

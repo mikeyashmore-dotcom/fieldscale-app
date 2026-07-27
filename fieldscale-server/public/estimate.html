@@ -131,8 +131,8 @@
       <button class="btn ghost" id="save-tpl-btn" title="Save these line items, markup, tax, notes & terms as a reusable template">Save as Template</button>
       <button class="btn primary" id="share-btn" title="Email the customer their proposal with an online approve button">✉ Email for approval</button>
       <button class="btn ghost" id="email-btn" title="Open your own email app with the proposal link ready to send">Open in email app</button>
-      <button class="btn ghost" id="contract-btn" title="Generate a contract from this estimate using your company contract template">📄 Contract</button>
       <button class="btn ghost" id="to-job-btn" title="Turn this into a scheduled job">Convert to Job</button>
+      <button class="btn ghost" id="job-badge-btn" style="display:none" disabled title="This estimate was converted to a job">Job</button>
       <button class="btn ghost" id="download-pdf-btn" title="Download a PDF file">⬇ Download PDF</button>
       <button class="btn primary" id="pdf-btn">Generate PDF</button>
     </div>
@@ -198,7 +198,7 @@
     </div>
 
     <div id="tko-overlay" style="position:fixed;inset:0;background:rgba(14,42,71,.5);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 12px;overflow:auto">
-      <div style="background:var(--surface);border-radius:6px;width:520px;max-width:96vw;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+      <div style="background:var(--surface);border-radius:6px;width:640px;max-width:96vw;box-shadow:0 20px 50px rgba(0,0,0,.3)">
         <div style="padding:16px 18px;border-bottom:1px solid var(--paper-line);display:flex;align-items:center;gap:10px">
           <h3 style="font-family:'Oswald',sans-serif;margin:0;color:var(--heading);font-size:17px;flex:1">Pull items from a Takeoff</h3>
           <button class="btn ghost" id="tko-close" type="button">✕</button>
@@ -498,12 +498,19 @@ document.getElementById('tko-project').addEventListener('change', async e=>{
     const proj=await apiFetch('/api/projects/'+id);
     const sum=(proj.data&&proj.data.takeoffSummary)||[];
     if(!sum.length){ box.innerHTML='<div style="color:var(--steel);font-size:13px;padding:8px 0">No measured items on this takeoff yet. Open it, take off some quantities and save, then try again.</div>'; return; }
-    const inp='width:58px;padding:4px 6px;border:1px solid var(--steel-light);border-radius:4px;font-size:12.5px;text-align:right';
-    box.innerHTML=`<div style="display:flex;gap:8px;font-size:10.5px;color:var(--steel);text-transform:uppercase;letter-spacing:.4px;padding:0 4px 4px"><span style="flex:1"></span><span style="width:70px;text-align:right">Qty</span><span style="width:58px;text-align:right">Waste %</span><span style="width:58px;text-align:right">± Qty</span></div>`
-      + sum.map((r,i)=>`<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--paper-line);font-size:13.5px">
-      <input type="checkbox" class="tko-cb" data-i="${i}" checked style="flex:none"/>
-      <span style="flex:1;min-width:0">${escapeHtml(r.label)}<span style="color:var(--steel);font-size:12px"> · ${escapeHtml(r.trade||'')}</span>${r.description?`<span style="display:block;font-size:11px;color:var(--steel)">${escapeHtml(r.description)}</span>`:''}</span>
-      <span style="width:70px;text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--heading);white-space:nowrap">${r.qty} ${escapeHtml(r.unit||'')}</span>
+    const cols='grid-template-columns:20px minmax(0,1fr) 96px 62px 62px;';
+    const inp='width:100%;box-sizing:border-box;padding:5px 6px;border:1px solid var(--steel-light);border-radius:4px;font-size:12.5px;text-align:right';
+    box.innerHTML=`<div style="display:grid;${cols}gap:8px;align-items:end;font-size:10px;color:var(--steel);text-transform:uppercase;letter-spacing:.4px;padding:0 2px 6px">
+        <span></span><span></span><span style="text-align:right">Qty</span><span style="text-align:center">Waste %</span><span style="text-align:center">± Qty</span>
+      </div>`
+      + sum.map((r,i)=>`<div style="display:grid;${cols}gap:8px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--paper-line)">
+      <input type="checkbox" class="tko-cb" data-i="${i}" checked style="justify-self:center"/>
+      <span style="min-width:0">
+        <span style="font-weight:600;color:var(--heading);font-size:13px">${escapeHtml(r.label)}</span>
+        ${r.description?`<span style="display:block;font-size:11.5px;color:var(--steel);line-height:1.35">${escapeHtml(r.description)}</span>`:''}
+        <span style="display:block;font-size:10.5px;color:var(--steel-light);text-transform:uppercase;letter-spacing:.3px">${escapeHtml(r.trade||'')}</span>
+      </span>
+      <span style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--heading);font-size:13px;white-space:nowrap">${r.qty} ${escapeHtml(r.unit||'')}</span>
       <input class="tko-waste" data-i="${i}" type="number" step="any" placeholder="0" title="Waste factor — adds (or subtracts, if negative) this percent" style="${inp}"/>
       <input class="tko-adj" data-i="${i}" type="number" step="any" placeholder="0" title="Add or subtract a flat quantity" style="${inp}"/>
     </div>`).join('');
@@ -703,31 +710,6 @@ By signing below, both parties agree to the scope and price above.
 Customer: _______________________   Date: __________
 
 Contractor ({{company}}): _______________________   Date: __________`;
-document.getElementById('contract-btn').addEventListener('click', ()=>{
-  syncDocFromForm();
-  const t = computeTotals();
-  const co = companyProfile || {};
-  const cl = doc.client || {};
-  const scope = (doc.lines||[]).filter(l=>l.name && l.name.trim())
-    .map(l=>{ const q=Number(l.qty)||0; return '• '+l.name+(q?(' — '+q+' '+(normUnit(l.unit)||'')):''); }).join('\n') || '(see attached estimate)';
-  const tmpl = (co.contractTemplate && co.contractTemplate.trim()) ? co.contractTemplate : DEFAULT_CONTRACT;
-  const filled = tmpl
-    .replace(/\{\{client\}\}/g, cl.name||'Customer')
-    .replace(/\{\{project\}\}/g, doc.project||estName||'')
-    .replace(/\{\{total\}\}/g, money(t.total))
-    .replace(/\{\{scope\}\}/g, scope)
-    .replace(/\{\{company\}\}/g, co.name||doc.company&&doc.company.name||'')
-    .replace(/\{\{date\}\}/g, pdfDate(Date.now()))
-    .replace(/\{\{license\}\}/g, co.license||'');
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contract — ${escapeHtml(cl.name||'')}</title>
-<style>:root{--charcoal:#1E242C;--heading:#17293D;--steel:#5C6672;--accent:#2F6DB0;--paper:#F7F8FA;--paper-line:#E4E8EE;--good:#3E8E5A;--danger:#C0392B;--cyan-dim:#3E7A96;--blueprint-2:#1B4B7A;--surface:#FFFFFF;--ink-navy:#15273A;--orange:#2F6DB0;--orange-dim:#255C97}body{font-family:Georgia,'Times New Roman',serif;color:var(--charcoal);max-width:760px;margin:0 auto;padding:48px 40px;font-size:14px;line-height:1.7;white-space:pre-wrap}
-.bar{position:fixed;top:0;left:0;right:0;background:var(--heading);padding:10px;text-align:center}
-.bar button{background:var(--accent);color:#fff;border:none;padding:9px 20px;border-radius:3px;font-size:14px;cursor:pointer;font-family:sans-serif}
-@media print{body{padding:0}.noprint{display:none}@page{margin:20mm}} .sp{height:50px}</style></head>
-<body><div class="bar noprint"><button onclick="window.print()">Save as PDF / Print</button></div><div class="sp noprint"></div>${escapeHtml(filled)}</body></html>`;
-  const w=window.open('','_blank'); if(!w){ toast('Please allow pop-ups to generate the contract.', true); return; }
-  w.document.open(); w.document.write(html); w.document.close();
-});
 document.getElementById('to-job-btn').addEventListener('click', async ()=>{
   if(!confirm('Turn this estimate into a scheduled job? Its line items become your scope of work checklist.')) return;
   try{
@@ -929,6 +911,9 @@ async function init(){
     // Locked once converted to a job — the job is the source of truth from then on.
     if(est.jobId){
       window.__estLocked = true;
+      // Converted → hide "Convert to Job", show a non-clickable Job number badge.
+      const tjb=document.getElementById('to-job-btn'); if(tjb) tjb.style.display='none';
+      const jb=document.getElementById('job-badge-btn'); if(jb){ jb.style.display=''; jb.textContent = est.jobNumber ? ('Job '+est.jobNumber) : 'Converted to Job'; }
       const banner=document.createElement('div');
       banner.style.cssText='background:rgba(47,109,176,.12);border:1px solid var(--accent);color:var(--accent);border-radius:6px;padding:10px 14px;margin:0 0 14px;font-size:13px;font-weight:600';
       banner.innerHTML='🔒 Converted to a Job — this estimate is locked. <a href="/job.html?id='+encodeURIComponent(est.jobId)+'" style="color:var(--accent);text-decoration:underline">Open the job</a> to make changes.';

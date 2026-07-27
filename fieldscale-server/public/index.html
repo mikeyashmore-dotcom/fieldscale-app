@@ -2905,6 +2905,11 @@ function updateSheetMatchNav(){
   if(nav) nav.style.display=(sheetSearchActive && n>0)?'flex':'none';
   if(cnt) cnt.textContent = n ? ((sheetSearchMatchIdx>=0?(sheetSearchMatchIdx+1)+' / ':'')+n+' on this sheet') : '';
 }
+// Which search-match box (if any) is under a point on the current sheet — for right-click convert.
+function searchHighlightAtPoint(p){
+  if(state.searchHighlightPage!==state.pageNum) return null;
+  return (state.searchHighlights||[]).find(b=> p.x>=b.x-3 && p.x<=b.x+b.width+3 && p.y>=b.y-3 && p.y<=b.y+b.height+3) || null;
+}
 function centerOnBox(box){
   if(!box || !els.stageWrap) return; const z=state.zoom||1;
   els.stageWrap.scrollLeft=(box.x+box.width/2)*z - els.stageWrap.clientWidth/2;
@@ -4490,6 +4495,19 @@ els.overlay.addEventListener('contextmenu',(e)=>{
       ? others.map(t=>({ label:'⇄ Switch to '+t.name, action:()=>reassignType(picked, t.id) }))
       : [{ label:'No other '+cat+' types yet — use ＋ Add to make one', action:()=>{} }];
     if(cat==='area') menu.push({ label:'✂ Add cutout (subtract area)', action:()=>startCutout(picked.id) });
+    showRefMenu(e.clientX, e.clientY, menu);
+    return;
+  }
+  // Right-click a search match → convert it into a Count of an existing type (tally what you searched).
+  const shBox = sheetSearchActive ? searchHighlightAtPoint(p) : null;
+  if(shBox){
+    const counts = state.typeLibrary.count || [];
+    const menu = counts.length
+      ? counts.map(t=>({ label:'＋ Count as '+t.name, action:()=>{
+          addTakeoffItem({category:'count', typeId:t.id, raw:1, point:{x:shBox.x+shBox.width/2, y:shBox.y+shBox.height/2}});
+          redrawOverlay();
+        }}))
+      : [{ label:'No count types yet — use ＋ Add to make one', action:()=>{} }];
     showRefMenu(e.clientX, e.clientY, menu);
     return;
   }

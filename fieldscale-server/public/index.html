@@ -235,6 +235,13 @@
     position:relative;
   }
   .tool:hover{background:var(--blueprint-2);color:var(--header-text);}
+  .add-menu{position:fixed;z-index:60;background:var(--blueprint-2);border:1px solid var(--cyan-dim);border-radius:8px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.35);padding:8px;min-width:170px;}
+  .add-menu .am-title{font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:0.6px;text-transform:uppercase;color:var(--cyan);padding:2px 6px 8px;}
+  .add-menu button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:none;
+    color:var(--header-text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:9px 10px;border-radius:6px;cursor:pointer;}
+  .add-menu button:hover{background:var(--orange);color:#fff;}
+  .add-menu button .am-ic{font-size:16px;width:20px;text-align:center;display:inline-block;}
   .tool.active{
     background:var(--orange);
     color:#fff;
@@ -1030,14 +1037,19 @@
     <div class="rail-divider"></div>
     <button class="tool" data-tool="calibrate" title="Calibrate Scale">📏<span class="tip">Calibrate scale</span></button>
     <button class="tool" data-tool="measure" title="Quick Measure">📐<span class="tip">Quick measure (not added to takeoff)</span></button>
-    <button class="tool" data-tool="linear" title="Linear Measure">╱<span class="tip">Linear takeoff (LF)</span></button>
-    <button class="tool" data-tool="wall" title="Wall">▬<span class="tip">Wall takeoff (thickness + height)</span></button>
-    <button class="tool" data-tool="area" title="Area Measure">▱<span class="tip">Area takeoff (SF)</span></button>
-    <button class="tool" data-tool="count" title="Count">●<span class="tip">Count takeoff (EA)</span></button>
+    <button class="tool" data-tool="add" id="add-tool" title="Add takeoff item">＋<span class="tip">Add a takeoff item — wall, line, area or count</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="highlight" title="Highlight">▒<span class="tip">Highlight a region of the sheet</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="ai-select" title="AI Select">✦<span class="tip">AI region select</span></button>
+  </div>
+
+  <div class="add-menu" id="add-menu" style="display:none">
+    <div class="am-title">Add takeoff</div>
+    <button data-add="wall"><span class="am-ic">▬</span> Wall</button>
+    <button data-add="linear"><span class="am-ic">╱</span> Line</button>
+    <button data-add="area"><span class="am-ic">▱</span> Area</button>
+    <button data-add="count"><span class="am-ic">●</span> Count</button>
   </div>
 
   <div class="pages-panel" id="pages-panel">
@@ -3200,6 +3212,9 @@ function activateTool(toolName){
   // quantities, but not take off. Any other tool falls back to pan.
   if(VIEW_ONLY && toolName!=='pan') toolName='pan';
   document.querySelectorAll('.tool').forEach(t=>t.classList.toggle('active', t.dataset.tool===toolName));
+  // The single "+" button stands in for wall/line/area/count — light it up when any of those is active.
+  const addBtn=document.getElementById('add-tool');
+  if(addBtn) addBtn.classList.toggle('active', ['wall','linear','area','count'].includes(toolName));
   state.tool = toolName;
   state.drawing = null;
   state.marquee = null;
@@ -3238,7 +3253,30 @@ function activateTool(toolName){
 document.getElementById('rail').addEventListener('click',(e)=>{
   const btn = e.target.closest('.tool');
   if(!btn) return;
+  if(btn.dataset.tool==='add'){ e.stopPropagation(); toggleAddMenu(btn); return; }
+  hideAddMenu();
   activateTool(btn.dataset.tool);
+});
+
+// ---- "Add takeoff" chooser (the + button) ----
+function hideAddMenu(){ const m=document.getElementById('add-menu'); if(m) m.style.display='none'; }
+function toggleAddMenu(btn){
+  const m=document.getElementById('add-menu'); if(!m) return;
+  if(m.style.display!=='none'){ hideAddMenu(); return; }
+  const r=btn.getBoundingClientRect();
+  m.style.display='block';
+  m.style.top = r.top+'px';
+  m.style.left = (r.right+8)+'px';
+}
+document.getElementById('add-menu').addEventListener('click',(e)=>{
+  const b=e.target.closest('[data-add]'); if(!b) return;
+  hideAddMenu();
+  activateTool(b.dataset.add);   // opens the type panel to name it / set assembly / pattern, then draw
+});
+// Click elsewhere closes the chooser
+document.addEventListener('click',(e)=>{
+  const m=document.getElementById('add-menu');
+  if(m && m.style.display!=='none' && !m.contains(e.target) && !(e.target.closest && e.target.closest('#add-tool'))) hideAddMenu();
 });
 
 function showHint(html){ els.hintBanner.innerHTML = html; els.hintBanner.style.display='block'; }
@@ -4395,7 +4433,7 @@ function capitalize(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 function seedDefaultTypes(){
   state.typeLibrary.wall.push({id:'wall_default', name:'2x4 Wall', color:'#C69B6D', studKey:'2x4', measureKinds:['length'], thicknessIn:3.5, heightFt:8, studSpacingIn:16, bothFaces:false, material:'wood'});
   state.typeLibrary.linear.push({id:'lin_default', name:'General Line', color:'#2E86AB', trade:'General'});
-  state.typeLibrary.area.push({id:'area_default', name:'General Area', color:'#2E86AB', trade:'General'});
+  state.typeLibrary.area.push({id:'area_default', name:'General Area', color:'#2E86AB', trade:'General', pattern:'solid'});
   state.typeLibrary.count.push({id:'count_default', name:'Fixture', color:'#4A9B6E', trade:'General', defaultLabel:'Fixture'});
   state.activeType.wall = 'wall_default';
   state.activeType.linear = 'lin_default';
@@ -4471,6 +4509,11 @@ function buildModalFields(category, existing){
       const pitchRise = existing ? (existing.pitchRise||0) : 0;
       const isCustom = pitchRise>0 && !ROOF_PITCHES.some(p=>p.rise===pitchRise);
       const reportSquares = existing ? !!existing.reportSquares : false;
+      const pattern = existing ? (existing.pattern||'solid') : 'solid';
+      const PATTERNS = [['solid','Solid'],['hatch','Angled lines'],['crosshatch','Cross-hatch'],['dots','Polka dots'],['horizontal','Horizontal lines'],['vertical','Vertical lines']];
+      html += `<div><label>Fill pattern</label><select id="tf-pattern">
+        ${PATTERNS.map(([v,l])=>`<option value="${v}" ${v===pattern?'selected':''}>${l}</option>`).join('')}
+      </select></div>`;
       html += `
         <div><label>Roof Pitch</label>
           <select id="tf-pitch">
@@ -4565,6 +4608,7 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
         ? (parseFloat(document.getElementById('tf-pitch-custom').value)||0)
         : (parseFloat(sel)||0);
       entry.reportSquares = document.getElementById('tf-squares').checked;
+      const pat = document.getElementById('tf-pattern'); entry.pattern = pat ? pat.value : 'solid';
     }
   }
   const lib = state.typeLibrary[category];
@@ -4848,8 +4892,7 @@ function renderTakeoffList(){
       if(!state.typeLibrary[cat].find(t=>t.id===typeId)) return;
       state.activeType[cat] = typeId;
       populateTypeDropdown(cat);
-      const toolBtn = document.querySelector(`.tool[data-tool="${cat}"]`);
-      if(toolBtn) toolBtn.click();
+      activateTool(cat);   // re-arm that takeoff tool (the + button group)
     });
     row.addEventListener('contextmenu', (e)=>{
       e.preventDefault();
@@ -4960,7 +5003,7 @@ function redrawOverlay(){
   // area type — so picking/editing a color always applies to everything drawn with it)
   state.areas.filter(onThisPage).forEach(a=>{
     const t = state.typeLibrary.area.find(x=>x.id===a.typeId);
-    drawAreaPath(a.points, t?t.color:'#2E86AB');
+    drawAreaPath(a.points, t?t.color:'#2E86AB', t?t.pattern:null);
   });
 
   // draw persistent quick-measurements (dashed teal, not part of takeoff)
@@ -5002,7 +5045,7 @@ function redrawOverlay(){
       drawWallPath([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h},{x,y}], ws.thicknessIn, ws.color, true);
     } else {
       const t = state.typeLibrary.area.find(x2=>x2.id===state.activeType.area);
-      drawAreaPath([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], t?t.color:'#2E86AB', true);
+      drawAreaPath([{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}], t?t.color:'#2E86AB', t?t.pattern:null);
     }
     octx.save();
     octx.setLineDash([5,4]);
@@ -5043,7 +5086,7 @@ function redrawOverlay(){
       const previewPts = state.drawing.hover ? [...pts, state.drawing.hover] : pts;
       const at = getActiveType('area');
       const areaColor = at ? at.color : '#2E86AB';
-      drawAreaPath(previewPts, areaColor);
+      drawAreaPath(previewPts, areaColor, at?at.pattern:null);
       pts.forEach(p=>drawDot(p, areaColor));
     } else if(state.tool==='highlight' && state.drawing.start){
       const {start,end} = state.drawing;
@@ -5245,16 +5288,55 @@ function pointInLegend(p){
          p.y>=legendRect.y && p.y<=legendRect.y+legendRect.h;
 }
 
-function drawAreaPath(points, color){
+function drawAreaPath(points, color, pattern){
   if(points.length<2) return;
+  const patterned = pattern && pattern!=='solid';
   octx.save();
-  octx.fillStyle = hexToRgba(color, 0.22);
+  // Polygon path (used for both fill and clip)
+  octx.beginPath();
+  points.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
+  octx.closePath();
+  // Base translucent fill — lighter when a pattern rides on top so the pattern reads.
+  octx.fillStyle = hexToRgba(color, patterned ? 0.10 : 0.22);
+  octx.fill();
+  if(patterned){
+    octx.save();
+    octx.clip();
+    let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
+    points.forEach(p=>{ if(p.x<minx)minx=p.x; if(p.y<miny)miny=p.y; if(p.x>maxx)maxx=p.x; if(p.y>maxy)maxy=p.y; });
+    octx.strokeStyle=color; octx.fillStyle=color; octx.lineWidth=1;
+    const gap=10;
+    if(pattern==='hatch' || pattern==='crosshatch'){        // diagonal "\" lines (x - y = k)
+      octx.beginPath();
+      for(let k=minx-maxy; k<=maxx-miny; k+=gap){ octx.moveTo(k+miny, miny); octx.lineTo(k+maxy, maxy); }
+      octx.stroke();
+    }
+    if(pattern==='crosshatch'){                             // add "/" lines (x + y = k)
+      octx.beginPath();
+      for(let k=minx+miny; k<=maxx+maxy; k+=gap){ octx.moveTo(k-miny, miny); octx.lineTo(k-maxy, maxy); }
+      octx.stroke();
+    }
+    if(pattern==='horizontal'){
+      octx.beginPath();
+      for(let y=miny; y<=maxy; y+=gap){ octx.moveTo(minx,y); octx.lineTo(maxx,y); }
+      octx.stroke();
+    }
+    if(pattern==='vertical'){
+      octx.beginPath();
+      for(let x=minx; x<=maxx; x+=gap){ octx.moveTo(x,miny); octx.lineTo(x,maxy); }
+      octx.stroke();
+    }
+    if(pattern==='dots'){
+      for(let y=miny+gap/2; y<=maxy; y+=gap){ for(let x=minx+gap/2; x<=maxx; x+=gap){ octx.beginPath(); octx.arc(x,y,1.7,0,7); octx.fill(); } }
+    }
+    octx.restore();
+  }
+  // Outline
   octx.strokeStyle = color;
   octx.lineWidth = 2;
   octx.beginPath();
   points.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
   octx.closePath();
-  octx.fill();
   octx.stroke();
   octx.restore();
 }

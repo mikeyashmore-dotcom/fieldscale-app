@@ -172,6 +172,18 @@
     font-family:'Oswald',sans-serif;font-size:12px;font-weight:600;
     color:var(--heading);text-transform:uppercase;letter-spacing:0.5px;margin:0;
   }
+  .pages-view-toggle{display:flex;gap:2px;}
+  .pages-view-toggle button{background:transparent;border:1px solid var(--paper-line);color:var(--steel);font-size:12px;line-height:1;padding:3px 6px;border-radius:3px;cursor:pointer;}
+  .pages-view-toggle button.active{background:var(--orange);border-color:var(--orange);color:#fff;}
+  /* Thumbnail view */
+  .thumb-card{border:1px solid var(--paper-line);border-radius:4px;margin-bottom:8px;overflow:hidden;cursor:pointer;background:var(--surface);}
+  .thumb-card:hover{border-color:var(--cyan-dim);}
+  .thumb-card.active{border-color:var(--orange);box-shadow:0 0 0 1px var(--orange);}
+  .thumb-card .thumb-img{background:#fff;min-height:70px;display:flex;align-items:center;justify-content:center;}
+  .thumb-card .thumb-img img{max-width:100%;display:block;}
+  .thumb-card .thumb-cap{display:flex;align-items:center;gap:6px;padding:6px 8px;font-size:12px;color:var(--heading);white-space:normal;}
+  .thumb-card .thumb-cap .plr-num{background:var(--blueprint-2);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:1px 5px;border-radius:3px;flex:none;}
+  .thumb-card.active .thumb-cap .plr-num{background:var(--orange);}
   /* Drag handle on the right edge to widen/narrow the sheet list */
   .pages-resize{
     position:absolute;top:0;right:0;bottom:0;width:6px;cursor:ew-resize;z-index:6;
@@ -1068,6 +1080,10 @@
   <div class="pages-panel" id="pages-panel">
     <div class="pages-panel-header">
       <h4>Sheets</h4>
+      <div class="pages-view-toggle" id="pages-view-toggle">
+        <button data-view="list" title="List view">☰</button>
+        <button data-view="thumbs" title="Thumbnail view">▦</button>
+      </div>
     </div>
     <div class="pages-list" id="pages-list"></div>
     <div class="pages-resize" id="pages-resize" title="Drag to resize the sheet list"></div>
@@ -1417,6 +1433,7 @@ els.fileInput.addEventListener('change', async (e)=>{
   const loadingTask = pdfjsLib.getDocument({data:buf});
   state.pdfDoc = await loadingTask.promise;
   invalidatePdfCache();
+  Object.keys(thumbCache).forEach(k=>delete thumbCache[k]);   // fresh plan → drop old thumbnails
   state.numPages = state.pdfDoc.numPages;
   state.pageNum = 1;
   els.emptyState.style.display='none';
@@ -2768,9 +2785,58 @@ document.getElementById('pages-reopen-tab').addEventListener('click', openPagesP
   });
 })();
 
+// Sheet list view mode: plain list or thumbnails (a per-browser preference).
+let pagesView = (function(){ try{ return localStorage.getItem('fieldscale.pagesView')==='thumbs' ? 'thumbs':'list'; }catch(e){ return 'list'; } })();
+const thumbCache = {};   // pageNum -> dataURL (cleared when a new plan loads)
+function setPagesViewToggle(){
+  const tg=document.getElementById('pages-view-toggle'); if(!tg) return;
+  tg.querySelectorAll('button').forEach(b=> b.classList.toggle('active', b.dataset.view===pagesView));
+}
+document.getElementById('pages-view-toggle').addEventListener('click',(e)=>{
+  const b=e.target.closest('[data-view]'); if(!b) return;
+  pagesView=b.dataset.view; try{ localStorage.setItem('fieldscale.pagesView', pagesView); }catch(_){}
+  renderPagesList();
+});
+async function renderThumb(p){
+  if(thumbCache[p]) return thumbCache[p];
+  if(!state.pdfDoc) return null;
+  try{
+    const page = await state.pdfDoc.getPage(p);
+    const v1 = page.getViewport({scale:1});
+    const scale = Math.min(1, 200/Math.max(v1.width, v1.height));
+    const vp = page.getViewport({scale});
+    const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+    const cx=c.getContext('2d'); cx.fillStyle='#fff'; cx.fillRect(0,0,c.width,c.height);
+    await page.render({canvasContext:cx, viewport:vp}).promise;
+    thumbCache[p]=c.toDataURL('image/png');
+    return thumbCache[p];
+  }catch(e){ return null; }
+}
+function renderPagesThumbs(container){
+  let html='';
+  for(let p=1;p<=state.numPages;p++){
+    if(isHidden(p) && !state.showHiddenPages) continue;
+    const pn=state.pageNames[p];
+    const label = (pn && (pn.number||pn.name)) ? [pn.number,pn.name].filter(Boolean).join(' — ') : ('Page '+p);
+    const active = p===state.pageNum ? 'active':'';
+    const hasTko = state.items.some(it=>(it.pageNum||1)===p) || state.walls.some(w=>(w.pageNum||1)===p) || state.areas.some(a=>(a.pageNum||1)===p);
+    const dia = hasTko ? '<span class="plr-scale hastko" title="Takeoff on this sheet" style="margin-left:auto">◆</span>' : '';
+    html += `<div class="thumb-card ${active}" data-page="${p}">
+      <div class="thumb-img"><img data-thumb="${p}" alt="Sheet ${p}"/></div>
+      <div class="thumb-cap"><span class="plr-num">${p}</span><span style="flex:1;min-width:0">${escapeHtml(label)}</span>${dia}</div>
+    </div>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.thumb-card').forEach(card=>{
+    card.addEventListener('click', async ()=>{ const p=parseInt(card.dataset.page); if(p===state.pageNum) return; state.pageNum=p; state.searchHighlightPage=null; state.searchHighlights=[]; await renderPage(); });
+  });
+  container.querySelectorAll('img[data-thumb]').forEach(img=>{ const p=parseInt(img.getAttribute('data-thumb')); renderThumb(p).then(url=>{ if(url) img.src=url; }); });
+}
 function renderPagesList(){
   const container = document.getElementById('pages-list');
   if(!state.pdfDoc){ container.innerHTML=''; return; }
+  setPagesViewToggle();
+  if(pagesView==='thumbs'){ renderPagesThumbs(container); return; }
   let html='';
   for(let p=1; p<=state.numPages; p++){
     if(isHidden(p) && !state.showHiddenPages) continue;

@@ -508,4 +508,43 @@
     if (opts.onOpen) opts.onOpen(card, close);
     return card;
   };
+
+  // Structured address helper (#7). Renders Street / City / State / ZIP, composes a single line
+  // for storage & PDFs, restores from a stored object OR a legacy one-line string, and validates
+  // "required only if started" (a partly-filled address is rejected; a blank one is allowed).
+  window.fsAddr = {
+    html: function (p) {
+      return '<div class="fs-addr" data-addr="' + p + '">'
+        + '<input id="' + p + '-street" placeholder="Street address" autocomplete="address-line1" style="width:100%;box-sizing:border-box;margin-bottom:6px">'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+        + '<input id="' + p + '-city" placeholder="City" autocomplete="address-level2" style="flex:2 1 120px;min-width:90px;box-sizing:border-box">'
+        + '<input id="' + p + '-state" placeholder="State" autocomplete="address-level1" maxlength="20" style="flex:1 1 60px;min-width:50px;box-sizing:border-box">'
+        + '<input id="' + p + '-zip" placeholder="ZIP" autocomplete="postal-code" maxlength="12" style="flex:1 1 70px;min-width:60px;box-sizing:border-box">'
+        + '</div></div>';
+    },
+    set: function (p, val) {
+      var g = function (s) { return document.getElementById(p + '-' + s); };
+      var o = (val && typeof val === 'object') ? val : { street: (typeof val === 'string' ? val : '') };
+      if (g('street')) g('street').value = o.street || '';
+      if (g('city')) g('city').value = o.city || '';
+      if (g('state')) g('state').value = o.state || '';
+      if (g('zip')) g('zip').value = o.zip || '';
+    },
+    parts: function (p) {
+      var v = function (s) { var el = document.getElementById(p + '-' + s); return el ? String(el.value || '').trim() : ''; };
+      return { street: v('street'), city: v('city'), state: v('state'), zip: v('zip') };
+    },
+    line: function (a) {
+      if (!a) return '';
+      if (typeof a === 'string') return a;
+      var cityState = [a.city, a.state].filter(Boolean).join(', ');
+      return [a.street, [cityState, a.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    },
+    // '' when ok; an error message when partly filled. Blank (all empty) is allowed.
+    validate: function (p) {
+      var a = this.parts(p);
+      var n = [a.street, a.city, a.state, a.zip].filter(Boolean).length;
+      return (n === 0 || n === 4) ? '' : 'Please complete the full address — street, city, state and ZIP.';
+    }
+  };
 })();

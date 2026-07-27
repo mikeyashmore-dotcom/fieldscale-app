@@ -83,7 +83,7 @@
           <div class="field"><label>Phone</label><input id="phone" placeholder="000-000-0000" /></div>
           <div class="field"><label>Email</label><input id="email" placeholder="name@email.com" /></div>
         </div>
-        <div class="field"><label>Project address</label><input id="address" /></div>
+        <div class="field"><label>Project address</label><span id="lead-addr"></span></div>
         <div class="field"><label>First contact date</label><input id="first-contact" type="date" /></div>
       </div>
       <div class="block" style="margin-bottom:0">
@@ -167,10 +167,12 @@ function sigDataUrl(existing){ return sigDirty ? sigCanvas.toDataURL('image/png'
 
 async function save(){
   const sv=doc.siteVisit||{};
+  const addrErr=fsAddr.validate('lead-addr'); if(addrErr){ toast(addrErr,true); throw new Error(addrErr); }
+  const addrParts=fsAddr.parts('lead-addr');
   await apiFetch('/api/leads/'+leadId, { method:'PUT', body: JSON.stringify({
     name: val('lead-name')||'New Lead', workType: val('work-type'), value: parseFloat(val('value'))||0,
     stage: val('stage'), source: val('source'), followUp: val('follow-up'),
-    doc: { phone: val('phone'), email: val('email'), address: val('address'), notes: val('notes'),
+    doc: { phone: val('phone'), email: val('email'), address: fsAddr.line(addrParts), addressParts: addrParts, notes: val('notes'),
       firstContact: val('first-contact'),
       siteVisit: { date: val('sv-date'), present: val('sv-present'), access: val('sv-access'),
         scope: val('sv-scope'), risks: val('sv-risks'), signature: sigDataUrl(sv.signature) } }
@@ -228,13 +230,14 @@ document.getElementById('to-est-btn').addEventListener('click', async ()=>{
 });
 
 async function init(){
+  document.getElementById('lead-addr').innerHTML=fsAddr.html('lead-addr');
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{
     const l=await apiFetch('/api/leads/'+leadId);
     set('lead-name', l.name); document.getElementById('stage').value=l.stage||'new';
     set('work-type', l.workType); set('value', l.value||''); set('source', l.source); set('follow-up', l.followUp);
     doc=l.doc||{};
-    set('phone', doc.phone); set('email', doc.email); set('address', doc.address); set('notes', doc.notes);
+    set('phone', doc.phone); set('email', doc.email); fsAddr.set('lead-addr', doc.addressParts || doc.address); set('notes', doc.notes);
     set('first-contact', doc.firstContact); syncTitle(); renderLeadFiles();
     const sv=doc.siteVisit||{};
     set('sv-date',sv.date); set('sv-present',sv.present); set('sv-access',sv.access); set('sv-scope',sv.scope); set('sv-risks',sv.risks);

@@ -40,7 +40,8 @@ function form(companyName){
     <p class="sub">${companyName?('Send your details to '+esc(companyName)+' and they’ll get back to you.'):'Tell us about your project and we’ll get back to you.'}</p>
     <label>Your name *</label><input id="f-name" />
     <div class="row"><div><label>Phone</label><input id="f-phone" /></div><div><label>Email</label><input id="f-email" /></div></div>
-    <label>Project address</label><input id="f-address" />
+    <label>Project address</label><input id="f-street" placeholder="Street address" />
+    <div class="row"><div><input id="f-city" placeholder="City" /></div><div><input id="f-state" placeholder="State" /></div><div><input id="f-zip" placeholder="ZIP" /></div></div>
     <label>Type of work</label><input id="f-work" placeholder="e.g. Kitchen remodel, new deck…" />
     <label>Details</label><textarea id="f-notes" placeholder="Anything that helps us understand the job…"></textarea>
     <div class="err" id="err"></div>
@@ -50,13 +51,18 @@ function form(companyName){
     const name=document.getElementById('f-name').value.trim();
     const errEl=document.getElementById('err'); errEl.textContent='';
     if(!name){ errEl.textContent='Please enter your name.'; document.getElementById('f-name').focus(); return; }
+    const gv=id=>document.getElementById(id).value.trim();
+    const ap={street:gv('f-street'),city:gv('f-city'),state:gv('f-state'),zip:gv('f-zip')};
+    const filled=[ap.street,ap.city,ap.state,ap.zip].filter(Boolean).length;
+    if(filled>0 && filled<4){ errEl.textContent='Please complete the full address — street, city, state and ZIP.'; return; }
+    const addrLine=[ap.street,[[ap.city,ap.state].filter(Boolean).join(', '),ap.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
     const btn=document.getElementById('submit'); btn.disabled=true; btn.textContent='Sending…';
     try{
       await api('/api/public/lead', { method:'POST', body: JSON.stringify({
         token, name,
         phone:document.getElementById('f-phone').value.trim(),
         email:document.getElementById('f-email').value.trim(),
-        address:document.getElementById('f-address').value.trim(),
+        address:addrLine,
         workType:document.getElementById('f-work').value.trim(),
         notes:document.getElementById('f-notes').value.trim()
       }) });

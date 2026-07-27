@@ -1781,6 +1781,12 @@ const server = http.createServer(async (req, res) => {
           license: String(p.license || '').slice(0, 80),
           website: String(p.website || '').slice(0, 160),
           address: String(p.address || '').slice(0, 300),
+          addressParts: (p.addressParts && typeof p.addressParts === 'object') ? {
+            street: String(p.addressParts.street || '').slice(0, 160),
+            city: String(p.addressParts.city || '').slice(0, 80),
+            state: String(p.addressParts.state || '').slice(0, 40),
+            zip: String(p.addressParts.zip || '').slice(0, 20)
+          } : undefined,
           logo: logoOk ? p.logo : '',
           // Employee roster — name, charged hourly rate, contact + payroll employee #. Reused for
           // time entries and crew dispatch. Preserve it if this save didn't include it.

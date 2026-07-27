@@ -78,7 +78,7 @@
         <div class="field"><label>License #</label><input id="license" /></div>
         <div class="field"><label>Website</label><input id="website" /></div>
       </div>
-      <div class="field"><label>Address</label><textarea id="address" placeholder="Street, City, State ZIP"></textarea></div>
+      <div class="field"><label>Address</label><span id="co-addr"></span></div>
 
       <div class="field" style="margin-top:18px;border-top:1px solid var(--paper-line);padding-top:16px">
         <label>Next invoice number</label>
@@ -298,8 +298,10 @@ document.getElementById('copy-leadform').addEventListener('click', async ()=>{
 });
 
 document.getElementById('save-btn').addEventListener('click', async ()=>{
+  const addrErr=fsAddr.validate('co-addr'); if(addrErr){ alert(addrErr); return; }
+  const addrParts=fsAddr.parts('co-addr');
   const profile={ name:val('name'), phone:val('phone'), email:val('email'),
-    license:val('license'), website:val('website'), address:val('address'), logo, team,
+    license:val('license'), website:val('website'), address:fsAddr.line(addrParts), addressParts:addrParts, logo, team,
     markupRules: rules.filter(r=>r.code), contractTemplate: val('contract-template') };
   try{
     const r=await apiFetch('/api/company', { method:'PUT', body: JSON.stringify({ profile, invoiceNext: val('invoice-next'), jobNext: val('job-next'), woNext: val('wo-next') }) });
@@ -313,6 +315,7 @@ document.getElementById('save-btn').addEventListener('click', async ()=>{
 });
 
 async function init(){
+  document.getElementById('co-addr').innerHTML=fsAddr.html('co-addr');
   try{
     const me=await apiFetch('/api/me');
     document.getElementById('who').textContent=me.username;
@@ -322,7 +325,7 @@ async function init(){
     const r=await apiFetch('/api/company');
     const p=r.profile||{};
     set('name',p.name); set('phone',p.phone); set('email',p.email);
-    set('license',p.license); set('website',p.website); set('address',p.address);
+    set('license',p.license); set('website',p.website); fsAddr.set('co-addr', p.addressParts || p.address);
     set('invoice-next', r.invoiceNext); set('job-next', r.jobNext); set('wo-next', r.woNext);
     logo=p.logo||''; showLogo();
     team=p.team||[]; renderTeam();

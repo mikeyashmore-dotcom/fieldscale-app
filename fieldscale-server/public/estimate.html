@@ -498,11 +498,15 @@ document.getElementById('tko-project').addEventListener('change', async e=>{
     const proj=await apiFetch('/api/projects/'+id);
     const sum=(proj.data&&proj.data.takeoffSummary)||[];
     if(!sum.length){ box.innerHTML='<div style="color:var(--steel);font-size:13px;padding:8px 0">No measured items on this takeoff yet. Open it, take off some quantities and save, then try again.</div>'; return; }
-    box.innerHTML=sum.map((r,i)=>`<label style="display:flex;gap:9px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--paper-line);font-size:13.5px">
-      <input type="checkbox" class="tko-cb" data-i="${i}" checked/>
-      <span style="flex:1">${escapeHtml(r.label)} <span style="color:var(--steel);font-size:12px">· ${escapeHtml(r.trade||'')}</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;color:var(--heading)">${r.qty} ${escapeHtml(r.unit||'')}</span>
-    </label>`).join('');
+    const inp='width:58px;padding:4px 6px;border:1px solid var(--steel-light);border-radius:4px;font-size:12.5px;text-align:right';
+    box.innerHTML=`<div style="display:flex;gap:8px;font-size:10.5px;color:var(--steel);text-transform:uppercase;letter-spacing:.4px;padding:0 4px 4px"><span style="flex:1"></span><span style="width:70px;text-align:right">Qty</span><span style="width:58px;text-align:right">Waste %</span><span style="width:58px;text-align:right">± Qty</span></div>`
+      + sum.map((r,i)=>`<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--paper-line);font-size:13.5px">
+      <input type="checkbox" class="tko-cb" data-i="${i}" checked style="flex:none"/>
+      <span style="flex:1;min-width:0">${escapeHtml(r.label)}<span style="color:var(--steel);font-size:12px"> · ${escapeHtml(r.trade||'')}</span>${r.description?`<span style="display:block;font-size:11px;color:var(--steel)">${escapeHtml(r.description)}</span>`:''}</span>
+      <span style="width:70px;text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--heading);white-space:nowrap">${r.qty} ${escapeHtml(r.unit||'')}</span>
+      <input class="tko-waste" data-i="${i}" type="number" step="any" placeholder="0" title="Waste factor — adds (or subtracts, if negative) this percent" style="${inp}"/>
+      <input class="tko-adj" data-i="${i}" type="number" step="any" placeholder="0" title="Add or subtract a flat quantity" style="${inp}"/>
+    </div>`).join('');
     box._summary=sum;
   }catch(err){ box.innerHTML='<div style="color:var(--danger);font-size:13px;padding:8px 0">Could not load this takeoff.</div>'; toast(err.message,true); }
 });
@@ -511,10 +515,16 @@ document.getElementById('tko-all').addEventListener('change', e=>{
 });
 document.getElementById('tko-add').addEventListener('click', ()=>{
   const box=document.getElementById('tko-items'); const sum=box._summary||[];
-  const picked=Array.from(document.querySelectorAll('#tko-items .tko-cb')).filter(cb=>cb.checked).map(cb=>sum[Number(cb.getAttribute('data-i'))]).filter(Boolean);
+  const picked=Array.from(document.querySelectorAll('#tko-items .tko-cb')).filter(cb=>cb.checked).map(cb=>{
+    const i=Number(cb.getAttribute('data-i')); const r=sum[i]; if(!r) return null;
+    const waste=parseFloat((document.querySelector(`#tko-items .tko-waste[data-i="${i}"]`)||{}).value)||0;   // unused → 0, no change
+    const adj=parseFloat((document.querySelector(`#tko-items .tko-adj[data-i="${i}"]`)||{}).value)||0;       // unused → 0, no change
+    const qty=Math.max(0, Math.round(((Number(r.qty)||0)*(1+waste/100)+adj)*100)/100);
+    return {...r, finalQty:qty};
+  }).filter(Boolean);
   if(!picked.length){ toast('Tick at least one item.', true); return; }
   picked.forEach(r=>{
-    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:r.label, description:'', code:r.trade||'', unit:r.unit||'', qty:Number(r.qty)||0, mode:'flat', unitPrice:0, material:0, laborHours:0, laborRate:0, unitCost:0 });
+    doc.lines.push({ id:'l_'+Math.random().toString(16).slice(2,8), name:r.label, description:r.description||'', code:r.trade||'', unit:r.unit||'', qty:r.finalQty, mode:'flat', unitPrice:0, material:0, laborHours:0, laborRate:0, unitCost:0 });
   });
   closeTko();
   renderLines();

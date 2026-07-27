@@ -4724,8 +4724,10 @@ function getWallSettings(){
 function buildModalFields(category, existing){
   const name = existing ? existing.name : '';
   const color = existing ? existing.color : ['#2E86AB','#E8722C','#4A9B6E','#8E44AD','#C0392B','#D4A017','#16697A'][Math.floor(Math.random()*7)];
+  const desc = existing ? (existing.description||'') : '';
   let html = `
     <div><label>Name</label><input type="text" id="tf-name" value="${escapeHtml(name)}" placeholder="e.g. 2x6 Exterior Wall" /></div>
+    <div><label>Description <span style="text-transform:none;font-weight:400;color:var(--steel)">(optional — carries onto the estimate line)</span></label><input type="text" id="tf-desc" value="${escapeHtml(desc)}" placeholder="e.g. Frame exterior walls incl. plates & headers" /></div>
     <div><label>Color</label><input type="color" id="tf-color" value="${color}" /></div>
   `;
   if(category==='wall'){
@@ -4849,7 +4851,8 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
   const name = document.getElementById('tf-name').value.trim();
   if(!name){ alert('Please enter a name for this type.'); return; }
   const color = document.getElementById('tf-color').value;
-  let entry = { id: modalState.editId || ('type_'+Math.random().toString(36).slice(2,9)), name, color };
+  const description = (document.getElementById('tf-desc')||{}).value ? document.getElementById('tf-desc').value.trim() : '';
+  let entry = { id: modalState.editId || ('type_'+Math.random().toString(36).slice(2,9)), name, color, description };
   if(category==='wall'){
     const measureKinds = Array.from(document.querySelectorAll('.tf-measure-cb')).filter(cb=>cb.checked).map(cb=>cb.value);
     if(measureKinds.length===0){ alert('Pick at least one thing to measure (Length, Face Area, Volume, or Stud Count).'); return; }
@@ -5138,11 +5141,12 @@ function computeTakeoffSummary(){
   (state.items||[]).forEach(it=>{
     const r=resolveItemDisplay(it);
     if(!r || !Number(r.qty)) return;
+    const type = state.typeLibrary[it.category] && state.typeLibrary[it.category].find(x=>x.id===it.typeId);
     const key=(r.trade||'General')+'|'+r.label+'|'+r.unit;
-    if(!agg[key]) agg[key]={label:r.label, unit:r.unit, trade:r.trade||'General', qty:0};
+    if(!agg[key]) agg[key]={label:r.label, unit:r.unit, trade:r.trade||'General', qty:0, description:(type&&type.description)||''};
     agg[key].qty += Number(r.qty)||0;
   });
-  return Object.values(agg).map(x=>({label:x.label, qty:Math.round(x.qty*100)/100, unit:x.unit, trade:x.trade}))
+  return Object.values(agg).map(x=>({label:x.label, qty:Math.round(x.qty*100)/100, unit:x.unit, trade:x.trade, description:x.description||''}))
     .sort((a,b)=> a.trade<b.trade?-1:a.trade>b.trade?1:(a.label<b.label?-1:1));
 }
 

@@ -842,9 +842,10 @@
   }
   .plr-hidden-toggle:hover{color:var(--orange);}
 
-  /* Per-sheet scale indicator in the sheet list */
+  /* Per-sheet scale / takeoff indicator in the sheet list */
   .plr-scale{font-size:10px;color:var(--steel);margin-left:auto;padding-left:6px;flex:0 0 auto;}
   .plr-scale.ok{color:var(--good);}
+  .plr-scale.hastko{font-size:19px;line-height:1;color:var(--orange);}   /* big filled diamond = takeoff on this sheet */
 
   /* Admin — user management */
   .modal-card.wide{width:min(760px,94vw);}
@@ -2786,9 +2787,12 @@ function renderPagesList(){
     const active = p===state.pageNum ? 'active':'';
     const hidden = isHidden(p);
     const cal = state.calibrations[p];
-    const scaleBadge = cal
-      ? `<span class="plr-scale ok" title="Scale: ${escapeHtml(cal.source)}">◆</span>`
-      : `<span class="plr-scale" title="No scale set for this sheet">◇</span>`;
+    const hasTko = state.items.some(it=>(it.pageNum||1)===p) || state.walls.some(w=>(w.pageNum||1)===p) || state.areas.some(a=>(a.pageNum||1)===p);
+    const scaleBadge = hasTko
+      ? `<span class="plr-scale hastko" title="Takeoff on this sheet">◆</span>`
+      : cal
+        ? `<span class="plr-scale ok" title="Scale: ${escapeHtml(cal.source)}">◆</span>`
+        : `<span class="plr-scale" title="No scale set for this sheet">◇</span>`;
     // "Open in new tab" lets you keep another sheet up for reference while you work. It deep-links
     // to the SAVED project at that page, in a no-autosave reference mode so it can't overwrite this tab.
     const newTab = currentProjectId
@@ -3565,6 +3569,7 @@ function deleteSelection(){
   });
   clearSelection();
   renderTakeoffList();
+  if(typeof renderPagesList==='function') renderPagesList();  // sheet's takeoff diamond may turn off
   redrawOverlay();
   markDirty();
 }
@@ -5163,6 +5168,7 @@ function addTakeoffItem(item){
   item.pageNum = item.pageNum || state.pageNum;  // which sheet it was taken off
   state.items.push(item);
   renderTakeoffList();
+  if(typeof renderPagesList==='function') renderPagesList();  // light up this sheet's takeoff diamond
   markDirty();
 }
 document.getElementById('clear-all').addEventListener('click', ()=>{

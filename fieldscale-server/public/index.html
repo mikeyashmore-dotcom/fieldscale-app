@@ -2851,7 +2851,7 @@ document.getElementById('pages-reopen-tab').addEventListener('click', openPagesP
 // ---- #5 Sheet search: the 🔍 rail tool filters the Sheets list to pages containing a word,
 // with a per-sheet match count. It ALSO highlights the matches on the sheet you're viewing and
 // lets you step through them with ‹ / › (or Enter). Reuses the background text index.
-let sheetSearchActive=false, sheetSearchCounts={}, sheetSearchQuery='', sheetSearchMatchIdx=-1;
+let sheetSearchActive=false, sheetSearchCounts={}, sheetSearchQuery='', sheetSearchMatchIdx=-1, sheetSearchZoomed=false;
 function toggleSheetSearch(){
   const wrap=document.getElementById('sheet-search-wrap');
   const open = wrap.style.display==='none';
@@ -2881,7 +2881,7 @@ function highlightSearchMatches(){
   if(note) note.textContent = state.searchHighlights.length+' match'+(state.searchHighlights.length===1?'':'es')+' highlighted on this sheet.';
 }
 function clearSheetSearch(){
-  sheetSearchActive=false; sheetSearchCounts={}; sheetSearchQuery=''; sheetSearchMatchIdx=-1;
+  sheetSearchActive=false; sheetSearchCounts={}; sheetSearchQuery=''; sheetSearchMatchIdx=-1; sheetSearchZoomed=false;
   state.searchHighlightPage=null; state.searchHighlights=[];
   const inp=document.getElementById('sheet-search-input'); if(inp) inp.value='';
   const clr=document.getElementById('sheet-search-clear'); if(clr) clr.style.display='none';
@@ -2895,7 +2895,7 @@ function applyPageHighlights(results){
   const res=(results||searchDocument(sheetSearchQuery)).find(r=>r.source==='main' && r.pageNum===state.pageNum);
   state.searchHighlights = res ? res.matchingItems : [];
   state.searchHighlightPage = res ? state.pageNum : null;
-  sheetSearchMatchIdx = -1;
+  sheetSearchMatchIdx = -1; sheetSearchZoomed = false;
   updateSheetMatchNav(); redrawOverlay();
 }
 function updateSheetMatchNav(){
@@ -2914,12 +2914,9 @@ function gotoSheetMatch(dir){
   const n=state.searchHighlights.length;
   sheetSearchMatchIdx = sheetSearchMatchIdx<0 ? (dir<0?n-1:0) : (sheetSearchMatchIdx+dir+n)%n;
   const box=state.searchHighlights[sheetSearchMatchIdx];
-  // Zoom in so the match is easy to read (target ~44px tall on screen), only ever zooming IN —
-  // never back out — so stepping through keeps you at a comfortable zoom.
-  if(box && box.height>0){
-    const target=Math.min(4, Math.max(state.zoom, 44/box.height));
-    if(target-state.zoom>0.001){ state.zoom=target; applyZoomToDom(); }
-  }
+  // Zoom in a modest 40% the first time you step into matches on this sheet, then hold that
+  // zoom as you move between them (so it doesn't keep zooming in with every press).
+  if(box && !sheetSearchZoomed){ state.zoom=Math.min(4, state.zoom*1.4); applyZoomToDom(); sheetSearchZoomed=true; }
   centerOnBox(box);
   updateSheetMatchNav(); redrawOverlay();
 }

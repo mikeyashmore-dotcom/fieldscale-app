@@ -42,6 +42,9 @@
   .dollar{display:inline-flex;align-items:center;gap:2px;justify-content:flex-end;color:var(--steel)}
   .lines-scroll{overflow-x:auto}
   .lineadd{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
+  /* Converted-estimate lock: grey out the line items until the user chooses to edit. */
+  #content.est-locked #lines input, #content.est-locked #lines select{pointer-events:none;background:var(--paper);color:var(--steel)}
+  #content.est-locked .lineadd #pb-select, #content.est-locked .lineadd #add-pb, #content.est-locked .lineadd #add-blank, #content.est-locked .lineadd #add-takeoff{pointer-events:none;opacity:.45}
   .lineadd select{width:auto;min-width:280px;max-width:420px}
   .bottom{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:20px;align-items:start}
   .totals{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
@@ -195,6 +198,8 @@
       <button class="btn ghost" id="add-pb">＋ Add item</button>
       <button class="btn ghost" id="add-blank">＋ Blank line</button>
       <button class="btn ghost" id="add-takeoff">📐 From Takeoff</button>
+      <button class="btn" id="edit-est-btn" style="display:none;background:var(--danger);border-color:var(--danger);color:#fff">🔓 Edit Estimate</button>
+      <button class="btn" id="push-job-btn" style="display:none;background:var(--good);border-color:var(--good);color:#fff">⬆ Push changes to job</button>
     </div>
 
     <div id="tko-overlay" style="position:fixed;inset:0;background:rgba(14,42,71,.5);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 12px;overflow:auto">
@@ -601,12 +606,35 @@ function syncDocFromForm(){
 function val(id){ return document.getElementById(id).value; }
 
 async function save(){
-  if(window.__estLocked){ toast('This estimate is locked — it was converted to a job.', true); return; }
+  if(window.__estLocked){ toast('This estimate is locked — click Edit Estimate to change it.', true); return; }
   syncDocFromForm();
   const total=computeTotals().total;
   const status=document.getElementById('est-status').value;
-  await apiFetch('/api/estimates/'+estId, { method:'PUT', body: JSON.stringify({ name:estName, client:doc.client.name, total, status, doc }) });
+  const body={ name:estName, client:doc.client.name, total, status, doc };
+  if(window.__estUnlocked) body.allowLocked=true;   // user chose to edit a converted estimate
+  await apiFetch('/api/estimates/'+estId, { method:'PUT', body: JSON.stringify(body) });
 }
+// ---- Edit a converted estimate (with a warning), then optionally push changes to the job ----
+document.getElementById('edit-est-btn').addEventListener('click', ()=>{
+  if(!confirm('This estimate was converted to a job.\n\nChanges to an open job should normally be made on the JOB, not the estimate. Edit the estimate here anyway?')) return;
+  window.__estLocked=false; window.__estUnlocked=true;
+  document.getElementById('content').classList.remove('est-locked');
+  const sb=document.getElementById('save-btn'); if(sb){ sb.disabled=false; sb.style.opacity=''; sb.style.cursor=''; sb.title='Save'; }
+  document.getElementById('edit-est-btn').style.display='none';
+  document.getElementById('push-job-btn').style.display='';
+  const banner=document.getElementById('est-lock-banner');
+  if(banner){ banner.style.background='rgba(232,114,44,.14)'; banner.style.borderColor='var(--orange-dim)'; banner.style.color='var(--orange-dim)';
+    banner.innerHTML='✏️ Editing a converted estimate. When you\'re done, click <b>Push changes to job</b> to update the job\'s scope and contract.'; }
+  toast('Editing unlocked — remember to push changes to the job.');
+});
+document.getElementById('push-job-btn').addEventListener('click', async ()=>{
+  if(!confirm('Push these estimate changes to the linked job? This updates the job\'s scope lines and its contract/budget.')) return;
+  try{
+    await save();
+    const r=await apiFetch('/api/estimates/'+estId+'/push-to-job', { method:'POST' });
+    toast('Job updated'+(r.jobNumber?(' — '+r.jobNumber):'')+'.');
+  }catch(err){ toast(err.message, true); }
+});
 document.getElementById('save-btn').addEventListener('click', async ()=>{
   try{ await save(); toast('Estimate saved.'); }catch(err){ toast(err.message,true); }
 });
@@ -911,14 +939,17 @@ async function init(){
     // Locked once converted to a job — the job is the source of truth from then on.
     if(est.jobId){
       window.__estLocked = true;
+      window.__estJobId = est.jobId;
       // Converted → hide "Convert to Job", show a non-clickable Job number badge.
       const tjb=document.getElementById('to-job-btn'); if(tjb) tjb.style.display='none';
       const jb=document.getElementById('job-badge-btn'); if(jb){ jb.style.display=''; jb.textContent = est.jobNumber ? ('Job '+est.jobNumber) : 'Converted to Job'; }
-      const banner=document.createElement('div');
+      const banner=document.createElement('div'); banner.id='est-lock-banner';
       banner.style.cssText='background:rgba(47,109,176,.12);border:1px solid var(--accent);color:var(--accent);border-radius:6px;padding:10px 14px;margin:0 0 14px;font-size:13px;font-weight:600';
-      banner.innerHTML='🔒 Converted to a Job — this estimate is locked. <a href="/job.html?id='+encodeURIComponent(est.jobId)+'" style="color:var(--accent);text-decoration:underline">Open the job</a> to make changes.';
+      banner.innerHTML='🔒 Converted to a Job — this estimate is locked. <a href="/job.html?id='+encodeURIComponent(est.jobId)+'" style="color:var(--accent);text-decoration:underline">Open the job</a>, or use <b>Edit Estimate</b> below to change it here.';
       const content=document.getElementById('content'); content.insertBefore(banner, content.firstChild);
-      const sb=document.getElementById('save-btn'); if(sb){ sb.disabled=true; sb.title='Locked — converted to a job'; sb.style.opacity='0.5'; sb.style.cursor='not-allowed'; }
+      content.classList.add('est-locked');   // grey out the line items
+      const sb=document.getElementById('save-btn'); if(sb){ sb.disabled=true; sb.title='Locked — use Edit Estimate'; sb.style.opacity='0.5'; sb.style.cursor='not-allowed'; }
+      const eb=document.getElementById('edit-est-btn'); if(eb) eb.style.display='';
     }
     doc = Object.assign({ company:{}, client:{}, lines:[], markupPct:0, taxPct:0, discount:0, discountType:'pct' }, est.doc||{});
     doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];

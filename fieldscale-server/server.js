@@ -2035,6 +2035,33 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { ok: true });
       }
 
+      // Push a (re-edited) converted estimate's changes back onto its linked job:
+      // refresh the job's scope lines + budget/contract, leaving the crew's own data intact.
+      const pushMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)\/push-to-job$/);
+      if (pushMatch && req.method === 'POST') {
+        const est = db.estimates.find(e => e.id === pushMatch[1] && e.companyId === me.companyId);
+        if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        if (!est.jobId) return sendJSON(res, 400, { error: 'This estimate has not been converted to a job.' });
+        const job = db.jobs.find(j => j.id === est.jobId && j.companyId === me.companyId);
+        if (!job) return sendJSON(res, 404, { error: 'Linked job not found.' });
+        const edoc = readEstimateDoc(est.id);
+        const defMk = (Number(edoc.markupPct) || 0) + (Number(edoc.profitPct) || 0);
+        const jobLines = (edoc.lines || []).filter(l => !l.optional);
+        const budget = jobLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0), 0);
+        const contract = Math.round(jobLines.reduce((s, l) => {
+          const effMk = (l.mkEff !== undefined && l.mkEff !== null) ? Number(l.mkEff) : defMk;
+          return s + (Number(l.qty) || 0) * (Number(l.unitCost) || 0) * (1 + effMk / 100);
+        }, 0) * 100) / 100;
+        const jdoc = readJobDoc(job.id) || {};
+        jdoc.lines = jobLines.map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),
+          name: l.name, code: l.code, unit: l.unit, qty: Number(l.qty) || 0, done: false }));
+        jdoc.costing = Object.assign({}, jdoc.costing || {}, { budget: Math.round(budget * 100) / 100, contract });
+        writeJobDoc(job.id, jdoc);
+        job.updatedAt = Date.now();
+        saveDB(db);
+        return sendJSON(res, 200, { ok: true, jobNumber: job.number || '' });
+      }
+
       const estMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)$/);
       if (estMatch) {
         const est = db.estimates.find(e => e.id === estMatch[1] && e.companyId === me.companyId);
@@ -2046,9 +2073,10 @@ const server = http.createServer(async (req, res) => {
             createdAt: est.createdAt, updatedAt: est.updatedAt, doc: readEstimateDoc(est.id) });
         }
         if (req.method === 'PUT') {
-          // Once an estimate is converted to a job it's locked — the job is the source of truth from then on.
-          if (est.jobId) return sendJSON(res, 409, { error: 'This estimate was converted to a job and is locked. Edit the job instead.' });
-          const { name, client, total, status, doc } = await readBody(req);
+          const body = await readBody(req);
+          // Once converted, the estimate is locked — unless the user explicitly chose to edit it anyway.
+          if (est.jobId && !body.allowLocked) return sendJSON(res, 409, { error: 'This estimate was converted to a job and is locked. Edit the job instead.' });
+          const { name, client, total, status, doc } = body;
           if (name !== undefined) est.name = String(name).slice(0, 200);
           if (client !== undefined) est.client = String(client).slice(0, 200);
           if (typeof total === 'number') est.total = total;

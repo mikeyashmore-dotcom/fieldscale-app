@@ -429,6 +429,8 @@
     font-size:11.5px;
   }
   .item-row .qty-col.empty{color:var(--steel-light);font-weight:400;}
+  .item-row.zero-row .name{color:var(--steel);}
+  .item-row .qty-col.zero{color:var(--steel-light);font-weight:400;}
   .item-row .del{
     color:var(--steel);
     cursor:pointer;
@@ -1333,6 +1335,7 @@ const state = {
   calibration:null,  // the CURRENT page's scale — derived from calibrations[pageNum]. Read-only; set it via setCalibration().
   calibrations:{},   // {pageNum: {unitsPerNativePixel, unitLabel, source}} — every sheet keeps its own scale
   items:[], // {id, label, trade, type, qty, unit, color}
+  stickyRows:{}, // trade|label -> row that stays in the Quantities panel (at 0) after its items are deleted
   walls:[], // {id, points, thicknessIn, material} - persistent wall geometry for rendering
   areas:[], // {id, points, typeId} - persistent area geometry for rendering (color resolved live)
   quickMeasurements:[], // {points, label} - non-committed quick-measure results
@@ -2081,6 +2084,7 @@ async function serializeProjectState(){
     activeType: state.activeType,
     takeoffSummary: computeTakeoffSummary(),   // flat rollup so estimates can pull items in
     items: state.items,
+    stickyRows: state.stickyRows,
     walls: state.walls,
     areas: state.areas,
     annotations: state.annotations,
@@ -2103,6 +2107,7 @@ async function restoreProjectState(data){
   state.typeLibrary = data.typeLibrary || state.typeLibrary;
   state.activeType = data.activeType || state.activeType;
   state.items = data.items || [];
+  state.stickyRows = data.stickyRows || {};
   state.walls = data.walls || [];
   state.areas = data.areas || [];
   state.annotations = data.annotations || [];
@@ -2413,7 +2418,7 @@ function npResetToBlank(name){
   currentProjectId = null;
   document.getElementById('proj-name').value = name;
   state.projectMeta = {address:'', client:'', planDate:'', bidDue:''};
-  state.items=[]; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.annotations=[]; state.refLinks=[];
+  state.items=[]; state.stickyRows={}; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.annotations=[]; state.refLinks=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; state.searchHighlights=[]; state.searchHighlightPage=null;
@@ -5184,54 +5189,53 @@ document.getElementById('clear-all').addEventListener('click', ()=>{
 });
 
 function renderTakeoffList(){
+  state.stickyRows = state.stickyRows || {};
   els.itemCount.textContent = state.items.length + ' item' + (state.items.length===1?'':'s');
-  if(state.items.length===0){
+  const UNIT_COLS = ['SF','LF','CY','EA'];
+  const resolved = state.items.map(it=>{ const r = resolveItemDisplay(it); return {...r, id:it.id, category:it.category, typeId:it.typeId}; });
+  // Aggregate current items into trade -> label -> row (a column per unit).
+  const aggByTrade = {};
+  resolved.forEach(it=>{
+    const A = aggByTrade[it.trade] = aggByTrade[it.trade] || {};
+    const g = A[it.label] = A[it.label] || { label:it.label, color:it.color, ids:[], sums:{LF:0,SF:0,CY:0,EA:0}, has:{LF:false,SF:false,CY:false,EA:false}, category:it.category, typeId:it.typeId };
+    g.ids.push(it.id);
+    if(UNIT_COLS.includes(it.unit)){ g.sums[it.unit]+=it.qty; g.has[it.unit]=true; }
+    if(!g.category && it.category){ g.category=it.category; g.typeId=it.typeId; }
+  });
+  // Remember each row that currently has items, so it stays in the panel at 0 once deleted.
+  Object.keys(aggByTrade).forEach(trade=> Object.values(aggByTrade[trade]).forEach(g=>{
+    const key=trade+'|'+g.label, prev=state.stickyRows[key], units={};
+    UNIT_COLS.forEach(u=> units[u] = g.has[u] || (prev&&prev.units&&prev.units[u]) || false);
+    state.stickyRows[key] = {trade, label:g.label, color:g.color, category:g.category, typeId:g.typeId, units};
+  }));
+  const tradeSet = new Set(Object.keys(aggByTrade));
+  Object.values(state.stickyRows).forEach(s=>tradeSet.add(s.trade));
+  if(tradeSet.size===0){
     els.takeoffList.innerHTML = '<div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>';
     return;
   }
-  const UNIT_COLS = ['SF','LF','CY','EA'];
-  // Resolve every item's live display values (label/qty/unit/trade/color) from its
-  // current type definition — this is what makes type edits retroactively apply.
-  const resolved = state.items.map(it=>{
-    const r = resolveItemDisplay(it);
-    return {...r, id:it.id, category:it.category, typeId:it.typeId};
-  });
-  // group by (resolved) trade, then by (resolved) label — merging every measurement
-  // (LF/SF/CY/EA) for the same name into one row with a column per unit.
-  const groups = {};
-  resolved.forEach(it=>{
-    groups[it.trade] = groups[it.trade] || [];
-    groups[it.trade].push(it);
-  });
   let html = `<div class="takeoff-col-header"><span></span><span>Name</span><span>SF</span><span>LF</span><span>CY</span><span>EA</span><span></span></div>`;
-  Object.keys(groups).sort().forEach(trade=>{
+  [...tradeSet].sort().forEach(trade=>{
     html += `<div class="trade-group"><div class="trade-title">${trade}</div>`;
-    const agg = {};
-    groups[trade].forEach(it=>{
-      const key = it.label;
-      agg[key] = agg[key] || {
-        label: it.label, color: it.color, ids: [],
-        sums: {LF:0,SF:0,CY:0,EA:0}, has: {LF:false,SF:false,CY:false,EA:false},
-        category: it.category, typeId: it.typeId
-      };
-      const g = agg[key];
-      g.ids.push(it.id);
-      if(UNIT_COLS.includes(it.unit)){ g.sums[it.unit] += it.qty; g.has[it.unit] = true; }
-      if(!g.category && it.category){ g.category = it.category; g.typeId = it.typeId; }
-    });
-    Object.values(agg).forEach(g=>{
-      const cellFor = (unit)=>{
-        if(!g.has[unit]) return `<span class="qty-col empty">–</span>`;
-        const v = g.sums[unit];
-        const display = v%1===0 ? v : v.toFixed(1);
-        return `<span class="qty-col">${display}</span>`;
-      };
-      const canReactivate = g.category && g.typeId;
-      html += `<div class="item-row" data-ids="${g.ids.join(',')}" ${canReactivate?`data-cat="${g.category}" data-typeid="${g.typeId}" style="cursor:pointer;"`:''} title="${canReactivate?'Click to keep using this type · Right-click to edit it':''}">
-        <span class="swatch" style="background:${g.color}"></span>
-        <span class="name" title="${escapeHtml(g.label)}">${escapeHtml(g.label)}</span>
+    const agg = aggByTrade[trade] || {};
+    const labels = new Set(Object.keys(agg));
+    Object.values(state.stickyRows).filter(s=>s.trade===trade).forEach(s=>labels.add(s.label));
+    [...labels].forEach(label=>{
+      const g = agg[label], sticky = state.stickyRows[trade+'|'+label], zero = !g, skKey = trade+'|'+label;
+      const color = g? g.color : (sticky? sticky.color : '#999');
+      const cat = g? g.category : (sticky? sticky.category : null);
+      const typeId = g? g.typeId : (sticky? sticky.typeId : null);
+      const unitsHas = g? g.has : (sticky? sticky.units : {});
+      const ids = g? g.ids : [];
+      const cellFor = (u)=>{ if(!unitsHas[u]) return `<span class="qty-col empty">–</span>`;
+        const v = g? g.sums[u] : 0; const disp=(v%1===0)?v:v.toFixed(1);
+        return `<span class="qty-col${zero?' zero':''}">${disp}</span>`; };
+      const canReactivate = cat && typeId;
+      html += `<div class="item-row${zero?' zero-row':''}" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" ${canReactivate?`data-cat="${cat}" data-typeid="${typeId}" style="cursor:pointer;"`:''} title="${canReactivate?'Click to keep using this type · Right-click to edit it':''}">
+        <span class="swatch" style="background:${color}"></span>
+        <span class="name" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
         ${UNIT_COLS.map(cellFor).join('')}
-        <span class="del" data-ids="${g.ids.join(',')}">✕</span>
+        <span class="del" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" title="${zero?'Remove this row from the panel':'Delete these measurements (the row stays at 0)'}">✕</span>
       </div>`;
     });
     html += `</div>`;
@@ -5260,14 +5264,22 @@ function renderTakeoffList(){
   els.takeoffList.querySelectorAll('.del').forEach(d=>{
     d.addEventListener('click', (e)=>{
       e.stopPropagation();
-      const ids = e.target.dataset.ids.split(',');
-      state.items = state.items.filter(it=>!ids.includes(it.id));
-      const remainingWallIds = new Set(state.items.filter(it=>it.wallId).map(it=>it.wallId));
-      state.walls = state.walls.filter(w=>remainingWallIds.has(w.id));
-      const remainingAreaIds = new Set(state.items.filter(it=>it.areaId).map(it=>it.areaId));
-      state.areas = state.areas.filter(a=>remainingAreaIds.has(a.id));
+      const ids = (e.target.dataset.ids||'').split(',').filter(Boolean);
+      if(ids.length){
+        // First ✕: delete the measurements — the row stays in the panel at 0.
+        state.items = state.items.filter(it=>!ids.includes(it.id));
+        const remainingWallIds = new Set(state.items.filter(it=>it.wallId).map(it=>it.wallId));
+        state.walls = state.walls.filter(w=>remainingWallIds.has(w.id));
+        const remainingAreaIds = new Set(state.items.filter(it=>it.areaId).map(it=>it.areaId));
+        state.areas = state.areas.filter(a=>remainingAreaIds.has(a.id));
+      } else {
+        // ✕ on an already-zero row: remove it from the panel entirely.
+        const sk = e.target.dataset.sticky; if(sk) delete state.stickyRows[sk];
+      }
       renderTakeoffList();
+      if(typeof renderPagesList==='function') renderPagesList();
       redrawOverlay();
+      markDirty();
     });
   });
 }

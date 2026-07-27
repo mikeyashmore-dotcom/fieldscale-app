@@ -715,9 +715,8 @@ async function aiText({ system, user, images, documents, max_tokens, model, mock
   (documents || []).forEach(d => content.push({ type: 'document', source: { type: 'base64', media_type: d.mime || 'application/pdf', data: d.data } }));
   (images || []).forEach(img => content.push({ type: 'image', source: { type: 'base64', media_type: img.mime || 'image/png', data: img.data } }));
   content.push({ type: 'text', text: user });
-  // PDF documents ride on Anthropic's document beta so they work on the pinned api version.
-  const beta = (documents && documents.length) ? 'pdfs-2024-09-25' : undefined;
-  return aiCall({ system, messages: [{ role: 'user', content }], max_tokens, model, beta });
+  // PDF documents work with no beta header on current models (base64 document block).
+  return aiCall({ system, messages: [{ role: 'user', content }], max_tokens, model });
 }
 // Accept a PDF data URL (or raw base64 PDF) for the document reader. Returns null if it isn't a PDF.
 function parseDocInput(input) {

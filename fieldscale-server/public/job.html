@@ -15,7 +15,7 @@
   .pagebar .spacer{flex:1}
   .pagebar select{width:auto;padding:6px 8px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
-  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px}
+  .block{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:14px;margin-bottom:22px}
   .block h3{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin:0 0 10px}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:12px;color:var(--steel);margin-bottom:3px}
@@ -627,18 +627,23 @@ document.getElementById('punch-wrap').addEventListener('click', e=>{
 // ---- Generic job list sections (selections, materials, inspections) ----
 function bindListSection(key, tbodyId, addBtnId, cols, blank){
   const tb=document.getElementById(tbodyId);
-  function cell(r,i,c){
+  const calcCols=cols.map((c,ci)=>({c,ci})).filter(x=>x.c.type==='calc');
+  function cell(r,i,c,ci){
     if(c.type==='select') return `<td><select data-i="${i}" data-f="${c.f}">${c.opts.map(o=>`<option ${r[c.f]===o?'selected':''}>${o}</option>`).join('')}</select></td>`;
-    if(c.type==='calc') return `<td class="num">${c.calc(r)}</td>`;
+    if(c.type==='calc') return `<td class="num" data-ci="${ci}">${c.calc(r)}</td>`;
     const num=c.type==='num', date=c.type==='date';
     return `<td${num?' class="num"':''}><input ${date?'type="date"':''} data-i="${i}" data-f="${c.f}"${num?' data-num="1" inputmode="decimal"':''}${c.recalc?' data-recalc="1"':''} value="${escapeHtml(r[c.f]==null?'':r[c.f])}" placeholder="${c.ph||''}" ${num?'style="width:90px"':''} /></td>`;
   }
   function render(){
     const arr=doc[key]||[];
-    tb.innerHTML = arr.length ? arr.map((r,i)=>`<tr>${cols.map(c=>cell(r,i,c)).join('')}<td style="text-align:right"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td></tr>`).join('')
+    tb.innerHTML = arr.length ? arr.map((r,i)=>`<tr>${cols.map((c,ci)=>cell(r,i,c,ci)).join('')}<td style="text-align:right"><button class="rowdel" data-del="${i}" title="Remove">✕</button></td></tr>`).join('')
       : `<tr><td colspan="${cols.length+1}" style="padding:12px 14px;color:var(--steel);font-size:13px">None yet.</td></tr>`;
   }
-  tb.addEventListener('input', e=>{ const i=e.target.getAttribute('data-i'), f=e.target.getAttribute('data-f'); if(i===null||!f) return; const num=e.target.getAttribute('data-num')!==null; doc[key][i][f]= num?(parseFloat(e.target.value)||0):e.target.value; if(e.target.getAttribute('data-recalc')!==null) render(); });
+  // Update only the read-only calc cells in this row — never re-render the whole table
+  // while someone is typing (that destroys the focused input and "kicks you out of the cell").
+  tb.addEventListener('input', e=>{ const i=e.target.getAttribute('data-i'), f=e.target.getAttribute('data-f'); if(i===null||!f) return; const num=e.target.getAttribute('data-num')!==null; doc[key][i][f]= num?(parseFloat(e.target.value)||0):e.target.value;
+    if(e.target.getAttribute('data-recalc')!==null){ const tr=e.target.closest('tr'); const r=doc[key][i];
+      calcCols.forEach(({c,ci})=>{ const cellEl=tr&&tr.querySelector('[data-ci="'+ci+'"]'); if(cellEl) cellEl.innerHTML=c.calc(r); }); } });
   tb.addEventListener('change', e=>{ const i=e.target.getAttribute('data-i'), f=e.target.getAttribute('data-f'); if(i===null||!f||e.target.tagName!=='SELECT') return; doc[key][i][f]=e.target.value; });
   tb.addEventListener('click', e=>{ const d=e.target.getAttribute&&e.target.getAttribute('data-del'); if(d!==null&&d!==undefined){ doc[key].splice(Number(d),1); render(); } });
   document.getElementById(addBtnId).addEventListener('click', ()=>{ doc[key]=doc[key]||[]; doc[key].push(Object.assign({id:key.slice(0,3)+'_'+Math.random().toString(16).slice(2,8)}, blank())); render(); });
@@ -820,6 +825,7 @@ function renderReceipts(){
       <span class="ic">${(r.mime||'').indexOf('pdf')>=0?'📄':'🧾'}</span>
       <span class="nm">${escapeHtml(r.name)}</span>
       <span class="meta">${fmtSize(r.size)} · ${r.uploadedAt?new Date(r.uploadedAt).toLocaleDateString():''}</span>
+      ${window.__hideFin?'':`<a class="view" data-rread="${r.id}" title="Read this invoice/receipt with AI and add the cost">✨ Read</a>`}
       <a class="view" data-view="${r.id}">View</a>
       <button class="rowdel" data-rdel="${r.id}" title="Remove">✕</button>
     </li>`).join('');
@@ -845,6 +851,23 @@ document.getElementById('add-photo').addEventListener('click', ()=>document.getE
 document.getElementById('receipt-input').addEventListener('change', e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; if(f.length) uploadFiles(f); });
 document.getElementById('photo-input').addEventListener('change', e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; if(f.length) uploadFiles(f); });
 document.getElementById('receipts').addEventListener('click', async (e)=>{
+  const rr=e.target.getAttribute && e.target.getAttribute('data-rread');
+  if(rr){ try{
+      const res=await fetch('/api/jobs/'+jobId+'/receipts/'+rr, {headers:{'Authorization':'Bearer '+getToken()}});
+      if(!res.ok) throw new Error('Could not open that file.');
+      const blob=await res.blob(); const rd=new FileReader();
+      rd.onload=()=>{ const image=rd.result;
+        fsAiRun({ title:'✨ Read invoice / receipt', loading:'Reading the file…',
+          run:()=>fsAI.post('/api/ai/receipt',{image}),
+          render:(r)=>{ const x=r.receipt||{}; return 'Vendor: '+(x.vendor||'—')+'\nDate: '+(x.date||'—')+'\nTotal: $'+(x.total||0)+'\nCategory: '+(x.category||'—')+(x.summary?('\n\n'+x.summary):''); },
+          insertLabel:'Add as cost',
+          onInsert:(text,r)=>{ const x=r.receipt||{}; doc.costs=doc.costs||[];
+            doc.costs.push({ id:'x_'+Math.random().toString(16).slice(2,8), category:(x.category||'Materials'), description:((x.vendor||'')+(x.summary?(' — '+x.summary):'')).slice(0,200), amount:Number(x.total)||0, date:x.date||'' });
+            renderCosts(); renderCosting(); toast('Cost added from the file.'); }
+        });
+      };
+      rd.readAsDataURL(blob);
+    }catch(err){ toast(err.message,true); } return; }
   const v=e.target.getAttribute && e.target.getAttribute('data-view');
   if(v){ try{
       const res=await fetch('/api/jobs/'+jobId+'/receipts/'+v, {headers:{'Authorization':'Bearer '+getToken()}});
@@ -1102,6 +1125,7 @@ let statusVal='scheduled';
 let isField=false, hideFin=false;
 async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; isField=(me.role==='field'); hideFin=(isField||!!me.hideFinancials); }catch(e){ return; }
+  window.__hideFin = hideFin;   // gates the AI "Read" link on receipts
   if(isField) document.body.classList.add('field-role');
   try{
     const j = await apiFetch('/api/jobs/'+jobId);

@@ -361,7 +361,7 @@ if (!ANTHROPIC_API_KEY) {
 function loadDB() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], companies: [], projects: [], estimates: [], invoices: [], settings: { allowSignups: true } }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], companies: [], projects: [], estimates: [], invoices: [], invites: [], settings: { allowSignups: true, inviteOnly: true } }, null, 2));
   }
   const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   // Fill in anything missing so older db.json files keep working after an upgrade.
@@ -378,7 +378,8 @@ function loadDB() {
   parsed.purchaseOrders = parsed.purchaseOrders || [];
   parsed.customers = parsed.customers || []; // per-customer notes + activity log (records are derived otherwise)
   parsed.audit = parsed.audit || []; // activity log / audit trail (capped)
-  parsed.settings = Object.assign({ allowSignups: true }, parsed.settings || {});
+  parsed.invites = parsed.invites || []; // one-time invite codes for closed (invite-only) signup
+  parsed.settings = Object.assign({ allowSignups: true, inviteOnly: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
     if (typeof u.disabled !== 'boolean') u.disabled = false;
@@ -927,6 +928,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/config' && req.method === 'GET') {
       return sendJSON(res, 200, {
         allowSignups: db.settings.allowSignups || db.users.length === 0, // first account can always be made
+        inviteOnly: db.settings.inviteOnly !== false && db.users.length > 0, // first run is never gated
         firstRun: db.users.length === 0,
         minPasswordLength: MIN_PASSWORD_LENGTH
       });
@@ -936,10 +938,19 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/register' && req.method === 'POST') {
       if (rateLimited('register', req, 5, 60 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY); // 5/hour/IP
       const isFirstUser = db.users.length === 0;
-      if (!db.settings.allowSignups && !isFirstUser) {
-        return sendJSON(res, 403, { error: 'New signups are closed. Ask an administrator to create an account for you.' });
+      const regBody = await readBody(req);
+      const inviteOnly = db.settings.inviteOnly !== false; // default on
+      let usedInvite = null;
+      if (!isFirstUser) {
+        if (inviteOnly) {
+          const code = String(regBody.invite || '').trim();
+          usedInvite = (db.invites || []).find(i => i.code === code && !i.usedBy);
+          if (!usedInvite) return sendJSON(res, 403, { error: 'A valid invite link is required to create an account.' });
+        } else if (!db.settings.allowSignups) {
+          return sendJSON(res, 403, { error: 'New signups are closed. Ask an administrator to create an account for you.' });
+        }
       }
-      const { username, password, companyName } = await readBody(req);
+      const { username, password, companyName } = regBody;
       const nameCheck = validateUsername(username);
       if (nameCheck.error) return sendJSON(res, 400, { error: nameCheck.error });
       const pwErr = validatePassword(password);
@@ -971,6 +982,7 @@ const server = http.createServer(async (req, res) => {
       };
       db.companies.push(company);
       db.users.push(user);
+      if (usedInvite) { usedInvite.usedBy = userId; usedInvite.usedAt = Date.now(); usedInvite.usedByUsername = user.username; }
       saveDB(db);
       return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
     }
@@ -1176,10 +1188,31 @@ const server = http.createServer(async (req, res) => {
         // Platform-only: open/close new-company sign-ups for the whole platform.
         if (pathname === '/api/admin/settings' && req.method === 'PUT') {
           if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
-          const { allowSignups } = await readBody(req);
+          const { allowSignups, inviteOnly } = await readBody(req);
           if (typeof allowSignups === 'boolean') db.settings.allowSignups = allowSignups;
+          if (typeof inviteOnly === 'boolean') db.settings.inviteOnly = inviteOnly;
           saveDB(db);
           return sendJSON(res, 200, { settings: db.settings });
+        }
+        // Platform admin: invite links (one-time codes) for closed sign-up.
+        if (pathname === '/api/admin/invites' && req.method === 'GET') {
+          if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+          return sendJSON(res, 200, { invites: (db.invites || []).slice().sort((a, b) => b.createdAt - a.createdAt) });
+        }
+        if (pathname === '/api/admin/invites' && req.method === 'POST') {
+          if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+          const code = crypto.randomBytes(9).toString('hex'); // 18-char one-time code
+          const inv = { code, createdAt: Date.now(), createdBy: me.id, usedBy: null };
+          db.invites = db.invites || []; db.invites.push(inv);
+          saveDB(db);
+          return sendJSON(res, 200, { invite: inv });
+        }
+        const invMatch = pathname.match(/^\/api\/admin\/invites\/([a-f0-9]+)$/);
+        if (invMatch && req.method === 'DELETE') {
+          if (!isPlatformAdmin(me)) return sendJSON(res, 403, { error: 'Platform administrator only.' });
+          db.invites = (db.invites || []).filter(i => i.code !== invMatch[1]);
+          saveDB(db);
+          return sendJSON(res, 200, { ok: true });
         }
 
         if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Company owners and admins only.' });

@@ -1263,13 +1263,23 @@
       <div class="admin-section" id="admin-signups-section" style="display:none;">
         <h5>Platform sign-ups</h5>
         <div class="checkbox-row">
-          <input type="checkbox" id="admin-allow-signups" />
-          <label for="admin-allow-signups" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--charcoal);margin:0;">
-            Anyone with the link can sign up and create a new company
+          <input type="checkbox" id="admin-invite-only" />
+          <label for="admin-invite-only" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--charcoal);margin:0;">
+            <b>Invite only</b> — nobody can create an account without an invite link from you
           </label>
         </div>
+        <div class="checkbox-row" id="admin-open-row" style="margin-top:6px;">
+          <input type="checkbox" id="admin-allow-signups" />
+          <label for="admin-allow-signups" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12.5px;color:var(--charcoal);margin:0;">
+            Otherwise: anyone with the link can sign up and create a new company
+          </label>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn" id="admin-gen-invite" style="background:var(--orange);color:#fff;border-color:var(--orange-dim)">＋ Generate invite link</button>
+        </div>
+        <div id="admin-invite-list" style="margin-top:10px;"></div>
         <div class="sp-note" style="margin-top:8px;" id="admin-signup-note">
-          Platform-wide (all companies). Turn off to stop new companies from self-registering.
+          Each invite link works once. Send it to the person you want to give an account.
         </div>
       </div>
       <div class="admin-section">
@@ -1657,7 +1667,7 @@ async function submitAuth(){
   try{
     const res = await fetch(authMode==='login' ? '/api/login' : '/api/register', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(authMode==='login' ? {username, password} : {username, password, companyName})
+      body: JSON.stringify(authMode==='login' ? {username, password} : {username, password, companyName, invite:new URLSearchParams(location.search).get('invite')||''})
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || 'Something went wrong.');
@@ -1760,6 +1770,9 @@ async function refreshUserList(){
     // The sign-ups toggle is platform-wide (new companies) — only the platform admin sees it.
     document.getElementById('admin-signups-section').style.display = adminMe.platformAdmin ? 'block' : 'none';
     document.getElementById('admin-allow-signups').checked = !!data.settings.allowSignups;
+    document.getElementById('admin-invite-only').checked = data.settings.inviteOnly !== false;
+    document.getElementById('admin-open-row').style.display = (data.settings.inviteOnly!==false) ? 'none' : '';
+    if(adminMe.platformAdmin) loadInvites();
     document.getElementById('admin-ai-note').textContent =
       `Each person is limited to ${data.aiCallsPerHour} AI requests per hour, so a stuck loop can't run up your Anthropic bill.`;
 
@@ -1875,6 +1888,35 @@ document.getElementById('admin-create-user').addEventListener('click', async ()=
   }catch(err){ showAdminMsg(err.message, 'error'); }
 });
 
+async function loadInvites(){
+  try{
+    const data = await apiFetch('/api/admin/invites');
+    const el = document.getElementById('admin-invite-list');
+    const unused = (data.invites||[]).filter(i=>!i.usedBy);
+    if(!unused.length){ el.innerHTML = '<div class="admin-empty" style="font-size:12px">No active invite links.</div>'; return; }
+    el.innerHTML = unused.map(i=>{
+      const link = location.origin+'/?invite='+i.code;
+      return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">
+        <input readonly value="${link}" onclick="this.select()" style="flex:1;font-size:11.5px;padding:5px 7px;border:1px solid var(--steel-light);border-radius:3px;background:var(--surface-2);color:var(--charcoal)"/>
+        <button class="btn" data-copy="${link}" style="padding:5px 8px">Copy</button>
+        <button class="btn" data-revoke="${i.code}" style="padding:5px 8px;color:var(--danger)">✕</button>
+      </div>`;
+    }).join('');
+    el.querySelectorAll('[data-copy]').forEach(b=> b.addEventListener('click',()=>{ try{ navigator.clipboard.writeText(b.dataset.copy); }catch(_){} showAdminMsg('Invite link copied.','ok'); }));
+    el.querySelectorAll('[data-revoke]').forEach(b=> b.addEventListener('click', async ()=>{ try{ await apiFetch('/api/admin/invites/'+b.dataset.revoke,{method:'DELETE'}); loadInvites(); }catch(err){ showAdminMsg(err.message,'error'); } }));
+  }catch(e){}
+}
+document.getElementById('admin-gen-invite').addEventListener('click', async ()=>{
+  try{ await apiFetch('/api/admin/invites',{method:'POST'}); loadInvites(); showAdminMsg('New invite link created — copy it below.','ok'); }
+  catch(err){ showAdminMsg(err.message,'error'); }
+});
+document.getElementById('admin-invite-only').addEventListener('change', async (e)=>{
+  try{
+    await apiFetch('/api/admin/settings', {method:'PUT', body: JSON.stringify({inviteOnly: e.target.checked})});
+    document.getElementById('admin-open-row').style.display = e.target.checked ? 'none' : '';
+    showAdminMsg(e.target.checked ? 'Invite only — accounts now require an invite link from you.' : 'Invite requirement turned off.', 'ok');
+  }catch(err){ showAdminMsg(err.message,'error'); }
+});
 document.getElementById('admin-allow-signups').addEventListener('change', async (e)=>{
   try{
     await apiFetch('/api/admin/settings', {method:'PUT', body: JSON.stringify({allowSignups: e.target.checked})});
@@ -1905,11 +1947,21 @@ document.addEventListener('click', (e)=>{
   try{
     const cfg = await (await fetch('/api/config')).json();
     const toggle = document.querySelector('.auth-toggle');
+    const hasInvite = !!new URLSearchParams(location.search).get('invite');
     if(cfg.firstRun){
       authMode = 'register';
       document.getElementById('auth-title').textContent = 'Create Admin Account';
       document.getElementById('auth-submit-btn').textContent = 'Create Account';
       toggle.innerHTML = '<span>This is the first account on this server, so it becomes the administrator.</span>';
+    } else if(cfg.inviteOnly && hasInvite){
+      // A valid invite link → let them create their account.
+      authMode = 'register';
+      document.getElementById('auth-title').textContent = 'Create Your Account';
+      document.getElementById('auth-submit-btn').textContent = 'Create Account';
+      const cf = document.getElementById('auth-company'); if(cf) cf.parentElement.style.display='';
+      toggle.innerHTML = '<span>You have an invite — create your account below.</span>';
+    } else if(cfg.inviteOnly){
+      toggle.innerHTML = '<span>Accounts are by invite only. Ask your administrator for an invite link.</span>';
     } else if(!cfg.allowSignups){
       toggle.innerHTML = '<span>Accounts are created by an administrator.</span>';
     }

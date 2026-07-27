@@ -1101,6 +1101,7 @@
         </div>
         <div class="takeoff-footer">
           <button class="btn" id="export-csv">Export CSV</button>
+          <button class="btn" id="save-sheet-btn" title="Save this sheet as an image, with your measurements, highlights and markups">🖼 Save Sheet</button>
           <button class="btn" id="clear-all">Clear All</button>
         </div>
       </div>
@@ -5260,6 +5261,20 @@ function renderTakeoffList(){
   });
 }
 
+// Save the current sheet as a PNG — the plan plus everything drawn on the overlay
+// (measurements, highlights and markups), composited at full render resolution.
+document.getElementById('save-sheet-btn').addEventListener('click', ()=>{
+  if(!state.pdfDoc){ alert('Load a plan first.'); return; }
+  clearSelection(); redrawOverlay();   // drop selection handles so they don't show in the image
+  const pc=els.pdfCanvas, oc=els.overlay;
+  const c=document.createElement('canvas'); c.width=pc.width; c.height=pc.height;
+  const cx=c.getContext('2d');
+  cx.fillStyle='#fff'; cx.fillRect(0,0,c.width,c.height);
+  cx.drawImage(pc,0,0); cx.drawImage(oc,0,0);
+  const nm=(document.getElementById('proj-name').value||'takeoff').replace(/[^\w\-]+/g,'_').slice(0,60);
+  const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download=nm+'-sheet'+state.pageNum+'.png';
+  document.body.appendChild(a); a.click(); a.remove();
+});
 document.getElementById('export-csv').addEventListener('click', ()=>{
   if(state.items.length===0){ alert('No items to export yet.'); return; }
   // The job details ride along on the export — a takeoff that doesn't say which job,

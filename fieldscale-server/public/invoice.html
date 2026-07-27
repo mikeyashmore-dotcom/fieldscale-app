@@ -327,8 +327,6 @@ function syncDocFromForm(){
   doc.deposit=parseFloat(val('t-dep'))||0; doc.depositType=(doc.depositType==='amt'?'amt':'pct');
 }
 async function save(){
-  const aErr=fsAddr.validate('co-addr')||fsAddr.validate('cl-addr');
-  if(aErr){ toast(aErr, true); throw new Error(aErr); }
   syncDocFromForm();
   const t=computeTotals();
   await apiFetch('/api/invoices/'+invId, { method:'PUT', body: JSON.stringify({ name:invName, client:doc.client.name, total:t.total, amountPaid:t.paid, doc }) });

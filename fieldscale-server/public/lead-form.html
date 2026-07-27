@@ -53,8 +53,6 @@ function form(companyName){
     if(!name){ errEl.textContent='Please enter your name.'; document.getElementById('f-name').focus(); return; }
     const gv=id=>document.getElementById(id).value.trim();
     const ap={street:gv('f-street'),city:gv('f-city'),state:gv('f-state'),zip:gv('f-zip')};
-    const filled=[ap.street,ap.city,ap.state,ap.zip].filter(Boolean).length;
-    if(filled>0 && filled<4){ errEl.textContent='Please complete the full address — street, city, state and ZIP.'; return; }
     const addrLine=[ap.street,[[ap.city,ap.state].filter(Boolean).join(', '),ap.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
     const btn=document.getElementById('submit'); btn.disabled=true; btn.textContent='Sending…';
     try{

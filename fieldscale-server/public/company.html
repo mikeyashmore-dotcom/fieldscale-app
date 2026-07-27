@@ -298,7 +298,6 @@ document.getElementById('copy-leadform').addEventListener('click', async ()=>{
 });
 
 document.getElementById('save-btn').addEventListener('click', async ()=>{
-  const addrErr=fsAddr.validate('co-addr'); if(addrErr){ alert(addrErr); return; }
   const addrParts=fsAddr.parts('co-addr');
   const profile={ name:val('name'), phone:val('phone'), email:val('email'),
     license:val('license'), website:val('website'), address:fsAddr.line(addrParts), addressParts:addrParts, logo, team,

@@ -608,8 +608,6 @@ function val(id){ return document.getElementById(id).value; }
 
 async function save(){
   if(window.__estLocked){ toast('This estimate is locked — click Edit Estimate to change it.', true); return; }
-  const aErr=fsAddr.validate('co-addr')||fsAddr.validate('cl-addr');
-  if(aErr){ toast(aErr, true); throw new Error(aErr); }
   syncDocFromForm();
   const total=computeTotals().total;
   const status=document.getElementById('est-status').value;

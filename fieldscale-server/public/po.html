@@ -245,7 +245,6 @@ function syncDocFromForm(){
   doc.notes=val('notes');
 }
 async function save(){
-  const aErr=fsAddr.validate('sp-addr'); if(aErr){ toast(aErr,true); throw new Error(aErr); }
   syncDocFromForm();
   await apiFetch('/api/purchase-orders/'+poId, { method:'PUT', body: JSON.stringify({
     name:poName, supplier:doc.supplier.name, jobId:doc.jobId||'', total:total(), status:val('status'), doc }) });

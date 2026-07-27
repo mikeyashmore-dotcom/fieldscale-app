@@ -167,7 +167,6 @@ function sigDataUrl(existing){ return sigDirty ? sigCanvas.toDataURL('image/png'
 
 async function save(){
   const sv=doc.siteVisit||{};
-  const addrErr=fsAddr.validate('lead-addr'); if(addrErr){ toast(addrErr,true); throw new Error(addrErr); }
   const addrParts=fsAddr.parts('lead-addr');
   await apiFetch('/api/leads/'+leadId, { method:'PUT', body: JSON.stringify({
     name: val('lead-name')||'New Lead', workType: val('work-type'), value: parseFloat(val('value'))||0,

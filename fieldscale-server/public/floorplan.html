@@ -250,6 +250,9 @@ function draw(){
   doc.items.forEach((it,i)=> drawItem(it, sel&&sel.kind==='item'&&sel.i===i));
   // walls
   doc.walls.forEach((wl,i)=> drawWall(wl, sel&&sel.kind==='wall'&&sel.i===i));
+  // openings break the wall — erase the wall faces where a door/window sits, then redraw it on top
+  drawOpeningCuts(ctx);
+  doc.items.forEach((it,i)=>{ if(isOpening(it.type)) drawItem(it, sel&&sel.kind==='item'&&sel.i===i); });
   // in-progress wall
   if(drawPts && drawPts.length){
     ctx.strokeStyle='#2F6DB0'; ctx.strokeStyle='#2F6DB0'; ctx.lineWidth=Math.max(2,0.42*zoom);
@@ -287,6 +290,53 @@ function escapeHtmlT(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':
 function label(c,txt,x,y){ c.font='600 11px "IBM Plex Mono", monospace'; c.textAlign='center'; c.textBaseline='middle'; const wpx=c.measureText(txt).width+8; c.fillStyle='#fff'; c.fillRect(x-wpx/2,y-8,wpx,16); c.fillStyle='#17293D'; c.fillText(txt,x,y); }
 // Draw a wall as a hollow rectangle: white (empty) body, only the edges (wall faces) inked —
 // thickness comes from the framing (2x4 / 2x6 / 2x8). Returns the screen endpoints.
+// Straight line, or a quadratic curve when a line has a 'bulge' (-100..100 = how much it bows).
+function lineCurveTo(c,a,b,bulge){
+  if(!bulge){ c.lineTo(b.x,b.y); return; }
+  const dx=b.x-a.x, dy=b.y-a.y, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L, off=(bulge/100)*L;
+  c.quadraticCurveTo((a.x+b.x)/2+nx*off, (a.y+b.y)/2+ny*off, b.x, b.y);
+}
+// ---- Openings that cut the wall (door / window / opening) ----
+function isOpening(t){ return t==='door'||t==='ddoor'||t==='window'||t==='opening'; }
+// Distance (in feet) from a point to a wall segment, plus the projected point on the wall.
+function pointSegDist(px,py,x1,y1,x2,y2){
+  const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy; let t=L2?((px-x1)*dx+(py-y1)*dy)/L2:0; t=Math.max(0,Math.min(1,t));
+  const cx=x1+t*dx, cy=y1+t*dy; return { dist:Math.hypot(px-cx,py-cy), t, cx, cy };
+}
+// The wall an opening is sitting on (centered near the wall line, not a line-type), or null.
+function wallForOpening(it){
+  let best=null;
+  doc.walls.forEach(wl=>{ if(wl.kind==='line') return;
+    const r=pointSegDist(it.x,it.y,wl.x1,wl.y1,wl.x2,wl.y2);
+    const tol=wallThick(wl)/2 + 0.75;   // within the wall thickness + a little slack (feet)
+    if(r.dist<=tol && r.t>0.001 && r.t<0.999 && (!best||r.dist<best.dist)) best={wl,dist:r.dist,cx:r.cx,cy:r.cy};
+  });
+  return best;
+}
+function drawOpeningCuts(c){
+  doc.items.forEach(it=>{
+    if(!isOpening(it.type)) return;
+    const hit=wallForOpening(it); if(!hit) return;
+    const wl=hit.wl;
+    const a=W2S({x:wl.x1,y:wl.y1}), b=W2S({x:wl.x2,y:wl.y2});
+    const dx=b.x-a.x, dy=b.y-a.y, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, nx=-uy, ny=ux;
+    const ctr=W2S({x:hit.cx,y:hit.cy});          // centered on the wall line
+    const halfW=(it.w*zoom)/2, ht=wallThick(wl)*zoom/2 + Math.max(2, zoom*0.06);
+    // erase the wall (faces + fill) across the opening so the floor shows through — like real plans
+    c.save(); c.globalCompositeOperation='destination-out';
+    c.beginPath();
+    c.moveTo(ctr.x-ux*halfW+nx*ht, ctr.y-uy*halfW+ny*ht);
+    c.lineTo(ctr.x+ux*halfW+nx*ht, ctr.y+uy*halfW+ny*ht);
+    c.lineTo(ctr.x+ux*halfW-nx*ht, ctr.y+uy*halfW-ny*ht);
+    c.lineTo(ctr.x-ux*halfW-nx*ht, ctr.y-uy*halfW-ny*ht);
+    c.closePath(); c.fill();
+    c.restore();
+    // jamb caps at the two ends so the wall reads as "ending" at the opening
+    c.save(); c.strokeStyle='#243B53'; c.lineWidth=Math.max(1.2, zoom*0.05);
+    [-1,1].forEach(s=>{ c.beginPath(); c.moveTo(ctr.x+ux*halfW*s+nx*ht, ctr.y+uy*halfW*s+ny*ht); c.lineTo(ctr.x+ux*halfW*s-nx*ht, ctr.y+uy*halfW*s-ny*ht); c.stroke(); });
+    c.restore();
+  });
+}
 function wallShape(c, wl, color){
   const a=W2S({x:wl.x1,y:wl.y1}), b=W2S({x:wl.x2,y:wl.y2});
   const t=Math.max(2, wallThick(wl)*zoom);            // thickness in px
@@ -302,7 +352,7 @@ function drawWall(wl, selected){
     // A plain line (e.g. concrete edge, saw-cut) — single stroke, no thickness or wall area.
     a=W2S({x:wl.x1,y:wl.y1}); b=W2S({x:wl.x2,y:wl.y2});
     ctx.strokeStyle=selected?'#2F6DB0':'#243B53'; ctx.lineWidth=Math.max(1.6, zoom*0.06);
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); lineCurveTo(ctx,a,b,wl.bulge); ctx.stroke();
   } else {
     ({a,b}=wallShape(ctx, wl, selected ? '#2F6DB0' : '#243B53'));
   }
@@ -473,8 +523,10 @@ function showProps(){ const el=document.getElementById('props');
     el.innerHTML='<div style="font-weight:600;color:var(--heading)">Line</div>'
       +'<label>Label</label><input id="pp-lname" value="'+escAttr(w.name||'')+'" placeholder="e.g. Concrete edge">'
       +'<label>Length (ft)</label><input id="pp-llen" value="'+ftFeetStr(L)+'">'
+      +'<label>Curve <span style="color:var(--steel);font-weight:400">(drag for a bow)</span></label><input id="pp-lcurve" type="range" min="-100" max="100" step="5" value="'+(w.bulge||0)+'" style="width:100%">'
       +'<div class="meta">'+ftIn(L)+'</div>'
       +'<div class="row"><button class="btn" id="pp-del">Delete</button></div>';
+    document.getElementById('pp-lcurve').addEventListener('input',ev=>{ w.bulge=parseFloat(ev.target.value)||0; markDirty(); draw(); });
     document.getElementById('pp-lname').addEventListener('input',ev=>{ w.name=ev.target.value; markDirty(); draw(); });
     document.getElementById('pp-llen').addEventListener('change',ev=>{ const nf=parseFloat(ev.target.value); if(nf>0){ const cur=dist(w.x1,w.y1,w.x2,w.y2)||1; const ux=(w.x2-w.x1)/cur, uy=(w.y2-w.y1)/cur; w.x2=snap(w.x1+ux*nf); w.y2=snap(w.y1+uy*nf); markDirty(); draw(); showProps(); } });
     document.getElementById('pp-del').addEventListener('click',deleteSel);
@@ -593,6 +645,7 @@ function renderSheet(px, aspect){
   for(let gx=Math.floor(b.minx-padFt); gx<=Math.ceil(b.maxx+padFt); gx++){ const s=W2S({x:gx,y:0}); c.strokeStyle=gx%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(s.x,planY); c.lineTo(s.x,planY+usedH); c.stroke(); }
   for(let gy=Math.floor(b.miny-padFt); gy<=Math.ceil(b.maxy+padFt); gy++){ const s=W2S({x:0,y:gy}); c.strokeStyle=gy%5===0?'#e2ddcd':'#f0ecdf'; c.lineWidth=1; c.beginPath(); c.moveTo(planX,s.y); c.lineTo(planX+usedW,s.y); c.stroke(); }
   doc.items.forEach(it=>drawItemOn(c,it)); doc.walls.forEach(w=>drawWallOn(c,w));
+  drawOpeningCuts(c); doc.items.forEach(it=>{ if(isOpening(it.type)) drawItemOn(c,it); });  // openings break the wall
   drawScaleBar(c, planX+12*k, planY+usedH-16*k, z, k);
   c.restore();
   c.strokeStyle='#c9c2ae'; c.lineWidth=1*k; c.strokeRect(planX,planY,usedW,usedH);
@@ -643,7 +696,7 @@ function drawTitleBlock(c,x,y,w,h,k){
 function cutText(c,s,maxw){ s=String(s); if(c.measureText(s).width<=maxw) return s; while(s.length>1 && c.measureText(s+'…').width>maxw) s=s.slice(0,-1); return s+'…'; }
 function drawWallOn(c,wl){
   let a,b;
-  if(wl.kind==='line'){ a=W2S({x:wl.x1,y:wl.y1}); b=W2S({x:wl.x2,y:wl.y2}); c.strokeStyle='#243B53'; c.lineWidth=Math.max(1.6, zoom*0.06); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+  if(wl.kind==='line'){ a=W2S({x:wl.x1,y:wl.y1}); b=W2S({x:wl.x2,y:wl.y2}); c.strokeStyle='#243B53'; c.lineWidth=Math.max(1.6, zoom*0.06); c.beginPath(); c.moveTo(a.x,a.y); lineCurveTo(c,a,b,wl.bulge); c.stroke(); }
   else { ({a,b}=wallShape(c, wl, '#243B53')); }
   const len=dist(wl.x1,wl.y1,wl.x2,wl.y2); const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2}; if(len>0.5) labelOn(c,ftIn(len),mid.x,mid.y-8);
 }

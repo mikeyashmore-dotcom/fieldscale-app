@@ -1459,7 +1459,7 @@ els.fileInput.addEventListener('change', async (e)=>{
   document.getElementById('scale-toggle-btn').disabled = false;
   document.getElementById('search-toggle-btn').disabled = false;
   document.getElementById('autotag-btn').disabled = false;
-  state.pdfTextIndex = []; vectorSegsByPage={}; vectorGridByPage={};
+  state.pdfTextIndex = []; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++;
   state.searchHighlightPage = null;
   state.searchHighlights = [];
   state.pageNames = {};
@@ -2255,7 +2255,7 @@ async function restoreProjectState(data){
     document.getElementById('scale-toggle-btn').disabled = false;
     document.getElementById('search-toggle-btn').disabled = false;
   document.getElementById('autotag-btn').disabled = false;
-    state.pdfTextIndex = []; vectorSegsByPage={}; vectorGridByPage={};
+    state.pdfTextIndex = []; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++;
     openPagesPanel();
     await renderPage();
     // A reference tab is just for viewing one sheet — skip full-text indexing (parses every
@@ -2516,7 +2516,7 @@ function npResetToBlank(name){
   state.items=[]; state.stickyRows={}; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.annotations=[]; state.refLinks=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
-  state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; vectorSegsByPage={}; vectorGridByPage={}; lineSnapOn=false; state.searchHighlights=[]; state.searchHighlightPage=null;
+  state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++; lineSnapOn=false; state.searchHighlights=[]; state.searchHighlightPage=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
   document.getElementById('scale-toggle-btn').disabled = true;
@@ -3419,7 +3419,7 @@ function undoLastPoint(){
 // We walk the page's PDF drawing operators (with the transform stack) to pull out every line
 // segment in the SAME pixel space the overlay uses, index them in a grid, and snap the cursor
 // onto the nearest segment/endpoint. Scanned (image) plans have no vector paths → nothing to snap.
-let lineSnapOn=false, vectorSegsByPage={}, vectorGridByPage={}, vectorExtracting={};
+let lineSnapOn=false, vectorSegsByPage={}, vectorGridByPage={}, vectorExtracting={}, vecCacheGen=0;
 const VGRID=48;   // native px per spatial-grid cell
 function vKey(x,y){ return x+'_'+y; }
 function buildVectorGrid(segs){
@@ -3496,11 +3496,19 @@ async function toggleLineSnap(){
     redrawOverlay();
   } else { hideHint(); redrawOverlay(); }
 }
+// The detected-lines layer is drawn ONCE into an offscreen canvas and stamped each frame —
+// re-stroking tens of thousands of segments every redraw is what made it stutter.
+let vectorOverlayCache=null, vectorOverlayCacheKey='';
 function drawVectorSegsOverlay(){
-  const segs=vectorSegsByPage[state.pageNum]; if(!segs||!segs.length||segs.length>120000) return;
-  octx.save(); octx.strokeStyle='rgba(111,195,228,0.45)'; octx.lineWidth=0.7/state.zoom;
-  octx.beginPath(); segs.forEach(s=>{ octx.moveTo(s.x1,s.y1); octx.lineTo(s.x2,s.y2); }); octx.stroke();
-  octx.restore();
+  const segs=vectorSegsByPage[state.pageNum]; if(!segs||!segs.length) return;
+  const key=vecCacheGen+'|'+state.pageNum+'|'+els.overlay.width+'x'+els.overlay.height;
+  if(vectorOverlayCacheKey!==key){
+    const c=document.createElement('canvas'); c.width=els.overlay.width; c.height=els.overlay.height;
+    const cx=c.getContext('2d'); cx.strokeStyle='rgba(111,195,228,0.5)'; cx.lineWidth=1;
+    cx.beginPath(); segs.forEach(s=>{ cx.moveTo(s.x1,s.y1); cx.lineTo(s.x2,s.y2); }); cx.stroke();
+    vectorOverlayCache=c; vectorOverlayCacheKey=key;
+  }
+  octx.drawImage(vectorOverlayCache, 0, 0);   // one cheap blit
 }
 
 // Snap to a nearby existing takeoff vertex (endpoint of a wall/area/count, or the

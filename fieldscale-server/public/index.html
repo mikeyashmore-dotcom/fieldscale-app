@@ -246,8 +246,9 @@
   .add-menu .am-back{color:var(--cyan);font-size:12px;padding:4px 6px 8px;}
   .add-menu .am-new{border-top:1px solid var(--cyan-dim);margin-top:6px;padding-top:8px;color:var(--cyan);}
   .add-menu .am-empty{color:var(--steel-light);font-size:12.5px;padding:8px 10px;}
-  /* The old floating type box on the plan is gone — the + button is the only way to add items. */
-  .type-panel{display:none !important;}
+  /* The old floating takeoff-type box on the plan is gone — the + button is the only way to add
+     items. The highlight panel reuses .type-panel styling, so keep it visible. */
+  .type-panel:not(#highlight-panel){display:none !important;}
   .tool.active{
     background:var(--orange);
     color:#fff;

@@ -942,6 +942,7 @@
     <div class="topbar-spacer"></div>
     <div class="scale-btn-wrap" id="search-btn-wrap">
       <button class="btn" id="search-toggle-btn">🔍 Search Sheets</button>
+      <button class="btn" id="askplans-btn" title="Ask Claude questions about these plans">💬 Ask AI</button>
       <button class="btn" id="autotag-btn" disabled title="Let AI find the detail/section callouts on this sheet and turn them into clickable links to those sheets">🏷 Auto-tag refs</button>
       <div class="scale-popover" id="search-popover" style="width:360px;">
         <div class="sp-row" style="margin-bottom:0;">
@@ -6467,6 +6468,69 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
   bn.className='viewonly-banner';
   bn.innerHTML='<b>View-only on mobile.</b> Open a saved plan under 📂 Projects to see its quantities. To do a takeoff, use Fieldscale on a computer.';
   document.body.appendChild(bn);
+})();
+</script>
+
+<!-- Ask-AI-about-the-plans chat panel -->
+<div id="askplans-panel" style="display:none;position:fixed;right:16px;bottom:16px;width:340px;max-height:62vh;background:#fff;border:1px solid var(--paper-line);border-radius:6px;box-shadow:0 8px 30px rgba(0,0,0,0.25);z-index:70;flex-direction:column;overflow:hidden">
+  <div style="background:var(--ink-navy,#0E2A47);color:var(--paper,#F6F3EA);padding:9px 12px;display:flex;align-items:center;justify-content:space-between">
+    <span style="font-family:'Oswald',sans-serif;font-size:14px">💬 Ask about the plans</span>
+    <span id="askplans-close" style="cursor:pointer;font-size:16px">✕</span>
+  </div>
+  <div id="askplans-msgs" style="flex:1;overflow-y:auto;padding:10px;font-size:13px;min-height:130px;line-height:1.45"></div>
+  <div style="padding:8px;border-top:1px solid var(--paper-line);display:flex;gap:6px">
+    <input id="askplans-input" placeholder="e.g. Where is the project located?" style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--steel-light);border-radius:3px;font-size:13px" />
+    <button class="btn primary" id="askplans-send" style="padding:6px 12px">Send</button>
+  </div>
+</div>
+<script>
+(function(){
+  const panel=document.getElementById('askplans-panel');
+  const msgs=document.getElementById('askplans-msgs');
+  const input=document.getElementById('askplans-input');
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function addMsg(who, text, cls){
+    const d=document.createElement('div'); d.style.margin='0 0 10px';
+    d.innerHTML='<div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-bottom:2px">'+esc(who)+'</div>'+
+      '<div style="'+(cls==='q'?'background:var(--paper);':'')+'padding:'+(cls==='q'?'6px 8px;border-radius:4px;':'0')+'white-space:pre-wrap">'+esc(text)+'</div>';
+    msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight; return d;
+  }
+  function toggle(){
+    const open=panel.style.display==='none'||!panel.style.display;
+    panel.style.display=open?'flex':'none';
+    if(open){
+      if(!msgs.childElementCount) addMsg('Fieldscale AI','Ask me anything about the sheet you’re on — the project location, what a sheet covers, notes in the title block, or how to use the app.','a');
+      input.focus();
+    }
+  }
+  function currentSheetText(){
+    const pd=(state.pdfTextIndex||[]).find(x=>x.pageNum===state.pageNum);
+    return pd?pd.fullText:'';
+  }
+  function sheetLabel(p){ const pn=state.pageNames&&state.pageNames[p]; return pn&&(pn.number||pn.name)?[pn.number,pn.name].filter(Boolean).join(' — '):('Page '+p); }
+  function sheetList(){ const out=[]; for(let p=1;p<=state.numPages;p++) out.push(p+' — '+sheetLabel(p)); return out; }
+  async function send(){
+    const q=input.value.trim(); if(!q) return;
+    if(!state.pdfDoc){ addMsg('Fieldscale AI','Open a project first, then ask about its plans.','a'); return; }
+    input.value=''; addMsg('You',q,'q');
+    const thinking=addMsg('Fieldscale AI','…','a');
+    try{
+      const r=await apiFetch('/api/ai/askplans',{method:'POST',body:JSON.stringify({
+        question:q,
+        sheet:{ label:sheetLabel(state.pageNum), text:currentSheetText() },
+        sheetList:sheetList(),
+        project:state.projectMeta||{}
+      })});
+      thinking.querySelector('div:last-child').textContent=r.answer||'(no answer)';
+      msgs.scrollTop=msgs.scrollHeight;
+    }catch(err){
+      thinking.querySelector('div:last-child').textContent=(err&&err.status===503)?'AI is off — no API key is set on the server yet.':(err.message||'Something went wrong.');
+    }
+  }
+  const btn=document.getElementById('askplans-btn'); if(btn) btn.addEventListener('click', toggle);
+  document.getElementById('askplans-close').addEventListener('click', ()=>{ panel.style.display='none'; });
+  document.getElementById('askplans-send').addEventListener('click', send);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); send(); } });
 })();
 </script>
 </body>

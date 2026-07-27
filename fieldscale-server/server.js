@@ -1704,6 +1704,27 @@ const server = http.createServer(async (req, res) => {
         } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
       }
 
+      // ---- Ask Claude about the loaded plans (takeoff chat) ----
+      // The browser sends the current sheet's extracted text + the sheet index + project info.
+      if (pathname === '/api/ai/askplans' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const body = await readBody(req);
+        const question = String(body.question || '').slice(0, 1000);
+        if (!question.trim()) return sendJSON(res, 400, { error: 'Ask a question about the plans.' });
+        const sheet = body.sheet || {};
+        const sheetText = String(sheet.text || '').slice(0, 12000);
+        const sheetList = Array.isArray(body.sheetList) ? body.sheetList.slice(0, 400).map(s => String(s)).join('\n').slice(0, 6000) : '';
+        const project = body.project || {};
+        const system = 'You are a helpful assistant to a construction estimator, answering questions about a set of plans they have open, and about how to use this takeoff/estimating app. You are given the text extracted from the CURRENT sheet, the list of sheet names/numbers in the set, and project info. Answer concisely and practically. If the answer would be on a different sheet, say which sheet to open. If the information is not in what you were given, say you can\'t tell from the current sheet and suggest where to look. Never invent dimensions, quantities or code values that are not present.';
+        const user = 'PROJECT INFO:\n' + JSON.stringify(project).slice(0, 800)
+          + '\n\nSHEETS IN THIS SET (number — name):\n' + (sheetList || '(not named yet)')
+          + '\n\nCURRENT SHEET' + (sheet.label ? (' (' + String(sheet.label).slice(0, 80) + ')') : '') + ' — extracted text:\n' + (sheetText || '(no readable text on this sheet)')
+          + '\n\nQUESTION: ' + question;
+        try { const text = await aiText({ system, user, max_tokens: 900, mock: () => 'From the title block on this sheet, the project appears to be at the address shown there. (This is a mock answer — set the AI key to get real answers.)' });
+          aiDone(); return sendJSON(res, 200, { answer: text });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
 
       // ---- Estimating: the user's price book (private, per-user) ----
       // GET returns the saved list; a brand-new user gets seeded with the insulation starter

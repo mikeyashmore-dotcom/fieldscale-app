@@ -695,10 +695,12 @@ const AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-4-6';
 function aiEnabled() { return AI_MOCK || !!ANTHROPIC_API_KEY; }
 const AI_OFF_MSG = 'AI features are off — no ANTHROPIC_API_KEY is set on the server yet.';
 function aiErr(e) { return e && e.message ? ('AI error: ' + e.message) : 'AI request failed.'; }
-async function aiCall({ system, messages, max_tokens, model }) {
+async function aiCall({ system, messages, max_tokens, model, beta }) {
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' };
+  if (beta) headers['anthropic-beta'] = beta;
   const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    headers,
     body: JSON.stringify({ model: model || AI_MODEL, max_tokens: Math.min(max_tokens || 1024, MAX_AI_TOKENS), system, messages })
   });
   const data = await anthropicRes.json();
@@ -707,12 +709,24 @@ async function aiCall({ system, messages, max_tokens, model }) {
 }
 // Build one user message (optional images first, then the prompt) and return the model's text.
 // In AI_MOCK mode it returns the supplied canned response so the pipeline is testable offline.
-async function aiText({ system, user, images, max_tokens, model, mock }) {
+async function aiText({ system, user, images, documents, max_tokens, model, mock }) {
   if (AI_MOCK) return typeof mock === 'function' ? mock() : (mock || '');
   const content = [];
+  (documents || []).forEach(d => content.push({ type: 'document', source: { type: 'base64', media_type: d.mime || 'application/pdf', data: d.data } }));
   (images || []).forEach(img => content.push({ type: 'image', source: { type: 'base64', media_type: img.mime || 'image/png', data: img.data } }));
   content.push({ type: 'text', text: user });
-  return aiCall({ system, messages: [{ role: 'user', content }], max_tokens, model });
+  // PDF documents ride on Anthropic's document beta so they work on the pinned api version.
+  const beta = (documents && documents.length) ? 'pdfs-2024-09-25' : undefined;
+  return aiCall({ system, messages: [{ role: 'user', content }], max_tokens, model, beta });
+}
+// Accept a PDF data URL (or raw base64 PDF) for the document reader. Returns null if it isn't a PDF.
+function parseDocInput(input) {
+  if (!input || typeof input !== 'string') return null;
+  const m = input.match(/^data:application\/pdf;base64,(.*)$/i);
+  if (!m) return null;
+  const data = m[1];
+  if (data.length > 8 * 1024 * 1024) return null; // ~6MB
+  return { mime: 'application/pdf', data };
 }
 // Pull the first JSON object/array out of a reply (models sometimes wrap it in prose or ```json fences).
 function parseJSONLoose(text) {
@@ -1585,10 +1599,11 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/ai/receipt' && req.method === 'POST') {
         if (aiBlocked()) return;
         const { image } = await readBody(req);
-        const img = parseImageInput(image);
-        if (!img) return sendJSON(res, 400, { error: 'Send a receipt photo (image, under ~6MB).' });
-        const system = 'You read receipt/invoice photos for a contractor\'s bookkeeping. Return ONLY JSON: {"vendor":"","date":"YYYY-MM-DD or empty","total":number,"tax":number,"category":"Materials|Fuel|Tools|Subcontractor|Permit|Other","summary":"short line of what was bought"}. If a field is unreadable, use "" or 0. No prose outside the JSON.';
-        try { const text = await aiText({ system, user: 'Extract the receipt fields.', images: [img], max_tokens: 500, model: AI_MODEL, mock: () => '{"vendor":"Test Supply Co","date":"2026-07-26","total":142.55,"tax":9.55,"category":"Materials","summary":"Lumber and fasteners"}' });
+        const pdf = parseDocInput(image);
+        const img = pdf ? null : parseImageInput(image);
+        if (!pdf && !img) return sendJSON(res, 400, { error: 'Send a receipt or vendor invoice — a photo or a PDF, under ~6MB.' });
+        const system = 'You read receipts and vendor invoices for a contractor\'s bookkeeping. Return ONLY JSON: {"vendor":"","date":"YYYY-MM-DD or empty","total":number,"tax":number,"category":"Materials|Fuel|Tools|Subcontractor|Permit|Other","summary":"short line of what was bought"}. "total" is the final amount due including tax. If a field is unreadable, use "" or 0. No prose outside the JSON.';
+        try { const text = await aiText({ system, user: 'Extract the receipt/invoice fields.', images: img ? [img] : undefined, documents: pdf ? [pdf] : undefined, max_tokens: 500, model: AI_MODEL, mock: () => '{"vendor":"Test Supply Co","date":"2026-07-26","total":142.55,"tax":9.55,"category":"Materials","summary":"Lumber and fasteners"}' });
           const data = parseJSONLoose(text) || {};
           aiDone(); return sendJSON(res, 200, { receipt: data });
         } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
@@ -2672,6 +2687,9 @@ const server = http.createServer(async (req, res) => {
           company: edoc.company || {}, client: edoc.client || {}, project: edoc.project || '',
           lines: jobLines.map(l => ({ id: 'l_' + crypto.randomBytes(6).toString('hex'),
             name: l.name, code: l.code, unit: l.unit, qty: Number(l.qty) || 0, done: false })),
+          // Seed the task checklist from the proposal line items so the crew has the scope to work through.
+          tasks: jobLines.filter(l => (l.name || '').trim()).map(l => ({ id: 'tk_' + crypto.randomBytes(5).toString('hex'),
+            text: (l.name + (l.qty ? (' — ' + l.qty + (l.unit ? ' ' + l.unit : '')) : '')).trim(), done: false })),
           startDate: '', dueDate: '', notes: edoc.notes || '', fromEstimateId: est.id,
           costing: { budget: Math.round(budget * 100) / 100, contract, actualCost: 0 }
         };
@@ -2683,7 +2701,7 @@ const server = http.createServer(async (req, res) => {
         db.jobs.push(job);
         est.jobId = job.id; est.updatedAt = Date.now();   // so the estimate list shows "Job"
         saveDB(db);
-        return sendJSON(res, 200, { id: job.id });
+        return sendJSON(res, 200, { id: job.id, number: job.number });
       }
       // Upload a receipt to a job (streamed raw bytes; metadata stored on the job record).
       const rcptUpMatch = pathname.match(/^\/api\/jobs\/([a-zA-Z0-9_]+)\/receipts$/);

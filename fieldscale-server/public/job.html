@@ -210,8 +210,8 @@
       <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" />
       <button class="btn ghost" id="add-photo" title="Take a photo (uses your camera on a phone)">📷 Take photo</button>
       <button class="btn ghost" id="add-receipt">＋ Add receipt / file</button>
-      <button class="btn ghost fin-hide" id="ai-receipt-btn" style="display:none" title="Read a receipt photo and pull out the vendor, amount and category">✨ Read receipt</button>
-      <input type="file" id="ai-receipt-input" accept="image/*" style="display:none" />
+      <button class="btn ghost fin-hide" id="ai-receipt-btn" style="display:none" title="Upload a vendor invoice or receipt (photo or PDF) — it's saved to the job and AI adds the cost">✨ Vendor invoice / receipt</button>
+      <input type="file" id="ai-receipt-input" accept="image/*,application/pdf" style="display:none" />
       <span id="receipt-status" style="font-size:12px;color:var(--steel);margin-left:10px"></span>
     </div>
 
@@ -256,6 +256,7 @@
       <div class="task-add" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
         <input id="task-input" placeholder="Add a task and press Enter…" style="flex:1;min-width:160px" />
         <button class="btn ghost" id="add-task">＋ Add</button>
+        <button class="btn ghost" id="add-scope" title="Add each proposal / scope line as a checklist task">＋ Proposal items</button>
         <button class="btn ghost" id="add-closeout" title="Add the standard end-of-job checklist">＋ Closeout checklist</button>
       </div>
       <div id="tmpl-row" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
@@ -552,6 +553,17 @@ document.getElementById('add-closeout').addEventListener('click', ()=>{
   const have=new Set(doc.tasks.map(t=>(t.text||'').toLowerCase()));
   CLOSEOUT.forEach(txt=>{ if(!have.has(txt.toLowerCase())) doc.tasks.push({ id:'tk_'+Math.random().toString(16).slice(2,8), text:txt, done:false }); });
   renderTasks(); toast('Closeout checklist added.');
+});
+// Pull the proposal / scope line items into the checklist as tasks.
+document.getElementById('add-scope').addEventListener('click', ()=>{
+  const lines=(doc.lines||[]).filter(l=>(l.name||'').trim());
+  if(!lines.length){ toast('No proposal / scope lines to add yet.', true); return; }
+  doc.tasks=doc.tasks||[];
+  const have=new Set(doc.tasks.map(t=>(t.text||'').toLowerCase()));
+  let added=0;
+  lines.forEach(l=>{ const text=(l.name+(l.qty?(' — '+l.qty+(l.unit?' '+l.unit:'')):'')).trim();
+    if(!have.has(text.toLowerCase())){ doc.tasks.push({ id:'tk_'+Math.random().toString(16).slice(2,8), text, done:false }); have.add(text.toLowerCase()); added++; } });
+  renderTasks(); toast(added?`Added ${added} proposal item${added===1?'':'s'} to the checklist.`:'Those items are already on the checklist.');
 });
 document.getElementById('tasks-wrap').addEventListener('change', e=>{
   const k=e.target.getAttribute('data-tk'); if(k!==null){ doc.tasks[k].done=e.target.checked; renderTasks(); }
@@ -1159,13 +1171,15 @@ function setupAiJob(){
     rcBtn.addEventListener('click', ()=>rcIn.click());
     rcIn.addEventListener('change', ()=>{ const f=rcIn.files[0]; if(!f) return; const rd=new FileReader();
       rd.onload=()=>{ const image=rd.result;
-        fsAiRun({ title:'✨ Read receipt', loading:'Reading the receipt…',
+        // Keep the document on the job (saved to receipts) AND let AI pull out the cost.
+        uploadFiles([f]);
+        fsAiRun({ title:'✨ Vendor invoice / receipt', loading:'Reading the invoice…',
           run:()=>fsAI.post('/api/ai/receipt',{image}),
           render:(r)=>{ const x=r.receipt||{}; return 'Vendor: '+(x.vendor||'—')+'\nDate: '+(x.date||'—')+'\nTotal: $'+(x.total||0)+'\nCategory: '+(x.category||'—')+(x.summary?('\n\n'+x.summary):''); },
           insertLabel:'Add as cost',
           onInsert:(text,r)=>{ const x=r.receipt||{}; doc.costs=doc.costs||[];
             doc.costs.push({ id:'x_'+Math.random().toString(16).slice(2,8), category:(x.category||'Materials'), description:((x.vendor||'')+(x.summary?(' — '+x.summary):'')).slice(0,200), amount:Number(x.total)||0, date:x.date||'' });
-            renderCosts(); renderCosting(); toast('Cost added from receipt.'); }
+            renderCosts(); renderCosting(); toast('Cost added — the file is saved to this job.'); }
         });
         rcIn.value=''; };
       rd.readAsDataURL(f); });

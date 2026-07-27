@@ -1720,7 +1720,15 @@ function onLoggedIn(username, role){
 async function maybeOpenFromLink(){
   const params = new URLSearchParams(location.search);
   const pid = params.get('project');
-  if(!pid) return;
+  if(!pid){
+    // No deep link → reopen the project you were last working on, so leaving the takeoff tab
+    // (e.g. to Estimating) and coming back keeps it open where you left off. Autosave keeps it current.
+    try{
+      const last = localStorage.getItem('fieldscale.lastProject');
+      if(last && !IS_REF_TAB) await openProjectById(last);
+    }catch(err){ try{ localStorage.removeItem('fieldscale.lastProject'); }catch(e){} }
+    return;
+  }
   const pg = parseInt(params.get('page')) || null;
   try{
     await openProjectById(pid, pg);
@@ -2072,6 +2080,7 @@ async function saveProject(isAuto){
     if(!currentProjectId){
       const created = await apiFetch('/api/projects', {method:'POST', body: JSON.stringify({name, data})});
       currentProjectId = created.id;
+      if(!IS_REF_TAB){ try{ localStorage.setItem('fieldscale.lastProject', currentProjectId); }catch(e){} }
     }
     // The plan goes up once, on the first save of a project. Every save after this is
     // just the takeoff — kilobytes, not megabytes.
@@ -2275,6 +2284,8 @@ async function openProjectById(id, gotoPage){
   }
   if(statusEl) statusEl.textContent = `Loaded "${project.name}".`;
   const pop = document.getElementById('projects-popover'); if(pop) pop.classList.remove('open');
+  // Remember what's open so returning to the takeoff tab reopens it (main tab only, not ref tabs).
+  if(!IS_REF_TAB){ try{ localStorage.setItem('fieldscale.lastProject', project.id); }catch(e){} }
   renderSnapshotList();
 }
 
@@ -2305,6 +2316,7 @@ async function refreshProjectList(){
         if(!confirm('Delete this project? This cannot be undone.')) return;
         await apiFetch('/api/projects/'+btn.dataset.id, {method:'DELETE'});
         if(currentProjectId===btn.dataset.id) currentProjectId=null;
+        try{ if(localStorage.getItem('fieldscale.lastProject')===btn.dataset.id) localStorage.removeItem('fieldscale.lastProject'); }catch(e){}
         refreshProjectList();
       });
     });
@@ -2855,7 +2867,7 @@ document.getElementById('pages-reopen-tab').addEventListener('click', openPagesP
 // ---- #5 Sheet search: the 🔍 rail tool filters the Sheets list to pages containing a word,
 // with a per-sheet match count. It ALSO highlights the matches on the sheet you're viewing and
 // lets you step through them with ‹ / › (or Enter). Reuses the background text index.
-let sheetSearchActive=false, sheetSearchCounts={}, sheetSearchQuery='', sheetSearchMatchIdx=-1, sheetSearchZoomed=false;
+let sheetSearchActive=false, sheetSearchCounts={}, sheetSearchQuery='', sheetSearchMatchIdx=-1, sheetSearchZoomed=false, sheetSearchNamePages=new Set();
 function toggleSheetSearch(){
   const wrap=document.getElementById('sheet-search-wrap');
   const open = wrap.style.display==='none';
@@ -2885,7 +2897,7 @@ function highlightSearchMatches(){
   if(note) note.textContent = state.searchHighlights.length+' match'+(state.searchHighlights.length===1?'':'es')+' highlighted on this sheet.';
 }
 function clearSheetSearch(){
-  sheetSearchActive=false; sheetSearchCounts={}; sheetSearchQuery=''; sheetSearchMatchIdx=-1; sheetSearchZoomed=false;
+  sheetSearchActive=false; sheetSearchCounts={}; sheetSearchQuery=''; sheetSearchMatchIdx=-1; sheetSearchZoomed=false; sheetSearchNamePages=new Set();
   state.searchHighlightPage=null; state.searchHighlights=[];
   const inp=document.getElementById('sheet-search-input'); if(inp) inp.value='';
   const clr=document.getElementById('sheet-search-clear'); if(clr) clr.style.display='none';
@@ -2936,13 +2948,19 @@ function runSheetSearch(q){
   if(!q){ clearSheetSearch(); return; }
   if(!state.pdfDoc) return;
   const results=searchDocument(q);
-  sheetSearchCounts={};
+  sheetSearchCounts={}; sheetSearchNamePages=new Set();
   results.filter(r=>r.source==='main').forEach(r=>{ sheetSearchCounts[r.pageNum]=r.matchCount||1; });
+  // Also match the SHEET NAME / NUMBER (not just the text inside the plan). Name matches sort to the top.
+  const ql=q.toLowerCase();
+  for(let p=1;p<=state.numPages;p++){
+    const pn=state.pageNames[p];
+    if(pn && ((pn.name||'')+' '+(pn.number||'')).toLowerCase().includes(ql)) sheetSearchNamePages.add(p);
+  }
   sheetSearchActive=true;
-  const nSheets=Object.keys(sheetSearchCounts).length;
+  const nSheets=new Set([...Object.keys(sheetSearchCounts).map(Number), ...sheetSearchNamePages]).size;
   const nHits=Object.values(sheetSearchCounts).reduce((a,b)=>a+b,0);
   if(note) note.textContent = state.indexing ? 'Still reading sheets — results fill in as it finishes…'
-    : nSheets ? (nSheets+' sheet'+(nSheets===1?'':'s')+' · '+nHits+' match'+(nHits===1?'':'es'))
+    : nSheets ? (nSheets+' sheet'+(nSheets===1?'':'s')+' match'+(nHits?(' · '+nHits+' on the plans'):''))
     : 'No matches on any sheet.';
   renderPagesList();
   applyPageHighlights(results);
@@ -2966,9 +2984,15 @@ function renderPagesList(){
   const container = document.getElementById('pages-list');
   if(!state.pdfDoc){ container.innerHTML=''; return; }
   let html='', shownRows=0;
-  for(let p=1; p<=state.numPages; p++){
+  // Page order: normally 1..N. While searching, show only matching sheets (by plan text OR sheet name),
+  // with SHEET-NAME matches sorted to the top; clearing the search restores the full list.
+  let pageOrder=[]; for(let p=1;p<=state.numPages;p++) pageOrder.push(p);
+  if(sheetSearchActive){
+    pageOrder = pageOrder.filter(p=> sheetSearchCounts[p]>0 || sheetSearchNamePages.has(p));
+    pageOrder.sort((a,b)=>{ const an=sheetSearchNamePages.has(a)?0:1, bn=sheetSearchNamePages.has(b)?0:1; return an-bn || a-b; });
+  }
+  for(const p of pageOrder){
     if(isHidden(p) && !state.showHiddenPages) continue;
-    if(sheetSearchActive && !(sheetSearchCounts[p]>0)) continue;   // search mode: only matching sheets
     const pn = state.pageNames[p];
     let label, pending=false, hasError=false, tooltip='';
     if(pn && (pn.name||pn.number)){
@@ -3001,9 +3025,11 @@ function renderPagesList(){
     const newTab = currentProjectId
       ? `<a class="plr-newtab" href="/?project=${encodeURIComponent(currentProjectId)}&page=${p}&ref=1" target="_blank" rel="noopener" title="Open this sheet in a new tab (for reference)">⧉</a>`
       : '';
-    const searchBadge = sheetSearchActive
-      ? `<span class="plr-count" title="Matches on this sheet" style="background:var(--orange);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:1px 5px;border-radius:8px;margin-left:2px">×${sheetSearchCounts[p]}</span>`
-      : '';
+    let searchBadge='';
+    if(sheetSearchActive){
+      if(sheetSearchNamePages.has(p)) searchBadge += `<span title="Sheet name matches your search" style="background:#3E7A96;color:#fff;font-size:9.5px;padding:1px 5px;border-radius:8px;margin-left:2px">name</span>`;
+      if(sheetSearchCounts[p]>0) searchBadge += `<span class="plr-count" title="Matches on the plans" style="background:var(--orange);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:1px 5px;border-radius:8px;margin-left:2px">×${sheetSearchCounts[p]}</span>`;
+    }
     html += `<div class="page-list-row ${active} ${hidden?'hidden-sheet':''}" data-page="${p}">
       <span class="plr-num">${p}</span>
       <span class="plr-label${pending?' pending':''}${hasError?' error':''}" title="${escapeHtml(tooltip)}">${escapeHtml(label)}</span>

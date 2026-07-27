@@ -666,7 +666,8 @@
     letter-spacing:0.3px;
   }
   .modal-card .modal-body{padding:16px 20px;display:flex;flex-direction:column;gap:12px;}
-  .modal-card label{font-size:11.5px;font-weight:600;color:var(--steel);text-transform:uppercase;letter-spacing:0.4px;display:block;margin-bottom:4px;}
+  .modal-card label{font-size:11.5px;font-weight:600;color:var(--charcoal);text-transform:uppercase;letter-spacing:0.4px;display:block;margin-bottom:4px;}
+  .modal-card .modal-body input, .modal-card .modal-body select{color:var(--charcoal);}
   .modal-card input[type=text], .modal-card input[type=password], .modal-card input[type=number], .modal-card select{
     width:100%;font-size:13px;padding:7px 8px;border:1px solid var(--steel-light);border-radius:3px;
     font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);
@@ -1044,7 +1045,7 @@
     <button class="tool" data-tool="calibrate" title="Calibrate Scale">📏<span class="tip">Calibrate scale</span></button>
     <button class="tool" data-tool="measure" title="Quick Measure">📐<span class="tip">Quick measure (not added to takeoff)</span></button>
     <div class="rail-divider"></div>
-    <button class="tool" data-tool="highlight" title="Highlight">▒<span class="tip">Highlight a region of the sheet</span></button>
+    <button class="tool" data-tool="highlight" title="Highlight">🖍️<span class="tip">Highlight a region of the sheet</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="ai-select" title="AI Select">✦<span class="tip">AI region select</span></button>
   </div>
@@ -4498,6 +4499,17 @@ function getActiveType(category){
   return state.typeLibrary[category].find(t=>t.id===state.activeType[category]) || state.typeLibrary[category][0] || null;
 }
 function activeTypeName(category){ const t=getActiveType(category); return t ? escapeHtml(t.name) : '(no type)'; }
+// Duplicate a saved type (right-click a row in the Quantities panel) and open the copy to tweak.
+function duplicateType(cat, typeId){
+  const t = state.typeLibrary[cat] && state.typeLibrary[cat].find(x=>x.id===typeId);
+  if(!t) return;
+  const copy = Object.assign({}, t, { id:'type_'+Math.random().toString(36).slice(2,9), name:(t.name||'Type')+' (copy)' });
+  state.typeLibrary[cat].push(copy);
+  state.activeType[cat] = copy.id;
+  populateTypeDropdown(cat);
+  markDirty();
+  openTypeModal(cat, copy.id);
+}
 
 function getWallSettings(){
   const t = getActiveType('wall');
@@ -4966,7 +4978,10 @@ function renderTakeoffList(){
       e.preventDefault();
       const cat = row.dataset.cat, typeId = row.dataset.typeid;
       if(!state.typeLibrary[cat].find(t=>t.id===typeId)) return;
-      openTypeModal(cat, typeId);
+      showRefMenu(e.clientX, e.clientY, [
+        { label:'✎ Edit this type', action:()=>openTypeModal(cat, typeId) },
+        { label:'⧉ Duplicate this type', action:()=>duplicateType(cat, typeId) }
+      ]);
     });
   });
   els.takeoffList.querySelectorAll('.del').forEach(d=>{

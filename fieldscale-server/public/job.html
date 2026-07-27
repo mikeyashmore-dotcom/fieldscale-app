@@ -200,6 +200,13 @@
           <button class="btn primary" id="clock-btn">Clock in</button>
           <span id="clock-live" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--orange-dim)"></span>
         </div>
+        <div class="geofencebar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 4px;font-size:12px;color:var(--steel)">
+          <span id="geo-status">Geofence: off</span>
+          <button class="btn ghost" id="geo-set" type="button" style="padding:3px 8px">📍 Set job site</button>
+          <label style="display:inline-flex;align-items:center;gap:4px">Radius <input id="geo-radius" class="num" inputmode="numeric" value="600" style="width:60px" /> ft</label>
+          <button class="btn ghost" id="geo-clear" type="button" style="padding:3px 8px;display:none">Clear</button>
+        </div>
+        <div id="geo-alerts" style="font-size:12px;margin:2px 0 6px"></div>
       </div>
       <div class="lines-scroll">
         <table class="lines time-table">
@@ -895,10 +902,80 @@ document.getElementById('clock-btn').addEventListener('click', async ()=>{
   } else {
     const loc=await getLoc();
     doc.activeClock={ worker:document.getElementById('clk-worker').value||'', rate:parseFloat(document.getElementById('clk-rate').value)||0, start:Date.now(), loc };
+    // If no job-site geofence is set yet, anchor it to where this shift started, so "left the
+    // area you clocked in at" works with no setup. The contractor can still Set/Clear it manually.
+    if(loc && (!doc.geofence || doc.geofence.lat==null)){ doc.geofence={ lat:loc.lat, lng:loc.lng, radiusFt:geoRadius() }; renderGeofence(); startGeoWatch(); }
+    geoExitLogged=false;
     renderClock();
     try{ await save(); toast('Clocked in.'+(loc?' 📍 Location recorded.':'')); }catch(err){ toast(err.message,true); }
   }
 });
+
+// ---- #6 Geofencing: remind to clock in on arrival, and to clock out when leaving the site.
+// The anchor is the job-site location (set manually or captured from the first clock-in).
+// Monitoring runs only while this page is open — a browser can't watch location in the background.
+let geoWatchId=null, geoLastPrompt=0, geoExitLogged=false;
+function distFt(a,b){ if(!a||!b||a.lat==null||b.lat==null) return Infinity;
+  const R=20925524.9, toR=d=>d*Math.PI/180; const dLat=toR(b.lat-a.lat), dLng=toR(b.lng-a.lng);
+  const s=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(s))); }
+function geoRadius(){ const el=document.getElementById('geo-radius');
+  return Math.max(100, Number(doc.geofence&&doc.geofence.radiusFt)|| (el?Number(el.value):0) ||600); }
+function renderGeofence(){
+  const st=document.getElementById('geo-status'), clr=document.getElementById('geo-clear'), rad=document.getElementById('geo-radius');
+  if(!st) return;
+  if(doc.geofence && doc.geofence.lat!=null){ st.textContent='Geofence: on ('+geoRadius()+' ft)'; if(clr) clr.style.display=''; if(rad && doc.geofence.radiusFt) rad.value=doc.geofence.radiusFt; }
+  else { st.textContent='Geofence: off'; if(clr) clr.style.display='none'; }
+  renderGeoAlerts();
+}
+function renderGeoAlerts(){
+  const box=document.getElementById('geo-alerts'); if(!box) return;
+  if(hideFin){ box.innerHTML=''; return; }  // the alert report is for the owner/admin only
+  const ev=(doc.geofenceEvents||[]).slice(-6).reverse();
+  if(!ev.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div style="color:var(--steel);margin-bottom:2px">⚑ Geofence alerts</div>'+ev.map(e=>{
+    const when=new Date(e.at).toLocaleString();
+    return '<div style="color:#C0392B">'+escapeHtml(e.worker||'Someone')+' left the site while clocked in — '+escapeHtml(when)+(e.dist?(' ('+Math.round(e.dist)+' ft away)'):'')+'</div>';
+  }).join('');
+}
+function logGeoEvent(type, dist){
+  doc.geofenceEvents=doc.geofenceEvents||[];
+  doc.geofenceEvents.push({ type, worker:(doc.activeClock&&doc.activeClock.worker)||(document.getElementById('clk-worker')||{}).value||'', at:Date.now(), dist:Math.round(dist)||0 });
+  if(doc.geofenceEvents.length>50) doc.geofenceEvents=doc.geofenceEvents.slice(-50);
+  renderGeoAlerts(); save().catch(()=>{});
+}
+function onGeoPosition(p){
+  if(!doc.geofence || doc.geofence.lat==null) return;
+  const dist=distFt({lat:p.coords.latitude,lng:p.coords.longitude}, doc.geofence), r=geoRadius();
+  const clockedIn=!!(doc.activeClock&&doc.activeClock.start);
+  if(clockedIn){
+    if(dist>r){
+      if(!geoExitLogged){ geoExitLogged=true; logGeoEvent('exit',dist);
+        if(Date.now()-geoLastPrompt>60000){ geoLastPrompt=Date.now();
+          if(confirm('You’ve left the job site while still clocked in. Clock out now?')) document.getElementById('clock-btn').click(); } }
+    } else { geoExitLogged=false; }
+  } else if(dist<=r && Date.now()-geoLastPrompt>120000){
+    geoLastPrompt=Date.now();
+    if(confirm('You’re at the job site. Clock in now?')) document.getElementById('clock-btn').click();
+  }
+}
+function startGeoWatch(){
+  if(geoWatchId!=null || !navigator.geolocation) return;
+  try{ geoWatchId=navigator.geolocation.watchPosition(onGeoPosition, ()=>{}, {enableHighAccuracy:false,timeout:15000,maximumAge:30000}); }catch(e){}
+}
+window.addEventListener('beforeunload', ()=>{ if(geoWatchId!=null && navigator.geolocation){ try{ navigator.geolocation.clearWatch(geoWatchId); }catch(e){} } });
+(function(){
+  const setBtn=document.getElementById('geo-set'), clrBtn=document.getElementById('geo-clear'), rad=document.getElementById('geo-radius');
+  if(setBtn) setBtn.addEventListener('click', async ()=>{
+    toast('Getting your location…');
+    const loc=await getLoc(); if(!loc){ toast('Could not get your location — allow location access and try again.',true); return; }
+    doc.geofence={ lat:loc.lat, lng:loc.lng, radiusFt:geoRadius() }; renderGeofence(); startGeoWatch();
+    try{ await save(); toast('Job-site geofence set here.'); }catch(err){ toast(err.message,true); }
+  });
+  if(clrBtn) clrBtn.addEventListener('click', async ()=>{ doc.geofence=null; renderGeofence();
+    try{ await save(); toast('Geofence cleared.'); }catch(err){ toast(err.message,true); } });
+  if(rad) rad.addEventListener('change', ()=>{ if(doc.geofence){ doc.geofence.radiusFt=geoRadius(); renderGeofence(); save().catch(()=>{}); } });
+})();
 
 // ---- Receipts (files attached to the job, stored server-side for the life of the job) ----
 let receipts = [];
@@ -1273,6 +1350,8 @@ function fillForm(){
   renderWarranty();
   renderTime();
   renderClock();
+  renderGeofence();
+  if(doc.geofence && doc.geofence.lat!=null) startGeoWatch();
   renderCosting();
 }
 let statusVal='scheduled';

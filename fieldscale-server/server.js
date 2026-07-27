@@ -842,7 +842,8 @@ function applySecurityHeaders(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  // geolocation=(self) so the clock-in / geofence features can read GPS on our own pages.
+  res.setHeader('Permissions-Policy', 'geolocation=(self), microphone=(), camera=()');
   res.setHeader('Content-Security-Policy', CSP);
   if ((req.headers['x-forwarded-proto'] || '') === 'https') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -2928,7 +2929,9 @@ const server = http.createServer(async (req, res) => {
             const existing = readJobDoc(job.id) || {};
             if (doc && typeof doc === 'object') {
               const merged = Object.assign({}, existing);
-              ['dailyLogs', 'timeEntries', 'tasks', 'punch'].forEach(k => { if (doc[k] !== undefined) merged[k] = doc[k]; });
+              // Field crew may write their field data + clock/geofence state (so geofence exit
+              // alerts they trigger are saved for the owner's report), but nothing money-related.
+              ['dailyLogs', 'timeEntries', 'tasks', 'punch', 'activeClock', 'geofence', 'geofenceEvents'].forEach(k => { if (doc[k] !== undefined) merged[k] = doc[k]; });
               writeJobDoc(job.id, merged);
             }
             job.updatedAt = Date.now();

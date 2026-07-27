@@ -484,4 +484,28 @@
       ft.innerHTML = ''; var b = document.createElement('button'); b.className = 'fsai-btn'; b.textContent = 'Close'; b.onclick = close; ft.appendChild(b);
     });
   };
+
+  // General-purpose modal: arbitrary HTML body + custom buttons. Reused for the new-vendor
+  // confirm form, the submittal preview, etc. Each button gets (close, cardEl); returning
+  // false from onClick keeps the modal open (e.g. to show a validation message).
+  window.fsModal = function (opts) {
+    var ov = document.createElement('div'); ov.className = 'fsai-ov';
+    var card = document.createElement('div'); card.className = 'fsai-card';
+    card.innerHTML = '<div class="fsai-hd"><span>' + (opts.title || '') + '</span><button class="fsai-x" aria-label="Close">×</button></div>'
+      + '<div class="fsai-bd">' + (opts.bodyHTML || '') + '</div>'
+      + '<div class="fsai-ft"></div>';
+    ov.appendChild(card); document.body.appendChild(ov);
+    function close() { ov.remove(); }
+    card.querySelector('.fsai-x').onclick = close;
+    ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+    var ft = card.querySelector('.fsai-ft');
+    (opts.buttons || [{ label: 'Close' }]).forEach(function (b) {
+      var el = document.createElement('button'); el.className = 'fsai-btn' + (b.primary ? ' primary' : '');
+      el.textContent = b.label;
+      el.onclick = function () { if (b.onClick) { if (b.onClick(close, card) === false) return; } else { close(); } };
+      ft.appendChild(el);
+    });
+    if (opts.onOpen) opts.onOpen(card, close);
+    return card;
+  };
 })();

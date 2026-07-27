@@ -297,7 +297,7 @@
         <thead><tr><th>Item</th><th class="num">Allowance&nbsp;$</th><th class="num">Actual&nbsp;$</th><th class="num">Over/(under)</th><th>Status</th><th>Notes</th><th></th></tr></thead>
         <tbody id="sel-lines"></tbody>
       </table></div>
-      <div style="padding:10px 14px"><button class="btn ghost" id="add-sel">＋ Add selection</button></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-sel">＋ Add selection</button> <button class="btn ghost fs-ai-only" id="ai-sel" style="display:none">✨ Suggest with AI</button></div>
     </div>
 
     <div class="block" style="padding:0;overflow:hidden">
@@ -337,7 +337,7 @@
         <thead><tr><th>Item</th><th>To</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
         <tbody id="sub-lines"></tbody>
       </table></div>
-      <div style="padding:10px 14px"><button class="btn ghost" id="add-sub">＋ Add submittal</button></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-sub">＋ Add submittal</button> <button class="btn ghost fs-ai-only" id="ai-sub" style="display:none">✨ Draft submittal package</button></div>
     </div>
 
     <div class="block" style="padding:0;overflow:hidden">
@@ -959,7 +959,7 @@ document.getElementById('receipts').addEventListener('click', async (e)=>{
           insertLabel:'Add as cost',
           onInsert:(text,r)=>{ const x=r.receipt||{}; doc.costs=doc.costs||[];
             doc.costs.push({ id:'x_'+Math.random().toString(16).slice(2,8), category:(x.category||'Materials'), description:((x.vendor||'')+(x.summary?(' — '+x.summary):'')).slice(0,200), amount:Number(x.total)||0, date:x.date||'' });
-            renderCosts(); renderCosting(); toast('Cost added from the file.'); }
+            renderCosts(); renderCosting(); toast('Cost added from the file.'); offerVendorFromReceipt(x); }
         });
       };
       rd.readAsDataURL(blob);
@@ -1332,6 +1332,8 @@ function setupAiJob(){
     const co=document.getElementById('ai-co-btn'); if(co && !hideFin) co.style.display='';
     const lg=document.getElementById('ai-log-btn'); if(lg) lg.style.display='';
     const rc=document.getElementById('ai-receipt-btn'); if(rc && !hideFin) rc.style.display='';
+    const asel=document.getElementById('ai-sel'); if(asel) asel.style.display='';
+    const asub=document.getElementById('ai-sub'); if(asub) asub.style.display='';
   });
   const coBtn=document.getElementById('ai-co-btn');
   if(coBtn) coBtn.addEventListener('click', ()=>{
@@ -1368,11 +1370,92 @@ function setupAiJob(){
           insertLabel:'Add as cost',
           onInsert:(text,r)=>{ const x=r.receipt||{}; doc.costs=doc.costs||[];
             doc.costs.push({ id:'x_'+Math.random().toString(16).slice(2,8), category:(x.category||'Materials'), description:((x.vendor||'')+(x.summary?(' — '+x.summary):'')).slice(0,200), amount:Number(x.total)||0, date:x.date||'' });
-            renderCosts(); renderCosting(); toast('Cost added — the file is saved to this job.'); }
+            renderCosts(); renderCosting(); toast('Cost added — the file is saved to this job.'); offerVendorFromReceipt(x); }
         });
         rcIn.value=''; };
       rd.readAsDataURL(f); });
   }
+  // #3 AI customer selections & allowances
+  const selBtn=document.getElementById('ai-sel');
+  if(selBtn) selBtn.addEventListener('click', ()=>{
+    const scope=(doc.lines||[]).map(l=>(l.name||'').trim()).filter(Boolean).join('; ');
+    fsAiRun({ title:'✨ Suggest customer selections', loading:'Building an allowance schedule…',
+      run:()=>fsAI.post('/api/ai/selections',{jobName:jobName, scope}),
+      render:(r)=>{ const s=(r&&r.selections)||[]; return s.length? s.map(o=>'• '+o.item+' — $'+(Number(o.allowance)||0).toLocaleString()+(o.note?(' ('+o.note+')'):'')).join('\n') : 'No suggestions came back — try adding a scope line first.'; },
+      insertLabel:'Add these selections',
+      onInsert:(text,r)=>{ const s=(r&&r.selections)||[]; if(!s.length){ toast('Nothing to add.',true); return; }
+        doc.selections=doc.selections||[];
+        s.forEach(o=>doc.selections.push({ id:'sel_'+Math.random().toString(16).slice(2,8), item:String(o.item||'').slice(0,120), allowance:Number(o.allowance)||0, actual:0, status:'Pending', notes:String(o.note||'').slice(0,300) }));
+        renderSelections(); toast('Added '+s.length+' selection(s) — adjust the allowances.'); }
+    });
+  });
+  // #2 AI submittal package
+  const subBtn=document.getElementById('ai-sub');
+  if(subBtn) subBtn.addEventListener('click', ()=>{
+    const seed=[].concat((doc.selections||[]).map(s=>s.item), (doc.submittals||[]).map(s=>s.subject))
+      .map(s=>(s||'').trim()).filter(Boolean);
+    const uniq=Array.from(new Set(seed));
+    fsModal({ title:'✨ Draft submittal package',
+      bodyHTML:'<p style="margin:0 0 8px">List the products / materials to submit (one per line). AI drafts a package you can add to the Submittals list and copy out.</p>'
+        +'<textarea id="sp-products" style="width:100%;box-sizing:border-box;height:150px">'+escapeHtml(uniq.join('\n'))+'</textarea>',
+      buttons:[
+        { label:'Draft package', primary:true, onClick:(close,card)=>{
+            const products=(((card.querySelector('#sp-products')||{}).value)||'').split('\n').map(s=>s.trim()).filter(Boolean);
+            if(!products.length){ toast('List at least one product.',true); return false; }
+            close(); draftSubmittal(products);
+          } },
+        { label:'Cancel' }
+      ]
+    });
+  });
+}
+
+// #2 helper: draft + preview the submittal package, then add its items to the Submittals table.
+function draftSubmittal(products){
+  fsAiRun({ title:'✨ Submittal package', loading:'Drafting the submittal package…',
+    run:()=>fsAI.post('/api/ai/submittal',{ jobName:jobName, client:(doc.client&&doc.client.name)||'', products }),
+    render:(r)=>{ const p=(r&&r.pkg)||{}; const items=(p.items||[]);
+      return (p.title||'Submittal Package')+'\n'+(p.summary||'')+'\n\n'+ items.map((it,i)=>(i+1)+'. '+[it.product,it.manufacturer,it.model].filter(Boolean).join(' — ')+(it.spec?('\n   '+it.spec):'')+(it.csi?('\n   CSI '+it.csi):'')).join('\n\n') + (p.closing?('\n\n'+p.closing):''); },
+    insertLabel:'Add items to Submittals',
+    onInsert:(text,r)=>{ const items=((r&&r.pkg&&r.pkg.items)||[]); if(!items.length){ toast('No items to add.',true); return; }
+      doc.submittals=doc.submittals||[];
+      items.forEach(it=>doc.submittals.push({ id:'sub_'+Math.random().toString(16).slice(2,8), subject:[it.product,it.manufacturer].filter(Boolean).join(' — ').slice(0,120), type:'Submittal', to:'', date:'', status:'Draft', notes:[it.model,it.spec,it.csi?('CSI '+it.csi):''].filter(Boolean).join(' · ').slice(0,300) }));
+      renderSubmittals(); toast('Added '+items.length+' submittal item(s).'); }
+  });
+}
+
+// #1 Smart vendor invoice: after reading an invoice, if its vendor isn't already in the
+// Subcontractors/Vendors list, offer to create them — pre-filled from what the AI pulled.
+async function offerVendorFromReceipt(x){
+  try{
+    const name=((x&&x.vendor)||'').trim(); if(!name) return;
+    const r=await apiFetch('/api/subs'); const subs=(r&&r.subs)||[];
+    if(subs.some(s=>(s.name||'').trim().toLowerCase()===name.toLowerCase())) return; // already known
+    if(typeof fsModal!=='function') return;
+    const tradeGuess = x.category==='Subcontractor' ? 'Subcontractor' : (x.category||'');
+    fsModal({ title:'New vendor — add to your list?',
+      bodyHTML:'<p style="margin:0 0 10px">This vendor isn’t in your Subcontractors / Vendors yet. Check the details and add them:</p>'
+        +'<div style="display:grid;gap:8px">'
+        +'<label>Name<br><input id="nv-name" value="'+escapeHtml(name)+'" style="width:100%;box-sizing:border-box"></label>'
+        +'<label>Trade / type<br><input id="nv-trade" value="'+escapeHtml(tradeGuess)+'" style="width:100%;box-sizing:border-box"></label>'
+        +'<label>Phone<br><input id="nv-phone" value="'+escapeHtml(x.vendorPhone||'')+'" style="width:100%;box-sizing:border-box"></label>'
+        +'<label>Email<br><input id="nv-email" value="'+escapeHtml(x.vendorEmail||'')+'" style="width:100%;box-sizing:border-box"></label>'
+        +'<label>Address / notes<br><input id="nv-notes" value="'+escapeHtml(x.vendorAddress||'')+'" style="width:100%;box-sizing:border-box"></label>'
+        +'</div>',
+      buttons:[
+        { label:'Create vendor', primary:true, onClick:async(close,card)=>{
+            const g=id=>((card.querySelector('#'+id)||{}).value||'');
+            const nm=g('nv-name').trim(); if(!nm){ toast('Give the vendor a name.',true); return false; }
+            const nsub={ id:'sb_'+Math.random().toString(16).slice(2,10), name:nm.slice(0,120), trade:g('nv-trade').slice(0,80),
+              contact:'', phone:g('nv-phone').slice(0,60), email:g('nv-email').slice(0,120), w9:false,
+              coiExpires:'', licenseExpires:'', notes:g('nv-notes').slice(0,2000), docs:[] };
+            try{ await apiFetch('/api/subs',{method:'PUT',body:JSON.stringify({subs:subs.concat([nsub])})}); toast('Vendor added to your list.'); close(); }
+            catch(err){ toast(err.message,true); return false; }
+          } },
+        { label:'Not now' }
+      ]
+    });
+  }catch(e){ /* vendor lookup is best-effort — never block the cost flow */ }
 }
 init();
 </script>

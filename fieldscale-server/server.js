@@ -1634,8 +1634,8 @@ const server = http.createServer(async (req, res) => {
         const pdf = parseDocInput(image);
         const img = pdf ? null : parseImageInput(image);
         if (!pdf && !img) return sendJSON(res, 400, { error: 'Send a receipt or vendor invoice — a photo or a PDF, under ~6MB.' });
-        const system = 'You read receipts and vendor invoices for a contractor\'s bookkeeping. Return ONLY JSON: {"vendor":"","date":"YYYY-MM-DD or empty","total":number,"tax":number,"category":"Materials|Fuel|Tools|Subcontractor|Permit|Other","summary":"short line of what was bought"}. "total" is the final amount due including tax. If a field is unreadable, use "" or 0. No prose outside the JSON.';
-        try { const text = await aiText({ system, user: 'Extract the receipt/invoice fields.', images: img ? [img] : undefined, documents: pdf ? [pdf] : undefined, max_tokens: 500, model: AI_MODEL, mock: () => '{"vendor":"Test Supply Co","date":"2026-07-26","total":142.55,"tax":9.55,"category":"Materials","summary":"Lumber and fasteners"}' });
+        const system = 'You read receipts and vendor invoices for a contractor\'s bookkeeping. Return ONLY JSON: {"vendor":"","vendorPhone":"","vendorEmail":"","vendorAddress":"","date":"YYYY-MM-DD or empty","total":number,"tax":number,"category":"Materials|Fuel|Tools|Subcontractor|Permit|Other","summary":"short line of what was bought"}. "vendor" is the supplier/company name. vendorPhone/vendorEmail/vendorAddress are the vendor\'s contact details if printed on the document (else ""). "total" is the final amount due including tax. If a field is unreadable, use "" or 0. No prose outside the JSON.';
+        try { const text = await aiText({ system, user: 'Extract the receipt/invoice fields.', images: img ? [img] : undefined, documents: pdf ? [pdf] : undefined, max_tokens: 600, model: AI_MODEL, mock: () => '{"vendor":"Test Supply Co","vendorPhone":"803-555-0100","vendorEmail":"orders@testsupply.com","vendorAddress":"120 Main St, Columbia, SC 29201","date":"2026-07-26","total":142.55,"tax":9.55,"category":"Materials","summary":"Lumber and fasteners"}' });
           const data = parseJSONLoose(text) || {};
           aiDone(); return sendJSON(res, 200, { receipt: data });
         } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
@@ -1672,6 +1672,34 @@ const server = http.createServer(async (req, res) => {
         const system = 'You are a construction job-cost analyst. Given each open job\'s contract, budget, cost-to-date and % complete, flag which are at risk of losing money and briefly why (e.g. cost pace exceeds % complete, cost near/over budget). Be concise: one short line per at-risk job, then a one-line overall note. If none look risky, say so. No invented numbers.';
         try { const text = await aiText({ system, user: 'Jobs:\n' + JSON.stringify(rows), max_tokens: 800, mock: () => 'Reviewed ' + rows.length + ' open job(s). None show clear signs of loss based on the current numbers. Keep logging costs to keep this accurate.' });
           aiDone(); return sendJSON(res, 200, { text, jobs: rows });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Suggest customer selection categories + allowance amounts for a job ----
+      // Returns rows the contractor edits, then drops onto the job's Customer Selections table.
+      if (pathname === '/api/ai/selections' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { jobName, scope, region } = await readBody(req);
+        const system = 'You help a general contractor set up a customer allowance schedule for a residential/light-commercial job. From the job name and scope, list the selection categories a homeowner typically picks (e.g. flooring, cabinets, countertops, plumbing fixtures, lighting, appliances, tile, paint, hardware) that fit THIS job, each with a reasonable placeholder allowance in US dollars and a short note. Return ONLY JSON: {"selections":[{"item":"","allowance":number,"note":""}]}. Give 5-12 rows. Allowances are rough starting figures the contractor will adjust — never present them as quotes. No prose outside the JSON.';
+        const user = 'Job: ' + (jobName || 'General construction job') + (scope ? ('\nScope:\n' + String(scope).slice(0, 3000)) : '') + (region ? ('\nRegion: ' + region) : '');
+        try { const text = await aiText({ system, user, max_tokens: 1200, mock: () => '{"selections":[{"item":"Flooring (LVP/tile)","allowance":6000,"note":"Material allowance; labor in base"},{"item":"Kitchen cabinets","allowance":9000,"note":"Semi-custom range"},{"item":"Countertops","allowance":3500,"note":"Quartz, ~40 sf"},{"item":"Plumbing fixtures","allowance":2500,"note":"Faucets, sinks, toilets"},{"item":"Lighting fixtures","allowance":2000,"note":"Owner-selected"},{"item":"Appliances","allowance":5000,"note":"Package allowance"}]}' });
+          const data = parseJSONLoose(text) || { selections: [] };
+          aiDone(); return sendJSON(res, 200, { selections: Array.isArray(data.selections) ? data.selections : [] });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
+      // ---- Draft a submittal package from a list of products/materials ----
+      // The contractor picks products; AI writes a clean submittal cover + itemized product list.
+      if (pathname === '/api/ai/submittal' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { jobName, client, products, notes } = await readBody(req);
+        const prof = readCompany(me.companyId) || {};
+        const company = prof.companyName || prof.name || 'Our company';
+        const system = 'You are a construction project manager assembling a SUBMITTAL PACKAGE to send to the owner/architect for approval. Given the company, project, and a list of products/materials, produce a professional submittal. Return ONLY JSON: {"title":"","summary":"1-2 sentence cover note","items":[{"product":"","manufacturer":"","model":"","spec":"key specs / finish / size","csi":"CSI division if obvious else empty string"}],"closing":"short line requesting review/approval"}. Keep it factual; do not invent model numbers you cannot infer — leave blank. No prose outside the JSON.';
+        const user = 'Company: ' + company + '\nProject: ' + (jobName || '') + (client ? ('\nClient: ' + client) : '') + '\nProducts:\n' + (Array.isArray(products) ? products.map(p => '- ' + String(p)).join('\n') : String(products || '')).slice(0, 3000) + (notes ? ('\nNotes: ' + String(notes).slice(0, 1000)) : '');
+        try { const text = await aiText({ system, user, max_tokens: 1500, mock: () => '{"title":"Submittal Package","summary":"The following products are submitted for your review and approval.","items":[{"product":"LVP Flooring","manufacturer":"Shaw","model":"","spec":"7\\" x 48\\" plank, 20 mil wear layer","csi":"09 65 00"},{"product":"Kitchen Faucet","manufacturer":"Moen","model":"7594","spec":"Single-handle, spot resist stainless","csi":"22 40 00"}],"closing":"Please review and return with approval or comments at your earliest convenience."}' });
+          const data = parseJSONLoose(text) || {};
+          aiDone(); return sendJSON(res, 200, { pkg: data });
         } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
       }
 

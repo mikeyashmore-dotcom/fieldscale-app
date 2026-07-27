@@ -1073,11 +1073,13 @@
     <div id="sheet-search-wrap" style="display:none;padding:0 6px 6px;position:relative">
       <input id="sheet-search-input" placeholder="Search all sheets…" style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 22px 5px 7px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal)" />
       <span id="sheet-search-clear" title="Clear search" style="position:absolute;right:12px;top:4px;cursor:pointer;color:var(--steel);font-size:14px;display:none">✕</span>
+      <div id="sheet-search-status" style="font-size:11px;padding:3px 2px 0"></div>
       <div id="sheet-search-note" style="font-size:11px;color:var(--steel);padding:3px 2px 0"></div>
-      <div id="sheet-search-nav" style="display:none;align-items:center;gap:6px;margin-top:4px">
+      <div id="sheet-search-nav" style="display:none;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap">
         <button class="btn" id="sheet-search-prev" style="padding:2px 9px;font-size:13px" title="Previous match on this sheet">‹</button>
         <button class="btn" id="sheet-search-next" style="padding:2px 9px;font-size:13px" title="Next match on this sheet">›</button>
         <span id="sheet-search-matchcount" style="font-size:11px;color:var(--steel)"></span>
+        <button class="btn" id="sheet-search-hl" style="padding:2px 8px;font-size:11px" title="Turn the matches on this sheet into permanent highlights (in the current highlighter color)">🖍️ Highlight these</button>
       </div>
     </div>
     <div class="pages-list" id="pages-list"></div>
@@ -1468,6 +1470,7 @@ els.fileInput.addEventListener('change', async (e)=>{
 // document, so search can look across the whole plan set — not just the current sheet.
 async function indexDocument(){
   state.indexing = true;
+  if(typeof updateSheetSearchReady==='function') updateSheetSearchReady();
   const statusEl = document.getElementById('search-index-status');
   const searchInput = document.getElementById('doc-search-input');
   for(let p=1; p<=state.numPages; p++){
@@ -1519,6 +1522,7 @@ async function indexDocument(){
   state.indexing = false;
   statusEl.textContent = `Indexed ${state.numPages} sheet${state.numPages===1?'':'s'}. Ready to search.`;
   searchInput.disabled = false;
+  if(typeof updateSheetSearchReady==='function') updateSheetSearchReady();
 }
 
 // Merges the items covered by a fullText[start:end] match into one bounding box,
@@ -2853,8 +2857,28 @@ function toggleSheetSearch(){
   const open = wrap.style.display==='none';
   wrap.style.display = open ? 'block' : 'none';
   const tool=document.getElementById('sheet-search-tool'); if(tool) tool.classList.toggle('active', open);
-  if(open){ const inp=document.getElementById('sheet-search-input'); inp.focus(); inp.select(); }
+  if(open){ const inp=document.getElementById('sheet-search-input'); inp.focus(); inp.select(); updateSheetSearchReady(); }
   else { clearSheetSearch(); }
+}
+// Shows ⏳ while the sheets are still being indexed and ✓ once they're all searchable.
+function updateSheetSearchReady(){
+  const el=document.getElementById('sheet-search-status'); if(!el) return;
+  if(!state.pdfDoc){ el.textContent=''; return; }
+  if(state.indexing){ el.innerHTML='<span style="color:var(--steel)">⏳ Reading sheets… (you can search as they finish)</span>'; }
+  else if(state.pdfTextIndex && state.pdfTextIndex.length){ el.innerHTML='<span style="color:#3E9B63;font-weight:600">✓ Ready to search</span>'; }
+  else el.textContent='';
+}
+// Turn the current sheet's search matches into permanent highlights (highlighter tool).
+function highlightSearchMatches(){
+  if(state.searchHighlightPage!==state.pageNum || !state.searchHighlights.length) return;
+  const pad=2;
+  state.searchHighlights.forEach(b=>{
+    state.highlights.push({ id:'hl_'+Math.random().toString(36).slice(2,9), pageNum:state.pageNum,
+      x:b.x-pad, y:b.y-pad, w:b.width+pad*2, h:b.height+pad*2, color:state.highlightColor });
+  });
+  markDirty(); redrawOverlay();
+  const note=document.getElementById('sheet-search-note');
+  if(note) note.textContent = state.searchHighlights.length+' match'+(state.searchHighlights.length===1?'':'es')+' highlighted on this sheet.';
 }
 function clearSheetSearch(){
   sheetSearchActive=false; sheetSearchCounts={}; sheetSearchQuery=''; sheetSearchMatchIdx=-1;
@@ -2923,6 +2947,7 @@ function runSheetSearch(q){
   if(clr) clr.addEventListener('click', ()=>{ clearSheetSearch(); inp && inp.focus(); });
   const prev=document.getElementById('sheet-search-prev'); if(prev) prev.addEventListener('click', ()=>gotoSheetMatch(-1));
   const next=document.getElementById('sheet-search-next'); if(next) next.addEventListener('click', ()=>gotoSheetMatch(1));
+  const hl=document.getElementById('sheet-search-hl'); if(hl) hl.addEventListener('click', highlightSearchMatches);
 })();
 function renderPagesList(){
   const container = document.getElementById('pages-list');

@@ -1056,6 +1056,7 @@
     <button class="tool" data-tool="measure" title="Quick Measure">📐<span class="tip">Quick measure (not added to takeoff)</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="highlight" title="Highlight">🖍️<span class="tip">Highlight a region of the sheet</span></button>
+    <button class="tool" data-tool="sheetsearch" id="sheet-search-tool" title="Search sheets">🔍<span class="tip">Search all sheets — matching sheets show in the list with a count</span></button>
     <button class="tool" data-tool="markup" id="markup-tool" title="Markups (text, arrow, box…)">✎<span class="tip">Add markups — text, arrow, box, line, ellipse</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="ai-select" title="AI Select">✦<span class="tip">AI region select</span></button>
@@ -1068,6 +1069,11 @@
   <div class="pages-panel" id="pages-panel">
     <div class="pages-panel-header">
       <h4>Sheets</h4>
+    </div>
+    <div id="sheet-search-wrap" style="display:none;padding:0 6px 6px;position:relative">
+      <input id="sheet-search-input" placeholder="Search all sheets…" style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 22px 5px 7px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal)" />
+      <span id="sheet-search-clear" title="Clear search" style="position:absolute;right:12px;top:4px;cursor:pointer;color:var(--steel);font-size:14px;display:none">✕</span>
+      <div id="sheet-search-note" style="font-size:11px;color:var(--steel);padding:3px 2px 0"></div>
     </div>
     <div class="pages-list" id="pages-list"></div>
     <div class="pages-resize" id="pages-resize" title="Drag to resize the sheet list"></div>
@@ -2833,12 +2839,56 @@ document.getElementById('pages-reopen-tab').addEventListener('click', openPagesP
   });
 })();
 
+// ---- #5 Sheet search: the 🔍 rail tool filters the Sheets list to pages containing a word,
+// with a per-sheet match count. Reuses the background text index via searchDocument().
+let sheetSearchActive=false, sheetSearchCounts={};
+function toggleSheetSearch(){
+  const wrap=document.getElementById('sheet-search-wrap');
+  const open = wrap.style.display==='none';
+  wrap.style.display = open ? 'block' : 'none';
+  const tool=document.getElementById('sheet-search-tool'); if(tool) tool.classList.toggle('active', open);
+  if(open){ const inp=document.getElementById('sheet-search-input'); inp.focus(); inp.select(); }
+  else { clearSheetSearch(); }
+}
+function clearSheetSearch(){
+  sheetSearchActive=false; sheetSearchCounts={};
+  const inp=document.getElementById('sheet-search-input'); if(inp) inp.value='';
+  const clr=document.getElementById('sheet-search-clear'); if(clr) clr.style.display='none';
+  const note=document.getElementById('sheet-search-note'); if(note) note.textContent='';
+  renderPagesList();
+}
+function runSheetSearch(q){
+  q=(q||'').trim();
+  const note=document.getElementById('sheet-search-note');
+  const clr=document.getElementById('sheet-search-clear'); if(clr) clr.style.display = q ? 'block' : 'none';
+  if(!q){ sheetSearchActive=false; sheetSearchCounts={}; if(note) note.textContent=''; renderPagesList(); return; }
+  if(!state.pdfDoc) return;
+  sheetSearchCounts={};
+  searchDocument(q).filter(r=>r.source==='main').forEach(r=>{ sheetSearchCounts[r.pageNum]=r.matchCount||1; });
+  sheetSearchActive=true;
+  const nSheets=Object.keys(sheetSearchCounts).length;
+  const nHits=Object.values(sheetSearchCounts).reduce((a,b)=>a+b,0);
+  if(note) note.textContent = state.indexing ? 'Still reading sheets — results fill in as it finishes…'
+    : nSheets ? (nSheets+' sheet'+(nSheets===1?'':'s')+' · '+nHits+' match'+(nHits===1?'':'es'))
+    : 'No matches on any sheet.';
+  renderPagesList();
+}
+(function(){
+  const inp=document.getElementById('sheet-search-input');
+  if(inp){
+    inp.addEventListener('input', (e)=>runSheetSearch(e.target.value));
+    inp.addEventListener('keydown', (e)=>{ if(e.key==='Escape') toggleSheetSearch(); });
+  }
+  const clr=document.getElementById('sheet-search-clear');
+  if(clr) clr.addEventListener('click', ()=>{ clearSheetSearch(); inp && inp.focus(); });
+})();
 function renderPagesList(){
   const container = document.getElementById('pages-list');
   if(!state.pdfDoc){ container.innerHTML=''; return; }
-  let html='';
+  let html='', shownRows=0;
   for(let p=1; p<=state.numPages; p++){
     if(isHidden(p) && !state.showHiddenPages) continue;
+    if(sheetSearchActive && !(sheetSearchCounts[p]>0)) continue;   // search mode: only matching sheets
     const pn = state.pageNames[p];
     let label, pending=false, hasError=false, tooltip='';
     if(pn && (pn.name||pn.number)){
@@ -2871,13 +2921,22 @@ function renderPagesList(){
     const newTab = currentProjectId
       ? `<a class="plr-newtab" href="/?project=${encodeURIComponent(currentProjectId)}&page=${p}&ref=1" target="_blank" rel="noopener" title="Open this sheet in a new tab (for reference)">⧉</a>`
       : '';
+    const searchBadge = sheetSearchActive
+      ? `<span class="plr-count" title="Matches on this sheet" style="background:var(--orange);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:1px 5px;border-radius:8px;margin-left:2px">×${sheetSearchCounts[p]}</span>`
+      : '';
     html += `<div class="page-list-row ${active} ${hidden?'hidden-sheet':''}" data-page="${p}">
       <span class="plr-num">${p}</span>
       <span class="plr-label${pending?' pending':''}${hasError?' error':''}" title="${escapeHtml(tooltip)}">${escapeHtml(label)}</span>
+      ${searchBadge}
       ${scaleBadge}
       ${newTab}
       <span class="plr-eye" data-hide="${p}" title="${hidden?'Bring this sheet back':'Hide this sheet'}">${hidden?'◡':'◠'}</span>
     </div>`;
+    shownRows++;
+  }
+  if(sheetSearchActive && shownRows===0){
+    container.innerHTML = `<div style="padding:14px 10px;color:var(--steel);font-size:12px">No sheets match your search.</div>`;
+    return;
   }
 
   const hiddenCount = state.hiddenPages.length;
@@ -3348,6 +3407,7 @@ document.getElementById('rail').addEventListener('click',(e)=>{
   const btn = e.target.closest('.tool');
   if(!btn) return;
   if(btn.dataset.tool==='add'){ e.stopPropagation(); toggleAddMenu(btn); return; }
+  if(btn.dataset.tool==='sheetsearch'){ e.stopPropagation(); toggleSheetSearch(); return; }
   if(btn.dataset.tool==='markup'){ e.stopPropagation(); hideAddMenu(); toggleMarkupMenu(btn); return; }
   hideAddMenu(); hideMarkupMenu();
   activateTool(btn.dataset.tool);
@@ -4752,6 +4812,50 @@ const WALL_MATERIAL_STYLE = {
 };
 const TRADE_OPTIONS = ['General','Concrete','Masonry','Framing','Doors & Windows','Electrical','Plumbing','HVAC','Roofing','Finishes'];
 
+// Library of common, cross-trade starting points for a new takeoff type. Picking one just
+// pre-fills the New Type form (name/color/code + kind-specific fields) — the user still edits & saves.
+const TYPE_PRESETS = {
+  wall: [
+    {name:'2x4 Interior Wall', color:'#C69B6D', studKey:'2x4', code:'06 Wood, Plastics & Composites'},
+    {name:'2x6 Exterior Wall', color:'#B07D4B', studKey:'2x6', code:'06 Wood, Plastics & Composites'},
+    {name:'3-5/8" Metal Stud Partition', color:'#8FA3B0', studKey:'metal35', code:'05 Metals'},
+    {name:'8" CMU Block Wall', color:'#9AA0A6', studKey:'cmu8', code:'04 Masonry'},
+    {name:'8" Concrete Wall', color:'#7D8B99', studKey:'conc8', code:'03 Concrete'}
+  ],
+  area: [
+    {name:'Concrete Slab', color:'#8D9AA6', pattern:'solid', trade:'Concrete', code:'03 Concrete'},
+    {name:'Roof Shingles', color:'#7A5C3E', pattern:'hatch', trade:'Roofing', code:'07 Thermal & Moisture Protection'},
+    {name:'Drywall — Ceiling', color:'#D8CBB0', pattern:'solid', trade:'Finishes', code:'09 Finishes'},
+    {name:'Flooring', color:'#B98A5E', pattern:'horizontal', trade:'Finishes', code:'09 Finishes'},
+    {name:'Batt Insulation', color:'#E0B84A', pattern:'crosshatch', trade:'Finishes', code:'07 Thermal & Moisture Protection'},
+    {name:'Paint', color:'#8FBF9F', pattern:'solid', trade:'Finishes', code:'09 Finishes'}
+  ],
+  linear: [
+    {name:'Baseboard / Trim', color:'#B98A5E', trade:'Finishes', code:'09 Finishes'},
+    {name:'Concrete Footing', color:'#8D9AA6', trade:'Concrete', code:'03 Concrete'},
+    {name:'Gutter / Downspout', color:'#8FA3B0', trade:'Roofing', code:'07 Thermal & Moisture Protection'},
+    {name:'Pipe Run', color:'#5FA8D3', trade:'Plumbing', code:'22 Plumbing'},
+    {name:'Conduit Run', color:'#E8A33D', trade:'Electrical', code:'26 Electrical'}
+  ],
+  count: [
+    {name:'Door', color:'#C0743A', trade:'Doors & Windows', code:'08 Openings', defaultLabel:'Door'},
+    {name:'Window', color:'#6FA8C7', trade:'Doors & Windows', code:'08 Openings', defaultLabel:'Window'},
+    {name:'Receptacle', color:'#E8A33D', trade:'Electrical', code:'26 Electrical', defaultLabel:'Receptacle'},
+    {name:'Light Fixture', color:'#F0C838', trade:'Electrical', code:'26 Electrical', defaultLabel:'Light'},
+    {name:'Plumbing Fixture', color:'#5FA8D3', trade:'Plumbing', code:'22 Plumbing', defaultLabel:'Fixture'},
+    {name:'HVAC Register', color:'#8FB98F', trade:'HVAC', code:'23 HVAC', defaultLabel:'Register'}
+  ]
+};
+function applyTypePreset(cat, p){
+  if(!p) return;
+  const setV=(id,v)=>{ const el=document.getElementById(id); if(el && v!=null) el.value=v; };
+  setV('tf-name', p.name); setV('tf-color', p.color); setV('tf-code', p.code||'');
+  if(cat==='wall' && p.studKey){ const s=document.getElementById('tf-stud'); if(s){ s.value=p.studKey; s.dispatchEvent(new Event('change')); } }
+  if(cat==='area'){ setV('tf-pattern', p.pattern||'solid'); setV('tf-trade', p.trade||'General'); }
+  if(cat==='linear'){ setV('tf-trade', p.trade||'General'); }
+  if(cat==='count'){ setV('tf-trade', p.trade||'General'); setV('tf-default-label', p.defaultLabel||p.name); }
+}
+
 // ---------- Feet & inches formatting ----------
 function fracToString(eighths){
   const map={0:'',1:'1/8',2:'1/4',3:'3/8',4:'1/2',5:'5/8',6:'3/4',7:'7/8'};
@@ -4978,6 +5082,20 @@ function openTypeModal(category, editId){
     };
     measureCbs.forEach(cb=> cb.addEventListener('change', syncMeasureVisibility));
     syncMeasureVisibility();
+  }
+  // Library picker — only when creating a NEW type. Prefills the form from a common preset.
+  if(!editId && (TYPE_PRESETS[category]||[]).length){
+    const body = document.getElementById('type-modal-body');
+    const opts = '<option value="">— Blank / build my own —</option>' +
+      TYPE_PRESETS[category].map((p,idx)=>`<option value="${idx}">${escapeHtml(p.name)}</option>`).join('');
+    body.insertAdjacentHTML('afterbegin',
+      '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--paper-line)">'+
+      '<label>Start from a preset <span style="text-transform:none;font-weight:400;color:var(--steel)">(optional)</span></label>'+
+      '<select id="tf-preset">'+opts+'</select></div>');
+    document.getElementById('tf-preset').addEventListener('change', (e)=>{
+      const i = e.target.value; if(i==='') return;
+      applyTypePreset(category, TYPE_PRESETS[category][Number(i)]);
+    });
   }
 }
 function closeTypeModal(){ document.getElementById('type-modal-overlay').classList.remove('open'); }

@@ -3525,7 +3525,10 @@ function moveSelection(dx, dy){
       if(w) w.points = w.points.map(p=>({x:p.x+dx, y:p.y+dy}));
     } else if(sel.kind==='area'){
       const a = state.areas.find(x=>x.id===sel.id);
-      if(a) a.points = a.points.map(p=>({x:p.x+dx, y:p.y+dy}));
+      if(a){
+        a.points = a.points.map(p=>({x:p.x+dx, y:p.y+dy}));
+        if(a.cutouts) a.cutouts = a.cutouts.map(c=>c.map(p=>({x:p.x+dx, y:p.y+dy})));   // cutouts travel with the area
+      }
     } else if(sel.kind==='count'){
       const it = state.items.find(x=>x.id===sel.id);
       if(it && it.point) it.point = {x:it.point.x+dx, y:it.point.y+dy};
@@ -3588,7 +3591,7 @@ function copySelection(){
     }
     if(sel.kind==='area'){
       const a = state.areas.find(x=>x.id===sel.id);
-      return a && {kind:'area', typeId:a.typeId, points:a.points.map(p=>({...p}))};
+      return a && {kind:'area', typeId:a.typeId, points:a.points.map(p=>({...p})), cutouts:(a.cutouts||[]).map(c=>c.map(p=>({...p})))};
     }
     const it = state.items.find(x=>x.id===sel.id);
     return it && {kind:'count', typeId:it.typeId, point:{...it.point}};
@@ -3622,9 +3625,11 @@ function pasteClipboard(){
 
     } else if(c.kind==='area'){
       const pts = c.points.map(p=>({x:p.x+OFFSET, y:p.y+OFFSET}));
-      const sf = shoelace(pts) * state.calibration.unitsPerNativePixel * state.calibration.unitsPerNativePixel;
+      const cutouts = (c.cutouts||[]).map(cc=>cc.map(p=>({x:p.x+OFFSET, y:p.y+OFFSET})));
       const areaId = 'area_'+Math.random().toString(36).slice(2,9);
-      state.areas.push({id:areaId, pageNum:state.pageNum, points:pts, typeId:c.typeId});
+      const area = {id:areaId, pageNum:state.pageNum, points:pts, typeId:c.typeId, cutouts};
+      state.areas.push(area);
+      const sf = areaNetPx(area) * state.calibration.unitsPerNativePixel * state.calibration.unitsPerNativePixel;
       addTakeoffItem({category:'area', typeId:c.typeId, raw:sf, areaId});
       state.selection.push({kind:'area', id:areaId});
 

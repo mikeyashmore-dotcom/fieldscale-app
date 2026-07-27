@@ -1366,6 +1366,7 @@ const state = {
   hiddenPages:[],     // sheet numbers the user has hidden from the sheet list and page nav
   showHiddenPages:false, // reveals them in the list so they can be brought back
   showLegend:true,    // the on-drawing legend of what's been taken off on this sheet
+  legendScale:1,      // drag the legend's corner handle to resize it
   legendPos:null,     // {x,y} in native pixels — dragged by the user; null = default corner
   legendHidden:{},    // { rowKey: true } — takeoff types the user excluded from the legend
   projectMeta:{ address:'', client:'', planDate:'', bidDue:'' },
@@ -2151,6 +2152,7 @@ async function serializeProjectState(){
     projectMeta: state.projectMeta,     // address, client, dates
     hiddenPages: state.hiddenPages,
     showLegend: state.showLegend,
+    legendScale: state.legendScale,
     legendPos: state.legendPos,
     legendHidden: state.legendHidden,
     numPages: state.numPages
@@ -2173,6 +2175,7 @@ async function restoreProjectState(data){
   state.projectMeta = Object.assign({address:'', client:'', planDate:'', bidDue:''}, data.projectMeta || {});
   state.hiddenPages = data.hiddenPages || [];
   state.showLegend = data.showLegend !== false;
+  state.legendScale = data.legendScale || 1;
   state.legendPos = data.legendPos || null;
   state.legendHidden = data.legendHidden || {};
 
@@ -3818,6 +3821,7 @@ let isDown=false;
 let isPanning=false;
 let panStart=null;
 let legendDrag=null;
+let legendResize=null;
 
 const MEASURE_TOOLS = ['linear','wall','area','measure','cutout'];
 
@@ -3837,6 +3841,9 @@ els.overlay.addEventListener('mousedown',(e)=>{
   if(state.tool==='pan' || state.tool==='select'){
     const rl = refLinkAtPoint(p);
     if(rl){ e.preventDefault(); gotoRefLink(rl); return; }
+    // The legend is grabbable/resizable in both Pan and Select — check it before anything else.
+    if(legendHandleAt(p)){ legendResize={startY:p.y, startScale:state.legendScale||1}; isDown=true; els.overlay.style.cursor='nwse-resize'; e.preventDefault(); return; }
+    if(pointInLegend(p)){ legendDrag={dx:p.x-legendRect.x, dy:p.y-legendRect.y}; isDown=true; els.overlay.style.cursor='grabbing'; e.preventDefault(); return; }
   }
 
   if(state.tool==='select'){
@@ -3872,12 +3879,6 @@ els.overlay.addEventListener('mousedown',(e)=>{
   }
 
   if(state.tool==='pan'){
-    // Grab the legend and move it — otherwise it would sit on top of the title block forever.
-    if(pointInLegend(p)){
-      legendDrag = {dx: p.x - legendRect.x, dy: p.y - legendRect.y};
-      els.overlay.style.cursor = 'grabbing';
-      e.preventDefault();
-    }
     return;
   }
   if(state.tool==='markup'){
@@ -3937,6 +3938,19 @@ els.overlay.addEventListener('mousemove',(e)=>{
   if(isPanning) return;
   let p = getNativePoint(e);
 
+  // Legend drag/resize takes priority in any tool (checked before the tool branches).
+  if(legendResize){
+    const newScale = legendResize.startScale + (p.y - legendResize.startY)/220;
+    state.legendScale = Math.max(0.5, Math.min(3, Math.round(newScale*100)/100));
+    redrawOverlay();
+    return;
+  }
+  if(legendDrag){
+    state.legendPos = {x: p.x - legendDrag.dx, y: p.y - legendDrag.dy};
+    redrawOverlay();
+    return;
+  }
+
   if(state.tool==='select'){
     if(state.vertexDrag){
       const vd=state.vertexDrag;
@@ -3970,11 +3984,6 @@ els.overlay.addEventListener('mousemove',(e)=>{
     return;
   }
 
-  if(legendDrag){
-    state.legendPos = {x: p.x - legendDrag.dx, y: p.y - legendDrag.dy};
-    redrawOverlay();
-    return;
-  }
   if(state.tool==='pan'){
     els.overlay.style.cursor = pointInLegend(p) ? 'grab' : 'default';
   }
@@ -4032,9 +4041,14 @@ els.overlay.addEventListener('mouseup',(e)=>{
     redrawOverlay();
     return;
   }
+  if(legendResize){
+    legendResize = null; isDown = false; markDirty();
+    els.overlay.style.cursor = (state.tool==='pan'||state.tool==='select') ? 'default' : 'crosshair';
+    return;
+  }
   if(legendDrag){
-    legendDrag = null;
-    els.overlay.style.cursor = state.tool==='pan' ? 'default' : 'crosshair';
+    legendDrag = null; markDirty();
+    els.overlay.style.cursor = (state.tool==='pan'||state.tool==='select') ? 'default' : 'crosshair';
     return;
   }
   if(state.tool==='ai-select' && isDown){
@@ -5747,9 +5761,10 @@ function drawLegend(){
   const rows = legendVisibleRows();
   if(!rows.length) return;   // nothing to show here — don't clutter the sheet
 
-  const pad = 12, rowH = 22, titleH = 26, swatch = 12;
-  const font = "500 13px 'IBM Plex Sans', sans-serif";
-  const monoFont = "500 12px 'IBM Plex Mono', monospace";
+  const S = state.legendScale || 1;
+  const pad = 12*S, rowH = 22*S, titleH = 26*S, swatch = 12*S;
+  const font = "500 "+(13*S)+"px 'IBM Plex Sans', sans-serif";
+  const monoFont = "500 "+(12*S)+"px 'IBM Plex Mono', monospace";
 
   octx.save();
   octx.font = font;
@@ -5778,20 +5793,20 @@ function drawLegend(){
   octx.fillStyle = '#0E2A47';
   octx.fillRect(x, y, w, titleH);
   octx.fillStyle = '#F6F3EA';
-  octx.font = "600 12px 'Oswald', sans-serif";
+  octx.font = "600 "+(12*S)+"px 'Oswald', sans-serif";
   const sheetName = state.pageNames[state.pageNum];
   const sheetLabel = (sheetName && (sheetName.number || sheetName.name))
     ? [sheetName.number, sheetName.name].filter(Boolean).join(' — ')
     : `SHEET ${state.pageNum}`;
-  octx.fillText(('TAKEOFF · ' + sheetLabel).toUpperCase().slice(0, 42), x + pad, y + 18);
+  octx.fillText(('TAKEOFF · ' + sheetLabel).toUpperCase().slice(0, 42), x + pad, y + 18*S);
 
   rows.forEach((r, i)=>{
-    const ry = y + titleH + i*rowH + 15;
+    const ry = y + titleH + i*rowH + 15*S;
     octx.fillStyle = r.color;
-    octx.fillRect(x + pad, ry - swatch + 2, swatch, swatch);
+    octx.fillRect(x + pad, ry - swatch + 2*S, swatch, swatch);
     octx.strokeStyle = 'rgba(0,0,0,0.25)';
     octx.lineWidth = 1;
-    octx.strokeRect(x + pad, ry - swatch + 2, swatch, swatch);
+    octx.strokeRect(x + pad, ry - swatch + 2*S, swatch, swatch);
 
     octx.fillStyle = '#1C1E22';
     octx.font = font;
@@ -5802,8 +5817,14 @@ function drawLegend(){
     const qtyText = `${r.qty.toFixed(1)} ${r.unit}`;
     octx.fillText(qtyText, x + w - pad - octx.measureText(qtyText).width, ry);
   });
+  // Resize handle (bottom-right corner) — drag to make the legend bigger or smaller.
+  const hz = 14;
+  legendRect.resize = { x: x+w-hz, y: y+h-hz, w: hz, h: hz };
+  octx.fillStyle = '#153A5B';
+  octx.beginPath(); octx.moveTo(x+w, y+h-hz); octx.lineTo(x+w, y+h); octx.lineTo(x+w-hz, y+h); octx.closePath(); octx.fill();
   octx.restore();
 }
+function legendHandleAt(p){ if(!legendRect || !legendRect.resize) return false; const r=legendRect.resize; return p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h; }
 
 function pointInLegend(p){
   if(!legendRect) return false;

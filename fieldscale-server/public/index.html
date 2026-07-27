@@ -2913,7 +2913,14 @@ function gotoSheetMatch(dir){
   if(state.searchHighlightPage!==state.pageNum || !state.searchHighlights.length) return;
   const n=state.searchHighlights.length;
   sheetSearchMatchIdx = sheetSearchMatchIdx<0 ? (dir<0?n-1:0) : (sheetSearchMatchIdx+dir+n)%n;
-  centerOnBox(state.searchHighlights[sheetSearchMatchIdx]);
+  const box=state.searchHighlights[sheetSearchMatchIdx];
+  // Zoom in so the match is easy to read (target ~44px tall on screen), only ever zooming IN —
+  // never back out — so stepping through keeps you at a comfortable zoom.
+  if(box && box.height>0){
+    const target=Math.min(4, Math.max(state.zoom, 44/box.height));
+    if(target-state.zoom>0.001){ state.zoom=target; applyZoomToDom(); }
+  }
+  centerOnBox(box);
   updateSheetMatchNav(); redrawOverlay();
 }
 function runSheetSearch(q){

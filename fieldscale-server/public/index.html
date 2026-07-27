@@ -1116,6 +1116,12 @@
           <span id="item-count" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel);">0 items</span>
           <button class="btn primary" id="add-tool" title="Add a takeoff item — wall, line, area or count" style="margin-left:auto;padding:4px 12px">＋ Add</button>
         </div>
+        <div class="takeoff-groupbar" style="display:flex;gap:6px;align-items:center;padding:0 10px 6px;font-size:11px;color:var(--steel)">
+          <span>Area/phase:</span>
+          <input id="current-group" placeholder="(none)" list="group-list" title="New items you draw get tagged with this area/phase" style="flex:1;min-width:0;font-size:11px;padding:3px 6px;border:1px solid var(--steel-light);border-radius:3px" />
+          <datalist id="group-list"></datalist>
+          <button class="btn" id="group-mode-btn" title="Group the Quantities list by trade or by area/phase" style="padding:3px 8px;font-size:11px;white-space:nowrap">By trade</button>
+        </div>
         <div class="takeoff-list" id="takeoff-list">
           <div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>
         </div>
@@ -5597,6 +5603,7 @@ function guessTrade(label){
 // ---------- Takeoff data + table ----------
 function addTakeoffItem(item){
   item.id = 'it_'+Math.random().toString(36).slice(2,9);
+  if(item.group==null) item.group = ((document.getElementById('current-group')||{}).value||'').trim();  // tag with the current area/phase
   item.pageNum = item.pageNum || state.pageNum;  // which sheet it was taken off
   state.items.push(item);
   renderTakeoffList();
@@ -5615,40 +5622,48 @@ document.getElementById('clear-all').addEventListener('click', ()=>{
   redrawOverlay();
 });
 
+let takeoffGroupMode = 'trade';  // 'trade' | 'group' — how the Quantities panel is grouped
+(function(){
+  const btn=document.getElementById('group-mode-btn');
+  if(btn) btn.addEventListener('click', ()=>{ takeoffGroupMode = takeoffGroupMode==='trade'?'group':'trade'; btn.textContent = takeoffGroupMode==='group'?'By area':'By trade'; renderTakeoffList(); });
+})();
 function renderTakeoffList(){
   state.stickyRows = state.stickyRows || {};
   els.itemCount.textContent = state.items.length + ' item' + (state.items.length===1?'':'s');
   const UNIT_COLS = ['SF','LF','CY','EA'];
-  const resolved = state.items.map(it=>{ const r = resolveItemDisplay(it); return {...r, id:it.id, category:it.category, typeId:it.typeId}; });
-  // Aggregate current items into trade -> label -> row (a column per unit).
-  const aggByTrade = {};
+  const resolved = state.items.map(it=>{ const r = resolveItemDisplay(it); return {...r, id:it.id, category:it.category, typeId:it.typeId, group:(it.group||'').trim()}; });
+  // Outer grouping: by trade (default) or by the item's area/phase group.
+  const outerOf = (it)=> takeoffGroupMode==='group' ? (it.group||'(unassigned)') : it.trade;
+  const aggByOuter = {};
   resolved.forEach(it=>{
-    const A = aggByTrade[it.trade] = aggByTrade[it.trade] || {};
+    const ok = outerOf(it);
+    const A = aggByOuter[ok] = aggByOuter[ok] || {};
     const g = A[it.label] = A[it.label] || { label:it.label, color:it.color, ids:[], sums:{LF:0,SF:0,CY:0,EA:0}, has:{LF:false,SF:false,CY:false,EA:false}, category:it.category, typeId:it.typeId };
     g.ids.push(it.id);
     if(UNIT_COLS.includes(it.unit)){ g.sums[it.unit]+=it.qty; g.has[it.unit]=true; }
     if(!g.category && it.category){ g.category=it.category; g.typeId=it.typeId; }
   });
-  // Remember each row that currently has items, so it stays in the panel at 0 once deleted.
-  Object.keys(aggByTrade).forEach(trade=> Object.values(aggByTrade[trade]).forEach(g=>{
-    const key=trade+'|'+g.label, prev=state.stickyRows[key], units={};
+  // Remember each row that currently has items, so it stays in the panel at 0 once deleted (keyed by mode).
+  Object.keys(aggByOuter).forEach(outer=> Object.values(aggByOuter[outer]).forEach(g=>{
+    const key=takeoffGroupMode+'|'+outer+'|'+g.label, prev=state.stickyRows[key], units={};
     UNIT_COLS.forEach(u=> units[u] = g.has[u] || (prev&&prev.units&&prev.units[u]) || false);
-    state.stickyRows[key] = {trade, label:g.label, color:g.color, category:g.category, typeId:g.typeId, units};
+    state.stickyRows[key] = {mode:takeoffGroupMode, outer, label:g.label, color:g.color, category:g.category, typeId:g.typeId, units};
   }));
-  const tradeSet = new Set(Object.keys(aggByTrade));
-  Object.values(state.stickyRows).forEach(s=>tradeSet.add(s.trade));
-  if(tradeSet.size===0){
+  const outerSet = new Set(Object.keys(aggByOuter));
+  Object.values(state.stickyRows).forEach(s=>{ if(s.mode===takeoffGroupMode) outerSet.add(s.outer); });
+  if(outerSet.size===0){
     els.takeoffList.innerHTML = '<div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>';
     return;
   }
   let html = `<div class="takeoff-col-header"><span></span><span>Name</span><span>SF</span><span>LF</span><span>CY</span><span>EA</span><span></span></div>`;
-  [...tradeSet].sort().forEach(trade=>{
-    html += `<div class="trade-group"><div class="trade-title">${trade}</div>`;
-    const agg = aggByTrade[trade] || {};
+  [...outerSet].sort().forEach(outer=>{
+    html += `<div class="trade-group"><div class="trade-title">${escapeHtml(outer)}</div>`;
+    const agg = aggByOuter[outer] || {};
     const labels = new Set(Object.keys(agg));
-    Object.values(state.stickyRows).filter(s=>s.trade===trade).forEach(s=>labels.add(s.label));
+    Object.values(state.stickyRows).filter(s=>s.mode===takeoffGroupMode && s.outer===outer).forEach(s=>labels.add(s.label));
     [...labels].forEach(label=>{
-      const g = agg[label], sticky = state.stickyRows[trade+'|'+label], zero = !g, skKey = trade+'|'+label;
+      const skKey = takeoffGroupMode+'|'+outer+'|'+label;
+      const g = agg[label], sticky = state.stickyRows[skKey], zero = !g;
       const color = g? g.color : (sticky? sticky.color : '#999');
       const cat = g? g.category : (sticky? sticky.category : null);
       const typeId = g? g.typeId : (sticky? sticky.typeId : null);
@@ -5668,6 +5683,8 @@ function renderTakeoffList(){
     html += `</div>`;
   });
   els.takeoffList.innerHTML = html;
+  const gl=document.getElementById('group-list');
+  if(gl){ const groups=[...new Set((state.items||[]).map(it=>(it.group||'').trim()).filter(Boolean))].sort(); gl.innerHTML=groups.map(g=>`<option value="${escapeHtml(g)}"></option>`).join(''); }
   els.takeoffList.querySelectorAll('.item-row').forEach(row=>{
     if(!row.dataset.cat) return;
     row.addEventListener('dblclick', (e)=>{

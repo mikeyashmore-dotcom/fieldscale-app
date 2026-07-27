@@ -3578,7 +3578,7 @@ document.addEventListener('click',(e)=>{
 
 // ---- Markup chooser (text / arrow / box / line / ellipse + color) ----
 const markupMenu = document.getElementById('markup-menu');
-const MARKUP_KINDS = [['text','🅣','Text'],['arrow','↗','Arrow'],['box','▭','Box'],['line','╱','Line'],['ellipse','◯','Ellipse']];
+const MARKUP_KINDS = [['text','🅣','Text'],['arrow','↗','Arrow'],['box','▭','Box'],['line','╱','Line'],['ellipse','◯','Ellipse'],['dimension','↔','Dimension']];
 const MARKUP_COLORS = ['#C0392B','#E8722C','#D4A017','#4A9B6E','#2E86AB','#8E44AD','#111111'];
 function hideMarkupMenu(){ markupMenu.style.display='none'; }
 function renderMarkupMenu(){
@@ -5451,7 +5451,7 @@ function finalizeAnnotation(){
 // Bounding box (native coords) for hit-testing / handles.
 function annoBBox(a){
   if(a.kind==='box' || a.kind==='ellipse') return {x:a.x, y:a.y, w:a.w, h:a.h};
-  if(a.kind==='line' || a.kind==='arrow') return {x:Math.min(a.x1,a.x2), y:Math.min(a.y1,a.y2), w:Math.abs(a.x2-a.x1), h:Math.abs(a.y2-a.y1)};
+  if(a.kind==='line' || a.kind==='arrow' || a.kind==='dimension') return {x:Math.min(a.x1,a.x2), y:Math.min(a.y1,a.y2), w:Math.abs(a.x2-a.x1), h:Math.abs(a.y2-a.y1)};
   // text: approx from length × size
   const sz=(a.size||14), w=Math.max(20,(a.text||'').length*sz*0.6), h=sz*1.3;
   return {x:a.x, y:a.y-h, w, h};
@@ -5474,6 +5474,20 @@ function drawAnnotation(a, ghost){
   else if(a.kind==='ellipse'){ octx.beginPath(); octx.ellipse(a.x+a.w/2, a.y+a.h/2, Math.abs(a.w/2), Math.abs(a.h/2), 0, 0, 7); octx.stroke(); }
   else if(a.kind==='line'){ octx.beginPath(); octx.moveTo(a.x1,a.y1); octx.lineTo(a.x2,a.y2); octx.stroke(); }
   else if(a.kind==='arrow'){ octx.beginPath(); octx.moveTo(a.x1,a.y1); octx.lineTo(a.x2,a.y2); octx.stroke(); drawArrowHead(a.x1,a.y1,a.x2,a.y2,a.color||'#C0392B'); }
+  else if(a.kind==='dimension'){
+    octx.beginPath(); octx.moveTo(a.x1,a.y1); octx.lineTo(a.x2,a.y2); octx.stroke();
+    // perpendicular end ticks
+    const ang=Math.atan2(a.y2-a.y1,a.x2-a.x1), t=6/state.zoom, tx=Math.cos(ang+Math.PI/2)*t, ty=Math.sin(ang+Math.PI/2)*t;
+    octx.beginPath(); octx.moveTo(a.x1-tx,a.y1-ty); octx.lineTo(a.x1+tx,a.y1+ty); octx.moveTo(a.x2-tx,a.y2-ty); octx.lineTo(a.x2+tx,a.y2+ty); octx.stroke();
+    // live length label (from this sheet's scale) with a legible backing
+    const pxLen=Math.hypot(a.x2-a.x1,a.y2-a.y1);
+    const label = state.calibration ? formatFeetInches(pxLen*state.calibration.unitsPerNativePixel) : 'set scale';
+    const mx=(a.x1+a.x2)/2, my=(a.y1+a.y2)/2;
+    octx.font='600 '+(12/state.zoom)+'px "IBM Plex Mono",monospace'; octx.textAlign='center'; octx.textBaseline='middle';
+    const bw=octx.measureText(label).width+8/state.zoom, bh=16/state.zoom;
+    octx.fillStyle='rgba(255,255,255,0.9)'; octx.fillRect(mx-bw/2,my-bh/2,bw,bh);
+    octx.fillStyle=a.color||'#C0392B'; octx.fillText(label, mx, my);
+  }
   else if(a.kind==='text'){ octx.font='600 '+((a.size||14)/state.zoom)+'px "IBM Plex Sans",sans-serif'; octx.textBaseline='alphabetic'; octx.fillText(a.text||'', a.x, a.y); }
   octx.restore();
 }

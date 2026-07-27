@@ -2701,10 +2701,20 @@ async function renderPage(){
   els.overlay.width = viewport.width;
   els.overlay.height = viewport.height;
   await page.render({canvasContext: pctx, viewport}).promise;
+  state.zoom = fitPageZoom();   // opening a sheet always zooms out to show the whole page
   applyZoomToDom();
+  els.stageWrap.scrollLeft = 0; els.stageWrap.scrollTop = 0;
   els.pageLabel.textContent = `${state.pageNum} / ${state.numPages}`;
   redrawOverlay();
   renderPagesList();
+}
+// Zoom that fits the whole sheet inside the viewport.
+function fitPageZoom(){
+  const wrap = els.stageWrap;
+  const cw = els.pdfCanvas.width, ch = els.pdfCanvas.height;
+  if(!wrap || !cw || !ch) return state.zoom || 1;
+  const availW = Math.max(50, wrap.clientWidth - 28), availH = Math.max(50, wrap.clientHeight - 28);
+  return Math.max(0.05, Math.min(availW/cw, availH/ch));
 }
 
 // ---------- Pages panel (collapsible sheet list) ----------
@@ -4717,6 +4727,20 @@ function typeDisplayRows(category, typeId){
   }
   return [ resolveItemDisplay({category, typeId, raw:0}) ];
 }
+// When a wall type's measure kinds change (e.g. you add Wall Face), bring every wall already
+// drawn with that type into line: add an item for each new kind, drop items for removed kinds.
+function reconcileWallItems(typeId){
+  const t = state.typeLibrary.wall.find(x=>x.id===typeId);
+  if(!t) return;
+  const kinds = t.measureKinds || (t.measureKind ? [t.measureKind] : ['length']);
+  state.walls.filter(w=>w.typeId===typeId).forEach(w=>{
+    const existing = state.items.filter(it=>it.category==='wall' && it.wallId===w.id);
+    const baseRaw = existing.length ? existing[0].raw : 0;   // all measure kinds of one wall share its length
+    const have = new Set(existing.map(it=>it.measureKind));
+    state.items = state.items.filter(it=> !(it.category==='wall' && it.wallId===w.id && !kinds.includes(it.measureKind)));
+    kinds.forEach(k=>{ if(!have.has(k)) state.items.push({ id:'it_'+Math.random().toString(36).slice(2,9), category:'wall', typeId, wallId:w.id, measureKind:k, raw:baseRaw, pageNum:w.pageNum }); });
+  });
+}
 // Put a type in the Quantities panel right away (at 0), even before anything is drawn.
 function ensureStickyForType(category, typeId){
   state.stickyRows = state.stickyRows || {};
@@ -4921,6 +4945,7 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
   if(idx>=0) lib[idx]=entry; else lib.push(entry);
   state.activeType[category] = entry.id;
   populateTypeDropdown(category);
+  if(category==='wall') reconcileWallItems(entry.id);   // existing walls pick up added/removed measure kinds
   markDirty();
   closeTypeModal();
   // The type is designed and selected — arm its takeoff tool so you can draw right away,

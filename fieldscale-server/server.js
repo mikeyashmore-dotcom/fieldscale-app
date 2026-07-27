@@ -2041,9 +2041,11 @@ const server = http.createServer(async (req, res) => {
         if (!est) return sendJSON(res, 404, { error: 'Estimate not found.' });
         if (req.method === 'GET') {
           return sendJSON(res, 200, { id: est.id, name: est.name, client: est.client, total: est.total,
-            status: est.status, createdAt: est.createdAt, updatedAt: est.updatedAt, doc: readEstimateDoc(est.id) });
+            status: est.status, jobId: est.jobId || '', createdAt: est.createdAt, updatedAt: est.updatedAt, doc: readEstimateDoc(est.id) });
         }
         if (req.method === 'PUT') {
+          // Once an estimate is converted to a job it's locked — the job is the source of truth from then on.
+          if (est.jobId) return sendJSON(res, 409, { error: 'This estimate was converted to a job and is locked. Edit the job instead.' });
           const { name, client, total, status, doc } = await readBody(req);
           if (name !== undefined) est.name = String(name).slice(0, 200);
           if (client !== undefined) est.client = String(client).slice(0, 200);
@@ -2391,12 +2393,15 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/reports/summary' && req.method === 'GET') {
         if (!canSeeFinancials(me)) return sendJSON(res, 403, { error: 'No access to financial reports.' });
         const DAY = 86400000, now = Date.now();
+        const _mdt = new Date(); const monthStart = new Date(_mdt.getFullYear(), _mdt.getMonth(), 1).getTime();
+        let billedMtd = 0, openWorkValue = 0, wonMtd = 0;   // month-to-date + open-work rollups for the home tiles
         // Accounts receivable — what customers still owe, bucketed by how overdue it is.
         const ar = { totalInvoiced: 0, totalPaid: 0, outstanding: 0,
           buckets: { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 }, items: [] };
         db.invoices.filter(i => i.companyId === me.companyId).forEach(i => {
           const total = Number(i.total) || 0, paid = Number(i.amountPaid) || 0;
           ar.totalInvoiced += total; ar.totalPaid += paid;
+          if ((i.createdAt || 0) >= monthStart) billedMtd += total;   // billed this month
           const owed = Math.round((total - paid) * 100) / 100;
           if (owed <= 0.005) return;
           ar.outstanding += owed;
@@ -2435,7 +2440,9 @@ const server = http.createServer(async (req, res) => {
             status: j.status || 'scheduled', contract, cost, profit, margin });
           // production rollup
           const status = j.status || 'scheduled';
-          if (status === 'complete') production.completeJobs++; else production.activeJobs++;
+          if (status === 'complete') production.completeJobs++; else { production.activeJobs++; openWorkValue += contract; }
+          if ((j.createdAt || 0) >= monthStart) wonMtd += contract;   // work won (jobs started) this month
+
           production.totalHours += (jd.timeEntries || []).reduce((s, t) => s + (Number(t.hours) || 0), 0);
           if (status !== 'complete' && jd.dueDate && jd.dueDate < todayISO) {
             production.behind.push({ id: j.id, name: j.name, client: j.client || '', status,
@@ -2494,7 +2501,9 @@ const server = http.createServer(async (req, res) => {
         });
         Object.keys(cf).forEach(k => cf[k] = Math.round(cf[k] * 100) / 100);
 
-        return sendJSON(res, 200, { ar, jobs, estimates: est, leadSources, cashflow: cf, production });
+        production.openWorkValue = Math.round(openWorkValue * 100) / 100;
+        const mtd = { won: Math.round(wonMtd * 100) / 100, billed: Math.round(billedMtd * 100) / 100 };
+        return sendJSON(res, 200, { ar, jobs, estimates: est, leadSources, cashflow: cf, production, mtd });
       }
 
       // ---- Payroll / timesheet export: every time entry across all jobs ----

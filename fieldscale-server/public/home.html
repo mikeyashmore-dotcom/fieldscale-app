@@ -184,7 +184,11 @@ async function init(){
     const [r,fu] = await Promise.all([ apiFetch('/api/reports/summary'), apiFetch('/api/followups') ]);
     const overdueInv = (fu.invoices||[]).filter(i=>i.overdue).length;
     const dueLeads = (fu.leads||[]).filter(l=>l.overdue).length;
+    const mtd = r.mtd || {won:0, billed:0};
     document.getElementById('stat-tiles').innerHTML =
+      tile('Open work', money((r.production&&r.production.openWorkValue)||0), '', '/jobs.html') +
+      tile('Won this month', money(mtd.won), mtd.won>0?'pos':'', '/jobs.html') +
+      tile('Billed this month', money(mtd.billed), mtd.billed>0?'pos':'', '/invoices.html') +
       tile('Outstanding', money(r.ar.outstanding), r.ar.outstanding>0?'warn':'', '/reports.html') +
       tile('Expected ≤30 days', money(r.cashflow.d0_30), 'pos', '/reports.html') +
       tile('Active jobs', r.production.activeJobs||0, '', '/jobs.html') +

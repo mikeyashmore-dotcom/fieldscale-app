@@ -1120,6 +1120,7 @@
           <div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>
         </div>
         <div class="takeoff-footer">
+          <button class="btn" id="summary-btn" title="Totals rolled up by trade / CSI division, with a printable report">📋 Summary</button>
           <button class="btn" id="export-csv">Export CSV</button>
           <button class="btn" id="save-sheet-btn" title="Save this sheet as an image, with your measurements, highlights and markups">🖼 Save Sheet</button>
           <button class="btn" id="clear-all">Clear All</button>
@@ -5725,6 +5726,46 @@ document.getElementById('export-csv').addEventListener('click', ()=>{
   a.href = url; a.download = (document.getElementById('proj-name').value||'takeoff') + '.csv';
   a.click();
   URL.revokeObjectURL(url);
+});
+
+// ---- Takeoff summary (by trade / CSI) + printable report ----
+function buildTakeoffGroups(){
+  const rows = computeTakeoffSummary(); const groups = {};
+  rows.forEach(r=>{ const k = r.trade||'General'; (groups[k]=groups[k]||[]).push(r); });
+  return groups;
+}
+function summaryHtml(){
+  const groups = buildTakeoffGroups(); const keys = Object.keys(groups).sort();
+  if(!keys.length) return '<p style="color:var(--steel)">No measurements yet.</p>';
+  return keys.map(k=>`<div style="margin-bottom:12px">
+      <div style="font-weight:600;color:#0E2A47;border-bottom:1px solid #E4DFCF;padding-bottom:3px;margin-bottom:4px">${escapeHtml(k)} <span style="color:#7C8896;font-weight:400;font-size:11px">· ${groups[k].length} item${groups[k].length===1?'':'s'}</span></div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="color:#7C8896;text-align:left;font-size:11px"><th style="padding:2px 4px">Item</th><th style="padding:2px 4px">CSI</th><th style="padding:2px 4px;text-align:right">Qty</th><th style="padding:2px 4px">Unit</th></tr></thead>
+        <tbody>${groups[k].map(r=>`<tr><td style="padding:2px 4px">${escapeHtml(r.label)}</td><td style="padding:2px 4px;color:#7C8896">${escapeHtml(r.code||'—')}</td><td style="padding:2px 4px;text-align:right;font-family:'IBM Plex Mono',monospace">${(Number(r.qty)||0).toLocaleString()}</td><td style="padding:2px 4px">${escapeHtml(r.unit)}</td></tr>`).join('')}</tbody>
+      </table></div>`).join('');
+}
+function printTakeoffReport(){
+  const meta = state.projectMeta||{}; const proj = document.getElementById('proj-name').value||'Takeoff';
+  const groups = buildTakeoffGroups(); const keys = Object.keys(groups).sort();
+  const body = keys.map(k=>`<h2>${escapeHtml(k)}</h2><table><thead><tr><th>Item</th><th>CSI</th><th class="r">Quantity</th><th>Unit</th></tr></thead><tbody>${groups[k].map(r=>`<tr><td>${escapeHtml(r.label)}</td><td>${escapeHtml(r.code||'')}</td><td class="r">${(Number(r.qty)||0).toLocaleString()}</td><td>${escapeHtml(r.unit)}</td></tr>`).join('')}</tbody></table>`).join('');
+  const metaLine = [meta.client?('Client / GC: '+escapeHtml(meta.client)):'', meta.address?('Address: '+escapeHtml(meta.address)):'', 'Generated: '+escapeHtml(new Date().toLocaleString())].filter(Boolean).join(' &nbsp;·&nbsp; ');
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+escapeHtml(proj)+' — Takeoff</title>'
+    +'<style>body{font-family:Arial,Helvetica,sans-serif;color:#1C1E22;margin:32px;font-size:13px}'
+    +'h1{color:#0E2A47;margin:0 0 2px;font-size:22px} .meta{color:#7C8896;font-size:12px;margin-bottom:18px}'
+    +'h2{color:#E8722C;font-size:15px;border-bottom:2px solid #0E2A47;padding-bottom:3px;margin:18px 0 6px}'
+    +'table{width:100%;border-collapse:collapse;margin-bottom:8px} th,td{text-align:left;padding:4px 6px;border-bottom:1px solid #E4DFCF} th{color:#7C8896;font-size:11px;text-transform:uppercase} .r{text-align:right} .foot{color:#98a2ad;font-size:11px;margin-top:24px}</style></head><body>'
+    +'<h1>Takeoff — '+escapeHtml(proj)+'</h1><div class="meta">'+metaLine+'</div>'+body
+    +'<div class="foot">Prepared with Fieldscale — quantities are a takeoff for estimating; verify against the plans.</div>'
+    +'<scr'+'ipt>setTimeout(function(){window.print()},250)<\/scr'+'ipt></body></html>';
+  const w = window.open('', '_blank'); if(!w){ alert('Allow pop-ups to print the report.'); return; }
+  w.document.write(html); w.document.close();
+}
+document.getElementById('summary-btn').addEventListener('click', ()=>{
+  if(!state.items.length){ alert('No measurements yet.'); return; }
+  if(typeof fsModal!=='function'){ alert('Please reload the page and try again.'); return; }
+  fsModal({ title:'📋 Takeoff summary — by trade',
+    bodyHTML: summaryHtml(),
+    buttons:[ { label:'🖨 Print report', primary:true, onClick:(close)=>{ close(); printTakeoffReport(); } }, { label:'Close' } ] });
 });
 
 // ---------- Overlay rendering ----------

@@ -942,6 +942,7 @@
     <div class="topbar-spacer"></div>
     <div class="scale-btn-wrap" id="search-btn-wrap">
       <button class="btn" id="search-toggle-btn">🔍 Search Sheets</button>
+      <button class="btn" id="compare-btn" title="Overlay this sheet against another version and highlight what changed">🔀 Compare</button>
       <button class="btn" id="askplans-btn" title="Ask Claude questions about these plans">💬 Ask AI</button>
       <button class="btn" id="autotag-btn" disabled title="Let AI find the detail/section callouts on this sheet and turn them into clickable links to those sheets">🏷 Auto-tag refs</button>
       <div class="scale-popover" id="search-popover" style="width:360px;">
@@ -6677,6 +6678,111 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
   document.getElementById('askplans-close').addEventListener('click', ()=>{ panel.style.display='none'; });
   document.getElementById('askplans-send').addEventListener('click', send);
   input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); send(); } });
+})();
+</script>
+
+<!-- Revision compare / overlay -->
+<div id="compare-ov" style="display:none;position:fixed;inset:0;z-index:80;background:rgba(14,42,71,0.55);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:8px;width:min(1100px,95vw);height:min(92vh,940px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35)">
+    <div style="background:#0E2A47;color:#F6F3EA;padding:10px 14px;display:flex;align-items:center;gap:12px">
+      <span style="font-family:'Oswald',sans-serif;font-size:15px">🔀 Compare revisions</span>
+      <span style="flex:1"></span><span id="compare-close" style="cursor:pointer;font-size:18px">✕</span>
+    </div>
+    <div style="padding:10px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #E4DFCF;font-size:12px">
+      <label>Old = this set, sheet <select id="cmp-page-a" style="font-size:12px"></select></label>
+      <label>New version: <input type="file" id="cmp-file-b" accept="application/pdf" style="font-size:11px"></label>
+      <label id="cmp-page-b-wrap" style="display:none">sheet <select id="cmp-page-b" style="font-size:12px"></select></label>
+      <button class="btn primary" id="cmp-run" disabled>Compare</button>
+      <span style="flex:1"></span>
+      <span id="cmp-view-btns" style="display:none">
+        <button class="btn" data-cmpview="old">Old</button>
+        <button class="btn" data-cmpview="new">New</button>
+        <button class="btn primary" data-cmpview="diff">Changes</button>
+      </span>
+    </div>
+    <div style="padding:6px 14px;font-size:11px;color:#7C8896;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <span><b style="color:#C0392B">■</b> removed</span><span><b style="color:#2e9e5b">■</b> added</span><span><b style="color:#8894a3">■</b> unchanged</span>
+      <span id="cmp-status" style="margin-left:auto"></span>
+    </div>
+    <div style="flex:1;overflow:auto;background:#EEF1F5;display:flex;align-items:flex-start;justify-content:center;padding:10px">
+      <canvas id="cmp-canvas" style="max-width:100%;box-shadow:0 2px 10px rgba(0,0,0,.15);background:#fff"></canvas>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const ov=document.getElementById('compare-ov');
+  let docB=null, imgs={};   // imgs: {old, new, diff} as ImageData
+  function status(t){ const s=document.getElementById('cmp-status'); if(s) s.textContent=t||''; }
+  function fillPages(sel, n, names){
+    sel.innerHTML=''; for(let p=1;p<=n;p++){ const o=document.createElement('option'); o.value=p;
+      const pn=names&&names[p]; o.textContent = pn&&(pn.number||pn.name) ? (p+' — '+[pn.number,pn.name].filter(Boolean).join(' ')) : ('Sheet '+p); sel.appendChild(o); }
+  }
+  async function renderPage(doc, pageNum, targetW){
+    const page=await doc.getPage(pageNum); const v1=page.getViewport({scale:1});
+    const scale=targetW/v1.width, vp=page.getViewport({scale});
+    const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+    await page.render({canvasContext:c.getContext('2d'), viewport:vp}).promise; return c;
+  }
+  function buildDiff(ca, cb){
+    const w=ca.width, h=ca.height;
+    // draw B into A's exact size (scaled to fit width)
+    const cbf=document.createElement('canvas'); cbf.width=w; cbf.height=h; const bx=cbf.getContext('2d');
+    bx.fillStyle='#fff'; bx.fillRect(0,0,w,h); const s=w/cb.width; bx.drawImage(cb,0,0,cb.width*s,cb.height*s);
+    const A=ca.getContext('2d').getImageData(0,0,w,h).data, B=bx.getImageData(0,0,w,h).data;
+    const out=ca.getContext('2d').createImageData(w,h), O=out.data;
+    for(let i=0;i<A.length;i+=4){
+      const la=(A[i]*0.299+A[i+1]*0.587+A[i+2]*0.114), lb=(B[i]*0.299+B[i+1]*0.587+B[i+2]*0.114);
+      const inkA=la<190, inkB=lb<190;
+      if(inkA&&inkB){ O[i]=136;O[i+1]=148;O[i+2]=163; }       // unchanged — gray
+      else if(inkA){ O[i]=192;O[i+1]=57;O[i+2]=43; }          // removed — red
+      else if(inkB){ O[i]=46;O[i+1]=158;O[i+2]=91; }          // added — green
+      else { O[i]=255;O[i+1]=255;O[i+2]=255; }
+      O[i+3]=255;
+    }
+    return { old:ca.getContext('2d').getImageData(0,0,w,h), 'new':bx.getImageData(0,0,w,h), diff:out, w, h };
+  }
+  function showView(which){
+    const im=imgs[which]; if(!im) return; const cv=document.getElementById('cmp-canvas');
+    cv.width=im.width; cv.height=im.height; cv.getContext('2d').putImageData(im,0,0);
+    document.querySelectorAll('#cmp-view-btns [data-cmpview]').forEach(b=>b.classList.toggle('primary', b.dataset.cmpview===which));
+  }
+  function open(){
+    if(!state.pdfDoc){ alert('Open a project first.'); return; }
+    fillPages(document.getElementById('cmp-page-a'), state.numPages, state.pageNames);
+    document.getElementById('cmp-page-a').value=state.pageNum;
+    docB=null; imgs={}; document.getElementById('cmp-file-b').value='';
+    document.getElementById('cmp-page-b-wrap').style.display='none';
+    document.getElementById('cmp-view-btns').style.display='none';
+    document.getElementById('cmp-run').disabled=true;
+    const cv=document.getElementById('cmp-canvas'); cv.width=0; cv.height=0; status('');
+    ov.style.display='flex';
+  }
+  const btn=document.getElementById('compare-btn'); if(btn) btn.addEventListener('click', open);
+  document.getElementById('compare-close').addEventListener('click', ()=>{ ov.style.display='none'; });
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.style.display='none'; });
+  document.getElementById('cmp-file-b').addEventListener('change', async (e)=>{
+    const f=e.target.files[0]; if(!f) return; status('Reading new version…');
+    try{ const buf=await f.arrayBuffer(); docB=await pdfjsLib.getDocument({data:buf}).promise;
+      fillPages(document.getElementById('cmp-page-b'), docB.numPages, null);
+      const pb=document.getElementById('cmp-page-b'); pb.value=Math.min(Number(document.getElementById('cmp-page-a').value)||1, docB.numPages);
+      document.getElementById('cmp-page-b-wrap').style.display=''; document.getElementById('cmp-run').disabled=false; status('Ready — pick sheets and Compare.');
+    }catch(err){ status('Could not read that PDF.'); }
+  });
+  document.getElementById('cmp-run').addEventListener('click', async ()=>{
+    if(!docB){ return; } status('Comparing…');
+    try{
+      const a=Number(document.getElementById('cmp-page-a').value)||1, b=Number(document.getElementById('cmp-page-b').value)||1;
+      const targetW=1500;
+      const ca=await renderPage(state.pdfDoc, a, targetW);
+      const cb=await renderPage(docB, b, targetW);
+      imgs=buildDiff(ca, cb);
+      document.getElementById('cmp-view-btns').style.display='';
+      showView('diff');
+      status('Red = removed · Green = added.');
+    }catch(err){ status('Compare failed: '+(err.message||err)); }
+  });
+  document.querySelectorAll('#cmp-view-btns [data-cmpview]').forEach(b=> b.addEventListener('click', ()=>showView(b.dataset.cmpview)));
 })();
 </script>
 </body>

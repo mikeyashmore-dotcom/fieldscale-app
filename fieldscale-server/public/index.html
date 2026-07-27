@@ -5367,21 +5367,8 @@ function redrawOverlay(){
   // area type — so picking/editing a color always applies to everything drawn with it)
   state.areas.filter(onThisPage).forEach(a=>{
     const t = state.typeLibrary.area.find(x=>x.id===a.typeId);
-    drawAreaPath(a.points, t?t.color:'#2E86AB', t?t.pattern:null);
-    // Cutouts (subtracted openings) — knock them out visually so it's clear they don't count.
-    (a.cutouts||[]).forEach(c=>{
-      if(!c || c.length<3) return;
-      octx.save();
-      octx.beginPath();
-      c.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
-      octx.closePath();
-      octx.fillStyle = 'rgba(255,255,255,0.85)';
-      octx.fill();
-      octx.setLineDash([6,4]);
-      octx.strokeStyle = '#C0392B'; octx.lineWidth = 1.5/state.zoom;
-      octx.stroke();
-      octx.restore();
-    });
+    // Cutouts render as true holes (the plan shows through) — passed straight to drawAreaPath.
+    drawAreaPath(a.points, t?t.color:'#2E86AB', t?t.pattern:null, a.cutouts);
   });
 
   // draw persistent quick-measurements (dashed teal, not part of takeoff)
@@ -5685,20 +5672,27 @@ function pointInLegend(p){
          p.y>=legendRect.y && p.y<=legendRect.y+legendRect.h;
 }
 
-function drawAreaPath(points, color, pattern){
+function drawAreaPath(points, color, pattern, cutouts){
   if(points.length<2) return;
   const patterned = pattern && pattern!=='solid';
+  const holes = (cutouts||[]).filter(c=>c && c.length>=3);
   octx.save();
-  // Polygon path (used for both fill and clip)
-  octx.beginPath();
-  points.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
-  octx.closePath();
+  // Build the outer polygon plus any cutouts as sub-paths, so an even-odd fill/clip
+  // turns the cutouts into true holes — the plan simply shows through them.
+  const buildPath = ()=>{
+    octx.beginPath();
+    points.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
+    octx.closePath();
+    holes.forEach(h=>{ h.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y)); octx.closePath(); });
+  };
+  buildPath();
   // Base translucent fill — lighter when a pattern rides on top so the pattern reads.
   octx.fillStyle = hexToRgba(color, patterned ? 0.10 : 0.22);
-  octx.fill();
+  octx.fill('evenodd');
   if(patterned){
     octx.save();
-    octx.clip();
+    buildPath();
+    octx.clip('evenodd');
     let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
     points.forEach(p=>{ if(p.x<minx)minx=p.x; if(p.y<miny)miny=p.y; if(p.x>maxx)maxx=p.x; if(p.y>maxy)maxy=p.y; });
     octx.strokeStyle=color; octx.fillStyle=color; octx.lineWidth=1;

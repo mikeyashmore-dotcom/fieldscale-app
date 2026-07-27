@@ -645,7 +645,7 @@ document.getElementById('z-in').onclick=()=>{ zoomAt(1.2); };
 document.getElementById('z-out').onclick=()=>{ zoomAt(0.83); };
 document.getElementById('z-fit').onclick=fitView;
 function zoomAt(f){ const cx=canvas.width/DPR/2, cy=canvas.height/DPR/2; const before=S2W(cx,cy); zoom=Math.max(4,Math.min(80,zoom*f)); const after=S2W(cx,cy); panX+=before.x-after.x; panY+=before.y-after.y; draw(); }
-function fitView(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2});});
+function fitView(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{ if(it.type==='poly'){ (it.points||[]).forEach(p=>pts.push({x:p.x,y:p.y})); } else { pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2}); } });
   if(!pts.length){ zoom=16; panX=-2; panY=-2; draw(); return; }
   let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity; pts.forEach(p=>{minx=Math.min(minx,p.x);miny=Math.min(miny,p.y);maxx=Math.max(maxx,p.x);maxy=Math.max(maxy,p.y);});
   const vw=canvas.width/DPR, vh=canvas.height/DPR; const pad=2; const zw=vw/((maxx-minx)+pad*2), zh=vh/((maxy-miny)+pad*2);
@@ -682,7 +682,7 @@ async function doPrint(orientation){ hideModal(); await loadLogo();
   w.document.close();
 }
 function loadLogo(){ return new Promise(res=>{ const url=companyProfile.logo; if(!url){ logoImg=null; return res(); } if(logoImg && logoImg.src===url){ return res(); } const im=new Image(); im.onload=()=>{ logoImg=im; res(); }; im.onerror=()=>{ logoImg=null; res(); }; im.src=url; }); }
-function planBounds(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2});});
+function planBounds(){ const pts=[]; doc.walls.forEach(w=>{pts.push({x:w.x1,y:w.y1},{x:w.x2,y:w.y2});}); doc.items.forEach(it=>{ if(it.type==='poly'){ (it.points||[]).forEach(p=>pts.push({x:p.x,y:p.y})); } else { pts.push({x:it.x-it.w/2,y:it.y-it.h/2},{x:it.x+it.w/2,y:it.y+it.h/2}); } });
   let minx=0,miny=0,maxx=20,maxy=15; if(pts.length){ minx=Math.min(...pts.map(p=>p.x));miny=Math.min(...pts.map(p=>p.y));maxx=Math.max(...pts.map(p=>p.x));maxy=Math.max(...pts.map(p=>p.y)); } return {minx,miny,maxx,maxy}; }
 function renderSheet(px, aspect){
   const k=px/1800;                         // scale factor for fonts/margins

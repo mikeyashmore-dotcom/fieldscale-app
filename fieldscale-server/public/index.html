@@ -3417,11 +3417,17 @@ function vertexHandleAt(p){
   }
   return null;
 }
-// After a corner is dragged, re-figure the measured quantity from the new geometry.
+// Net footprint of an area in native px² = outline minus any cutouts (never below 0).
+function areaNetPx(a){
+  let px = shoelace(a.points);
+  (a.cutouts||[]).forEach(c=>{ if(c && c.length>=3) px -= shoelace(c); });
+  return Math.max(0, px);
+}
+// After a corner is dragged (or a cutout added), re-figure the measured quantity.
 function recomputeItemRaw(kind, id){
   if(!state.calibration) return;
   const u = state.calibration.unitsPerNativePixel;
-  if(kind==='area'){ const a=state.areas.find(x=>x.id===id); if(!a) return; const real=shoelace(a.points)*u*u; state.items.forEach(it=>{ if(it.areaId===id) it.raw=real; }); }
+  if(kind==='area'){ const a=state.areas.find(x=>x.id===id); if(!a) return; const real=areaNetPx(a)*u*u; state.items.forEach(it=>{ if(it.areaId===id) it.raw=real; }); }
   else if(kind==='wall'){ const w=state.walls.find(x=>x.id===id); if(!w) return; let px=0; for(let i=1;i<w.points.length;i++) px+=dist(w.points[i-1],w.points[i]); const real=px*u; state.items.forEach(it=>{ if(it.wallId===id) it.raw=real; }); }
 }
 
@@ -3644,7 +3650,7 @@ let isPanning=false;
 let panStart=null;
 let legendDrag=null;
 
-const MEASURE_TOOLS = ['linear','wall','area','measure'];
+const MEASURE_TOOLS = ['linear','wall','area','measure','cutout'];
 
 els.overlay.addEventListener('mousedown',(e)=>{
   if(e.button===1 || (e.button===0 && state.spaceHeld)){
@@ -4132,6 +4138,7 @@ els.overlay.addEventListener('contextmenu',(e)=>{
     const menu = others.length
       ? others.map(t=>({ label:'⇄ Switch to '+t.name, action:()=>reassignType(picked, t.id) }))
       : [{ label:'No other '+cat+' types yet — use ＋ Add to make one', action:()=>{} }];
+    if(cat==='area') menu.push({ label:'✂ Add cutout (subtract area)', action:()=>startCutout(picked.id) });
     showRefMenu(e.clientX, e.clientY, menu);
     return;
   }
@@ -4191,6 +4198,7 @@ window.addEventListener('keydown',(e)=>{
   if(e.key==='Enter'){ finishCurrentDrawing(); }
   if(e.key==='Escape'){
     state.drawing=null; state.marquee=null; clearSelection();
+    if(state.tool==='cutout'){ state.tool='select'; state.cutTargetId=null; els.overlay.style.cursor='default'; }
     redrawOverlay(); els.hud.style.display='none'; updateFinishBtn(); hideHint();
   }
 });
@@ -4200,6 +4208,7 @@ function finishCurrentDrawing(){
   if(state.tool==='linear' && state.drawing) finishLinear();
   if(state.tool==='wall' && state.drawing) finishWall();
   if(state.tool==='area' && state.drawing) finishArea();
+  if(state.tool==='cutout' && state.drawing) finishCutout();
   if(state.tool==='measure' && state.drawing) finishMeasure();
   updateFinishBtn();
 }
@@ -4852,6 +4861,35 @@ function finishArea(){
   redrawOverlay();
 }
 
+// ---------- Area cutouts (subtract an opening from an existing area) ----------
+function startCutout(areaId){
+  if(!requireCalibration()) return;
+  state.cutTargetId = areaId;
+  state.tool = 'cutout';
+  state.drawing = null;   // first click starts the polygon (mirrors the area draw flow)
+  clearSelection();
+  els.overlay.style.cursor = 'crosshair';
+  showHint('Trace the opening to <b>subtract</b> from this area — double-click or <b>Enter</b> to finish, <b>Esc</b> to cancel.');
+  updateFinishBtn();
+  redrawOverlay();
+}
+function finishCutout(){
+  const pts = state.drawing ? state.drawing.points : [];
+  const a = state.areas.find(x=>x.id===state.cutTargetId);
+  if(a && pts.length>=3){
+    a.cutouts = a.cutouts || [];
+    a.cutouts.push(pts.map(p=>({x:p.x, y:p.y})));
+    recomputeItemRaw('area', a.id);   // net = outline − cutouts
+    renderTakeoffList(); markDirty();
+  }
+  state.drawing = null; state.cutTargetId = null;
+  state.tool = 'select';
+  els.overlay.style.cursor = 'default';
+  hideHint();
+  updateFinishBtn();
+  redrawOverlay();
+}
+
 // ---------- Count ----------
 function addCountPoint(p){
   addTakeoffItem({category:'count', typeId:state.activeType.count, raw:1, point:p});
@@ -5131,6 +5169,20 @@ function redrawOverlay(){
   state.areas.filter(onThisPage).forEach(a=>{
     const t = state.typeLibrary.area.find(x=>x.id===a.typeId);
     drawAreaPath(a.points, t?t.color:'#2E86AB', t?t.pattern:null);
+    // Cutouts (subtracted openings) — knock them out visually so it's clear they don't count.
+    (a.cutouts||[]).forEach(c=>{
+      if(!c || c.length<3) return;
+      octx.save();
+      octx.beginPath();
+      c.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
+      octx.closePath();
+      octx.fillStyle = 'rgba(255,255,255,0.85)';
+      octx.fill();
+      octx.setLineDash([6,4]);
+      octx.strokeStyle = '#C0392B'; octx.lineWidth = 1.5/state.zoom;
+      octx.stroke();
+      octx.restore();
+    });
   });
 
   // draw persistent quick-measurements (dashed teal, not part of takeoff)
@@ -5215,6 +5267,17 @@ function redrawOverlay(){
       const areaColor = at ? at.color : '#2E86AB';
       drawAreaPath(previewPts, areaColor, at?at.pattern:null);
       pts.forEach(p=>drawDot(p, areaColor));
+    } else if(state.tool==='cutout'){
+      const pts = state.drawing.points;
+      const previewPts = state.drawing.hover ? [...pts, state.drawing.hover] : pts;
+      octx.save();
+      octx.setLineDash([6,4]);
+      octx.strokeStyle = '#C0392B'; octx.lineWidth = 2/state.zoom;
+      octx.beginPath();
+      previewPts.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
+      octx.stroke();
+      octx.restore();
+      pts.forEach(p=>drawDot(p, '#C0392B'));
     } else if(state.tool==='highlight' && state.drawing.start){
       const {start,end} = state.drawing;
       octx.save();

@@ -90,7 +90,8 @@
       <div class="wallh-row">Wall height <input id="wall-h" type="number" min="1" step="0.5" value="8"> ft</div>
       <div class="wallh-row">Framing <select id="wall-stud"><option>2x4</option><option>2x6</option><option>2x8</option></select></div>
       <button class="tool" data-tool="line"><span class="ico">╱</span> Line</button>
-      <button class="tool" data-tool="room"><span class="ico">▭</span> Room</button>
+      <button class="tool" data-tool="room"><span class="ico">▭</span> Room (box)</button>
+      <button class="tool" data-tool="poly"><span class="ico">⬠</span> Room (polygon)</button>
       <button class="tool" data-tool="text"><span class="ico">T</span> Label</button>
       <h4>Openings</h4>
       <div class="pgrid" id="pal-openings"></div>
@@ -266,13 +267,13 @@ function draw(){
     const last=drawPts[drawPts.length-1];
     if(tip){ const len=dist(last.x,last.y,tip.x,tip.y); const mid=W2S({x:(last.x+tip.x)/2,y:(last.y+tip.y)/2}); label(ctx, ftIn(len)+'  ·  '+Math.round(len*wallHeight)+' sf', mid.x, mid.y-6); }
   }
-  if(cursor && (tool==='wall'||tool==='line'||tool==='room'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
+  if(cursor && (tool==='wall'||tool==='line'||tool==='poly'||tool==='room'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
   // room drag preview
   if(roomDrag){ const a=W2S(roomDrag.a), b=W2S(snapMaybe(cursor)); ctx.strokeStyle='#1B4B7A'; ctx.setLineDash([5,4]); ctx.strokeRect(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(b.x-a.x),Math.abs(b.y-a.y)); ctx.setLineDash([]); }
   updateTotals();
 }
 function updateTotals(){ const el=document.getElementById('fp-totals'); if(!el) return;
-  const fa=doc.items.filter(i=>i.type==='room').reduce((s,i)=>s+i.w*i.h,0);
+  const fa=doc.items.reduce((s,i)=> s + (i.type==='room'?i.w*i.h : i.type==='poly'?polyArea(i.points||[]) : 0), 0);
   const groups={}; let wallTotal=0;
   doc.walls.forEach(w=>{ if(w.kind==='line') return; const area=dist(w.x1,w.y1,w.x2,w.y2)*(w.height||8); wallTotal+=area; const nm=(w.name&&w.name.trim())||'Unnamed'; groups[nm]=(groups[nm]||0)+area; });
   if(!fa && !wallTotal){ el.className='fp-totals'; return; }
@@ -303,11 +304,20 @@ function pointSegDist(px,py,x1,y1,x2,y2){
   const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy; let t=L2?((px-x1)*dx+(py-y1)*dy)/L2:0; t=Math.max(0,Math.min(1,t));
   const cx=x1+t*dx, cy=y1+t*dy; return { dist:Math.hypot(px-cx,py-cy), t, cx, cy };
 }
-// The wall an opening is sitting on (centered near the wall line, not a line-type), or null.
+// The point where the opening actually meets the wall. A door's jambs sit at the TOP edge of its
+// box (the swing arcs into the room below), so its anchor is offset up by h/2 (rotated). Windows /
+// openings are thin, so their anchor is just their center.
+function openingAnchor(it){
+  const ly = (it.type==='door'||it.type==='ddoor') ? -it.h/2 : 0;
+  const rot=(it.rot||0)*Math.PI/180, s=Math.sin(rot), co=Math.cos(rot);
+  return { x: it.x - ly*s, y: it.y + ly*co };
+}
+// The wall an opening is sitting on (using its wall-facing anchor, not just its center), or null.
 function wallForOpening(it){
+  const A=openingAnchor(it);
   let best=null;
   doc.walls.forEach(wl=>{ if(wl.kind==='line') return;
-    const r=pointSegDist(it.x,it.y,wl.x1,wl.y1,wl.x2,wl.y2);
+    const r=pointSegDist(A.x,A.y,wl.x1,wl.y1,wl.x2,wl.y2);
     const tol=wallThick(wl)/2 + 0.75;   // within the wall thickness + a little slack (feet)
     if(r.dist<=tol && r.t>0.001 && r.t<0.999 && (!best||r.dist<best.dist)) best={wl,dist:r.dist,cx:r.cx,cy:r.cy};
   });
@@ -362,6 +372,7 @@ function drawWall(wl, selected){
   if(selected){ [a,b].forEach(p=>{ ctx.fillStyle='#fff'; ctx.strokeStyle='#2F6DB0'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(p.x,p.y,5,0,7); ctx.fill(); ctx.stroke(); }); }
 }
 function drawItem(it, selected){
+  if(it.type==='poly'){ drawPoly(it, selected); return; }
   const c=W2S({x:it.x,y:it.y});
   const wpx=it.w*zoom, hpx=it.h*zoom;
   ctx.save(); ctx.translate(c.x,c.y); ctx.rotate((it.rot||0)*Math.PI/180);
@@ -400,6 +411,7 @@ function drawHandles(it,c,wpx,hpx){
 // ---------- Hit testing ----------
 function hitItem(wx,wy){
   for(let i=doc.items.length-1;i>=0;i--){ const it=doc.items[i];
+    if(it.type==='poly'){ if(pointInPoly(wx,wy,it.points||[])) return i; continue; }
     const a=-(it.rot||0)*Math.PI/180; const dx=wx-it.x, dy=wy-it.y;
     const lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a);
     if(Math.abs(lx)<=it.w/2+0.25 && Math.abs(ly)<=it.h/2+0.25) return i;
@@ -426,10 +438,11 @@ canvas.addEventListener('pointerdown', e=>{
   const {sx,sy}=evPos(e); const wpt=S2W(sx,sy); cursor=wpt;
   if(placeType){ placeFixture(placeType, snapMaybe(wpt)); return; }
   if(tool==='wall'||tool==='line'){ addWallPoint(snapMaybe(wpt)); return; }
+  if(tool==='poly'){ addPolyPoint(snapMaybe(wpt), sx, sy); return; }
   if(tool==='room'){ roomDrag={a:snapMaybe(wpt)}; return; }
   if(tool==='text'){ const t=prompt('Label text:'); if(t){ doc.items.push({type:'text',x:snap(wpt.x),y:snap(wpt.y),w:2,h:0.6,rot:0,label:t}); markDirty(); } setTool('select'); draw(); return; }
   // select tool
-  if(sel && sel.kind==='item'){ const it=doc.items[sel.i]; const hp=handlePts(it);
+  if(sel && sel.kind==='item' && doc.items[sel.i].type!=='poly'){ const it=doc.items[sel.i]; const hp=handlePts(it);
     if(it.type!=='text' && nearScreen(sx,sy,hp.br)){ drag={mode:'resize', start:wpt, w0:it.w, h0:it.h}; return; }
     if(it.type!=='text' && it.type!=='room' && nearScreen(sx,sy,hp.rotH)){ drag={mode:'rotate'}; return; }
   }
@@ -438,7 +451,10 @@ canvas.addEventListener('pointerdown', e=>{
     if(nearScreen(sx,sy,b)){ drag={mode:'wallpt', end:2}; return; }
   }
   const ii=hitItem(wpt.x,wpt.y);
-  if(ii>=0){ sel={kind:'item',i:ii}; drag={mode:'move', start:wpt, ox:doc.items[ii].x, oy:doc.items[ii].y}; showProps(); draw(); return; }
+  if(ii>=0){ sel={kind:'item',i:ii}; const it2=doc.items[ii];
+    if(it2.type==='poly'){ drag={mode:'movepoly', start:wpt, pts0:it2.points.map(p=>({x:p.x,y:p.y}))}; }
+    else { drag={mode:'move', start:wpt, ox:it2.x, oy:it2.y}; }
+    showProps(); draw(); return; }
   const wi=hitWall(wpt.x,wpt.y);
   if(wi>=0){ sel={kind:'wall',i:wi}; const w=doc.walls[wi]; drag={mode:'wallmove', start:wpt, o:{x1:w.x1,y1:w.y1,x2:w.x2,y2:w.y2}}; showProps(); draw(); return; }
   // empty: pan
@@ -450,6 +466,7 @@ canvas.addEventListener('pointermove', e=>{
   if(drag){
     if(drag.mode==='pan'){ panX=drag.p0.panX-(sx-drag.start.sx)/zoom; panY=drag.p0.panY-(sy-drag.start.sy)/zoom; draw(); return; }
     if(drag.mode==='move'){ const it=doc.items[sel.i]; it.x=snap(drag.ox+(wpt.x-drag.start.x)); it.y=snap(drag.oy+(wpt.y-drag.start.y)); draw(); return; }
+    if(drag.mode==='movepoly'){ const it=doc.items[sel.i]; const ddx=snap(wpt.x-drag.start.x), ddy=snap(wpt.y-drag.start.y); it.points=drag.pts0.map(p=>({x:p.x+ddx,y:p.y+ddy})); draw(); return; }
     if(drag.mode==='resize'){ const it=doc.items[sel.i]; const a=-(it.rot||0)*Math.PI/180; const dx=wpt.x-it.x, dy=wpt.y-it.y; const lx=Math.abs(dx*Math.cos(a)-dy*Math.sin(a))*2, ly=Math.abs(dx*Math.sin(a)+dy*Math.cos(a))*2; it.w=Math.max(0.5,snap(lx)); it.h=Math.max(0.5,snap(ly)); draw(); showProps(); return; }
     if(drag.mode==='rotate'){ const it=doc.items[sel.i]; let ang=Math.atan2(wpt.y-it.y, wpt.x-it.x)*180/Math.PI+90; if(!e.shiftKey) ang=Math.round(ang/15)*15; it.rot=((ang%360)+360)%360; draw(); return; }
     if(drag.mode==='wallpt'){ const w=doc.walls[sel.i]; const p=snapPt(wpt); if(drag.end===1){ w.x1=p.x; w.y1=p.y; } else { w.x2=p.x; w.y2=p.y; } draw(); return; }
@@ -458,7 +475,7 @@ canvas.addEventListener('pointermove', e=>{
   // hover tooltips over the selection handles (only in select mode, when not dragging)
   if(tool==='select' && sel && !drag){
     let tip='', cur='';
-    if(sel.kind==='item'){ const it=doc.items[sel.i]; const hp=handlePts(it);
+    if(sel.kind==='item' && doc.items[sel.i].type!=='poly'){ const it=doc.items[sel.i]; const hp=handlePts(it);
       if(it.type!=='text' && nearScreen(sx,sy,hp.br)){ tip = it.type==='room' ? 'Drag to resize the room (updates its square footage)' : 'Drag to resize'; cur='nwse-resize'; }
       else if(it.type!=='text' && it.type!=='room' && nearScreen(sx,sy,hp.rotH)){ tip='Drag to rotate (hold Shift for any angle)'; cur='grab'; }
     } else if(sel.kind==='wall'){ const w=doc.walls[sel.i]; const a=W2S({x:w.x1,y:w.y1}), b=W2S({x:w.x2,y:w.y2});
@@ -466,7 +483,7 @@ canvas.addEventListener('pointermove', e=>{
     }
     showTip(tip, sx, sy); canvas.style.cursor = cur;
   } else if(!drag){ showTip(''); if(tool==='select') canvas.style.cursor=''; }
-  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='line' || tool==='room') draw();
+  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='line' || tool==='poly' || tool==='room') draw();
 });
 function showTip(txt,sx,sy){ const t=document.getElementById('fp-tip'); if(!txt){ t.className='fp-tip'; return; } t.textContent=txt; t.className='fp-tip show'; t.style.left=(sx+16)+'px'; t.style.top=sy+'px'; }
 canvas.addEventListener('pointerleave', ()=> showTip(''));
@@ -476,7 +493,7 @@ canvas.addEventListener('pointerup', e=>{
   if(roomDrag){ const pos=evPos(e); shiftHeld=e.shiftKey; const a=roomDrag.a, b=snapMaybe(S2W(pos.sx,pos.sy)); const x=(a.x+b.x)/2, y=(a.y+b.y)/2, w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y); roomDrag=null;
     if(w>=1 && h>=1){ const nm=prompt('Room name:','Room')||'Room'; doc.items.push({type:'room',x,y,w,h,rot:0,label:nm}); sel={kind:'item',i:doc.items.length-1}; markDirty(); showProps(); } setTool('select'); draw(); }
 });
-canvas.addEventListener('dblclick', ()=>{ if(drawPts){ finishWall(); } });
+canvas.addEventListener('dblclick', ()=>{ if(drawPts){ tool==='poly' ? finishPoly() : finishWall(); } });
 canvas.addEventListener('wheel', e=>{ e.preventDefault(); const {sx,sy}=evPos(e); const before=S2W(sx,sy); zoom*=(e.deltaY<0?1.12:0.89); zoom=Math.max(4,Math.min(80,zoom)); const after=S2W(sx,sy); panX+=before.x-after.x; panY+=before.y-after.y; draw(); }, {passive:false});
 
 function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts[drawPts.length-1];
@@ -486,6 +503,42 @@ function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts
 document.getElementById('wall-h').addEventListener('change',e=>{ const v=parseFloat(e.target.value); if(v>0) wallHeight=v; });
 document.getElementById('wall-stud').addEventListener('change',e=>{ wallStud=e.target.value; });
 function finishWall(){ drawPts=null; draw(); }
+// ---- Polygon rooms (any shape) ----
+function polyArea(pts){ let a=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; a+=pts[i].x*pts[j].y - pts[j].x*pts[i].y; } return Math.abs(a)/2; }
+function polyCentroid(pts){ let x=0,y=0,a=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; const cr=pts[i].x*pts[j].y-pts[j].x*pts[i].y; a+=cr; x+=(pts[i].x+pts[j].x)*cr; y+=(pts[i].y+pts[j].y)*cr; }
+  if(Math.abs(a)<1e-6){ let sx=0,sy=0; pts.forEach(p=>{sx+=p.x;sy+=p.y;}); return {x:sx/pts.length,y:sy/pts.length}; }
+  a*=0.5; return {x:x/(6*a), y:y/(6*a)}; }
+function pointInPoly(px,py,pts){ let inside=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y; if(((yi>py)!==(yj>py)) && (px<(xj-xi)*(py-yi)/((yj-yi)||1e-9)+xi)) inside=!inside; } return inside; }
+function addPolyPoint(p, sx, sy){
+  if(!drawPts){ drawPts=[p]; }
+  else {
+    const first=W2S(drawPts[0]);
+    if(drawPts.length>=3 && dist(sx,sy,first.x,first.y)<10){ finishPoly(); return; }   // click near start = close
+    drawPts.push(p);
+  }
+  markDirty(); draw();
+}
+function finishPoly(){
+  if(drawPts && drawPts.length>=3){
+    const pts=drawPts.map(p=>({x:p.x,y:p.y}));
+    const nm=prompt('Room name:','Room')||'Room';
+    doc.items.push({type:'poly', points:pts, label:nm});
+    sel={kind:'item', i:doc.items.length-1}; markDirty(); showProps();
+  }
+  drawPts=null; setTool('select'); draw();
+}
+function drawPoly(it, selected){
+  const pts=it.points||[]; if(pts.length<2) return;
+  ctx.save();
+  ctx.beginPath(); pts.forEach((p,i)=>{ const s=W2S(p); i?ctx.lineTo(s.x,s.y):ctx.moveTo(s.x,s.y); }); ctx.closePath();
+  ctx.fillStyle='rgba(111,195,228,.10)'; ctx.fill();
+  ctx.strokeStyle=selected?'#2F6DB0':'#3E7A96'; ctx.lineWidth=1.5; ctx.stroke();
+  const ct=polyCentroid(pts), cs=W2S(ct), area=polyArea(pts);
+  ctx.fillStyle='#17293D'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='600 13px Oswald, sans-serif'; ctx.fillText(it.label||'Room', cs.x, cs.y-6);
+  ctx.font='11px "IBM Plex Mono", monospace'; ctx.fillStyle='#3E7A96'; ctx.fillText(area.toFixed(0)+' sq ft', cs.x, cs.y+10);
+  if(selected){ pts.forEach(p=>{ const s=W2S(p); ctx.fillStyle='#fff'; ctx.strokeStyle='#2F6DB0'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(s.x,s.y,4,0,7); ctx.fill(); ctx.stroke(); }); }
+  ctx.restore();
+}
 function placeFixture(type, p){ const f=FIX[type]; doc.items.push({type, x:p.x, y:p.y, w:f.w, h:f.h, rot:0, label:''}); sel={kind:'item',i:doc.items.length-1}; markDirty(); setTool('select'); showProps(); draw(); }
 
 // ---------- Tools / palette ----------
@@ -509,6 +562,7 @@ function setHint(){ const h=document.getElementById('hint');
     : tool==='wall' ? 'Click to drop wall corners — snaps to a 6-inch grid; hold Shift to draw freehand. Each segment shows its length + wall area. Double-click or Esc to finish.'
     : tool==='line' ? 'Click to drop points for a plain line (e.g. concrete edge, saw-cut) — snaps to the grid; hold Shift for freehand. Each segment shows its length. Double-click or Esc to finish.'
     : tool==='room' ? 'Drag a box for the room; you’ll name it and it shows square footage.'
+    : tool==='poly' ? 'Click each corner of the room; click the first point again (or double-click / Enter) to close it. Shows square footage.'
     : tool==='text' ? 'Click where you want a label.'
     : 'Drag empty space to pan · scroll to zoom · click an item to select · Delete to remove.';
   h.textContent=m;
@@ -545,6 +599,15 @@ function showProps(){ const el=document.getElementById('props');
     document.getElementById('pp-stud').addEventListener('change',ev=>{ w.stud=ev.target.value; markDirty(); draw(); });
     document.getElementById('pp-len').addEventListener('change',ev=>{ const nf=parseFloat(ev.target.value); if(nf>0){ const cur=dist(w.x1,w.y1,w.x2,w.y2)||1; const ux=(w.x2-w.x1)/cur, uy=(w.y2-w.y1)/cur; w.x2=snap(w.x1+ux*nf); w.y2=snap(w.y1+uy*nf); markDirty(); draw(); showProps(); } });
     document.getElementById('pp-ht').addEventListener('change',ev=>{ const h=parseFloat(ev.target.value); if(h>0){ w.height=h; markDirty(); draw(); showProps(); } });
+  } else if(sel.kind==='item' && doc.items[sel.i] && doc.items[sel.i].type==='poly'){
+    const it=doc.items[sel.i]; const area=polyArea(it.points||[]);
+    el.innerHTML='<div style="font-weight:600;color:var(--heading)">Room (polygon)</div>'
+      +'<label>Name</label><input id="pp-plabel" value="'+escAttr(it.label||'')+'">'
+      +'<div class="meta">Area: <b>'+area.toFixed(0)+'</b> sq ft · '+(it.points||[]).length+' corners</div>'
+      +'<div class="meta" style="color:var(--steel)">Drag the room to move it. Delete to remove.</div>'
+      +'<div class="row"><button class="btn" id="pp-del">Delete</button></div>';
+    document.getElementById('pp-plabel').addEventListener('input',ev=>{ it.label=ev.target.value; markDirty(); draw(); });
+    document.getElementById('pp-del').addEventListener('click',deleteSel);
   } else { const it=doc.items[sel.i];
     let html='<div style="font-weight:600;color:var(--heading)">'+(it.type==='room'?'Room':it.type==='text'?'Label':(FIX[it.type]?FIX[it.type].label:'Item'))+'</div>';
     html+='<label>Label</label><input id="pp-label" value="'+escAttr(it.label||'')+'">';
@@ -570,7 +633,8 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Shift'){ shiftHeld=true; if(drawPts||roomDrag) draw(); }
   if(/input|textarea/i.test((e.target.tagName||''))) return;
   if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
-  else if(e.key==='Escape'){ if(drawPts) finishWall(); else { setTool('select'); } }
+  else if(e.key==='Escape'){ if(drawPts){ tool==='poly' ? finishPoly() : finishWall(); } else { setTool('select'); } }
+  else if(e.key==='Enter'){ if(drawPts){ e.preventDefault(); tool==='poly' ? finishPoly() : finishWall(); } }
   else if(e.key==='v') setTool('select');
   else if(e.key==='w') setTool('wall');
   else if(e.key==='r') setTool('room');
@@ -681,7 +745,7 @@ function drawTitleBlock(c,x,y,w,h,k){
   field('Scale', 'Drawn to scale (see bar)');
   ty+=2*k; line(ty); ty+=pad;
   // quantities
-  const floorArea=doc.items.filter(i=>i.type==='room').reduce((s,i)=>s+i.w*i.h,0);
+  const floorArea=doc.items.reduce((s,i)=> s + (i.type==='room'?i.w*i.h : i.type==='poly'?polyArea(i.points||[]) : 0), 0);
   const wallArea=doc.walls.reduce((s,wl)=>s+(wl.kind==='line'?0:dist(wl.x1,wl.y1,wl.x2,wl.y2)*(wl.height||8)),0);
   c.fillStyle='#98a2ad'; c.font='600 '+(9*k)+'px "IBM Plex Mono", monospace'; c.fillText('QUANTITIES', x+pad, ty); ty+=13*k;
   c.font=(12*k)+'px "IBM Plex Sans", sans-serif';
@@ -700,7 +764,13 @@ function drawWallOn(c,wl){
   else { ({a,b}=wallShape(c, wl, '#243B53')); }
   const len=dist(wl.x1,wl.y1,wl.x2,wl.y2); const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2}; if(len>0.5) labelOn(c,ftIn(len),mid.x,mid.y-8);
 }
-function drawItemOn(c,it){ const p=W2S({x:it.x,y:it.y}); const wpx=it.w*zoom,hpx=it.h*zoom; c.save(); c.translate(p.x,p.y); c.rotate((it.rot||0)*Math.PI/180);
+function drawItemOn(c,it){
+  if(it.type==='poly'){ const pts=it.points||[]; if(pts.length<2) return; c.save();
+    c.beginPath(); pts.forEach((p,i)=>{ const s=W2S(p); i?c.lineTo(s.x,s.y):c.moveTo(s.x,s.y); }); c.closePath();
+    c.fillStyle='rgba(111,195,228,.10)'; c.fill(); c.strokeStyle='#3E7A96'; c.lineWidth=1.5; c.stroke();
+    const ct=polyCentroid(pts), cs=W2S(ct); c.fillStyle='#17293D'; c.textAlign='center'; c.textBaseline='middle'; c.font='600 13px Oswald, sans-serif'; c.fillText(it.label||'Room',cs.x,cs.y-6);
+    c.font='11px monospace'; c.fillStyle='#3E7A96'; c.fillText(polyArea(pts).toFixed(0)+' sq ft',cs.x,cs.y+10); c.restore(); return; }
+  const p=W2S({x:it.x,y:it.y}); const wpx=it.w*zoom,hpx=it.h*zoom; c.save(); c.translate(p.x,p.y); c.rotate((it.rot||0)*Math.PI/180);
   if(it.type==='room'){ c.fillStyle='rgba(111,195,228,.10)'; c.fillRect(-wpx/2,-hpx/2,wpx,hpx); c.strokeStyle='#3E7A96'; c.lineWidth=1.5; c.strokeRect(-wpx/2,-hpx/2,wpx,hpx); c.fillStyle='#17293D'; c.textAlign='center'; c.textBaseline='middle'; c.font='600 13px Oswald, sans-serif'; c.fillText(it.label||'Room',0,-6); c.font='11px monospace'; c.fillStyle='#3E7A96'; c.fillText((it.w*it.h).toFixed(0)+' sq ft',0,10); }
   else if(it.type==='text'){ c.fillStyle='#17293D'; c.textAlign='center'; c.textBaseline='middle'; c.font='600 14px Oswald, sans-serif'; c.fillText(it.label||'Text',0,0); }
   else { const f=FIX[it.type]; c.strokeStyle='#243B53'; c.fillStyle='#243B53'; c.lineWidth=1.6; c.save(); if(it.flip) c.scale(-1,1); if(f) f.draw(c,wpx,hpx); else c.strokeRect(-wpx/2,-hpx/2,wpx,hpx); c.restore(); if(it.label){ c.fillStyle='#5b6b7b'; c.font='10px sans-serif'; c.textAlign='center'; c.fillText(it.label,0,hpx/2+9); } }

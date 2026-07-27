@@ -196,7 +196,7 @@
         <h3 style="margin:0">Time &amp; labor</h3>
         <p style="font-size:12px;color:var(--steel);margin:6px 0 10px">Log hours worked — they roll into this job's labor cost. Or clock in and out to time a shift.</p>
         <div class="clockbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
-          <input id="clk-worker" placeholder="Worker" style="width:130px" />
+          <input id="clk-worker" list="team-list" placeholder="Worker" style="width:130px" />
           <span class="dollar" style="display:inline-flex;align-items:center;gap:2px;color:var(--steel)">$<input id="clk-rate" class="num" inputmode="decimal" placeholder="rate/hr" style="width:80px" /></span>
           <button class="btn primary" id="clock-btn">Clock in</button>
           <span id="clock-live" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--orange-dim)"></span>
@@ -847,7 +847,7 @@ function renderTime(){
   const tb=document.getElementById('time-lines'); const te=doc.timeEntries||[];
   if(!te.length){ tb.innerHTML=`<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--steel)">No time logged yet.</td></tr>`; }
   else tb.innerHTML=te.map((t,i)=>`<tr>
-    <td><input data-ti="${i}" data-tf="worker" value="${escapeHtml(t.worker||'')}" style="width:120px" /></td>
+    <td><input data-ti="${i}" data-tf="worker" list="team-list" value="${escapeHtml(t.worker||'')}" style="width:120px" /></td>
     <td><input data-ti="${i}" data-tf="date" type="date" value="${escapeHtml(t.date||'')}" style="width:140px" /></td>
     <td class="num"><input class="num" data-ti="${i}" data-tf="hours" value="${t.hours||0}" inputmode="decimal" style="width:70px" /></td>
     <td class="num"><span class="dollar">$<input class="num" data-ti="${i}" data-tf="rate" value="${t.rate||0}" inputmode="decimal" style="width:70px" /></span></td>
@@ -1446,6 +1446,9 @@ async function init(){
       getCompany().then(co=>{
         const team=(co&&co.team)||[];
         document.getElementById('team-list').innerHTML = team.map(t=>`<option value="${escapeHtml(t.name)}">${escapeHtml(t.role||'')}</option>`).join('');
+        // Pick a worker from the roster → auto-fill their pay rate on the clock (only if blank).
+        const cw=document.getElementById('clk-worker'), rt=document.getElementById('clk-rate');
+        if(cw) cw.addEventListener('change', ()=>{ const m=team.find(t=>(t.name||'').toLowerCase()===cw.value.trim().toLowerCase()); if(m && m.rate && rt && !rt.value) rt.value=m.rate; });
       });
     }
   }catch(err){ document.getElementById('loading').textContent='Could not load job: '+err.message; }

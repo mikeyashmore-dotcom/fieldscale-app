@@ -89,6 +89,7 @@
       <button class="tool" data-tool="wall"><span class="ico">▬</span> Wall</button>
       <div class="wallh-row">Wall height <input id="wall-h" type="number" min="1" step="0.5" value="8"> ft</div>
       <div class="wallh-row">Framing <select id="wall-stud"><option>2x4</option><option>2x6</option><option>2x8</option></select></div>
+      <button class="tool" data-tool="line"><span class="ico">╱</span> Line</button>
       <button class="tool" data-tool="room"><span class="ico">▭</span> Room</button>
       <button class="tool" data-tool="text"><span class="ico">T</span> Label</button>
       <h4>Openings</h4>
@@ -175,7 +176,19 @@ const FIX = {
   bed:    { label:'Bed', w:5, h:6.7, cat:'other', ico:'🛏', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,3); c.stroke(); c.beginPath(); c.moveTo(-w/2,-h/2+h*0.28); c.lineTo(w/2,-h/2+h*0.28); c.stroke(); rr(c,-w/2+4,-h/2+4,w/2-6,h*0.28-8,2); c.stroke(); rr(c,3,-h/2+4,w/2-6,h*0.28-8,2); c.stroke(); } },
   sofa:   { label:'Sofa', w:6.5, h:3, cat:'other', ico:'🛋', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,4); c.stroke(); c.beginPath(); c.moveTo(-w/2,-h/2+6); c.lineTo(w/2,-h/2+6); c.stroke(); } },
   table:  { label:'Table', w:4, h:3, cat:'other', ico:'▱', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,3); c.stroke(); } },
-  car:    { label:'Car', w:6.5, h:15, cat:'other', ico:'🚗', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,10); c.stroke(); } }
+  car:    { label:'Car', w:6.5, h:15, cat:'other', ico:'🚗', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,10); c.stroke(); } },
+  dresser:{ label:'Dresser', w:5, h:1.7, cat:'other', ico:'▤', draw(c,w,h){ c.strokeRect(-w/2,-h/2,w,h); c.beginPath(); c.moveTo(0,-h/2); c.lineTo(0,h/2); c.moveTo(-w/2,0); c.lineTo(w/2,0); c.stroke(); [[-w/4,-h/4],[w/4,-h/4],[-w/4,h/4],[w/4,h/4]].forEach(p=>{ c.beginPath(); c.arc(p[0],p[1],0.8,0,7); c.stroke(); }); } },
+  nstand: { label:'Side table', w:1.7, h:1.7, cat:'other', ico:'▫', draw(c,w,h){ c.strokeRect(-w/2,-h/2,w,h); c.beginPath(); c.arc(0,0,Math.min(w,h)*0.18,0,7); c.stroke(); } },
+  chair:  { label:'Chair', w:1.6, h:1.7, cat:'other', ico:'🪑', draw(c,w,h){ rr(c,-w/2,-h/2+2,w,h-2,2); c.stroke(); c.beginPath(); c.moveTo(-w/2,-h/2+2); c.lineTo(w/2,-h/2+2); c.stroke(); } },
+  armchair:{ label:'Armchair', w:2.8, h:2.8, cat:'other', ico:'🛋', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,4); c.stroke(); rr(c,-w/2+4,-h/2+5,w-8,h-8,3); c.stroke(); } },
+  desk:   { label:'Desk', w:4, h:2, cat:'other', ico:'▭', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,2); c.stroke(); c.beginPath(); c.moveTo(w/2-w*0.32,-h/2); c.lineTo(w/2-w*0.32,h/2); c.stroke(); } },
+  bookshelf:{ label:'Bookshelf', w:3, h:1, cat:'other', ico:'▥', draw(c,w,h){ c.strokeRect(-w/2,-h/2,w,h); for(let i=1;i<3;i++){ const x=-w/2+i*w/3; c.beginPath(); c.moveTo(x,-h/2); c.lineTo(x,h/2); c.stroke(); } } },
+  coffee: { label:'Coffee table', w:3.5, h:1.8, cat:'other', ico:'▱', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,4); c.stroke(); } },
+  tv:     { label:'TV / media', w:5, h:1.3, cat:'other', ico:'▭', draw(c,w,h){ c.strokeRect(-w/2,-h/2,w,h); c.beginPath(); c.moveTo(-w*0.32,-h/2); c.lineTo(-w*0.32,-h/2-1.2); c.lineTo(w*0.32,-h/2-1.2); c.lineTo(w*0.32,-h/2); c.stroke(); } },
+  bench:  { label:'Bench', w:4, h:1.3, cat:'other', ico:'▬', draw(c,w,h){ rr(c,-w/2,-h/2,w,h,2); c.stroke(); } },
+  desk_chair:{ label:'Desk chair', w:1.8, h:1.8, cat:'other', ico:'○', draw(c,w,h){ c.beginPath(); c.arc(0,0.3,Math.min(w,h)*0.36,0,7); c.stroke(); c.beginPath(); c.arc(0,-h/2+3,Math.min(w,h)*0.4,Math.PI,0); c.stroke(); } },
+  plant:  { label:'Plant', w:1.4, h:1.4, cat:'other', ico:'🪴', draw(c,w,h){ c.beginPath(); c.arc(0,0,Math.min(w,h)*0.42,0,7); c.stroke(); c.beginPath(); c.arc(0,0,Math.min(w,h)*0.2,0,7); c.stroke(); } },
+  rug:    { label:'Rug', w:6, h:4, cat:'other', ico:'▦', dashed:true, draw(c,w,h){ c.save(); c.setLineDash([5,3]); c.strokeRect(-w/2,-h/2,w,h); c.restore(); } }
 };
 function rr(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
 
@@ -242,7 +255,7 @@ function draw(){
     const last=drawPts[drawPts.length-1];
     if(tip){ const len=dist(last.x,last.y,tip.x,tip.y); const mid=W2S({x:(last.x+tip.x)/2,y:(last.y+tip.y)/2}); label(ctx, ftIn(len)+'  ·  '+Math.round(len*wallHeight)+' sf', mid.x, mid.y-6); }
   }
-  if(cursor && (tool==='wall'||tool==='room'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
+  if(cursor && (tool==='wall'||tool==='line'||tool==='room'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
   // room drag preview
   if(roomDrag){ const a=W2S(roomDrag.a), b=W2S(snapMaybe(cursor)); ctx.strokeStyle='#1B4B7A'; ctx.setLineDash([5,4]); ctx.strokeRect(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(b.x-a.x),Math.abs(b.y-a.y)); ctx.setLineDash([]); }
   updateTotals();
@@ -250,7 +263,7 @@ function draw(){
 function updateTotals(){ const el=document.getElementById('fp-totals'); if(!el) return;
   const fa=doc.items.filter(i=>i.type==='room').reduce((s,i)=>s+i.w*i.h,0);
   const groups={}; let wallTotal=0;
-  doc.walls.forEach(w=>{ const area=dist(w.x1,w.y1,w.x2,w.y2)*(w.height||8); wallTotal+=area; const nm=(w.name&&w.name.trim())||'Unnamed'; groups[nm]=(groups[nm]||0)+area; });
+  doc.walls.forEach(w=>{ if(w.kind==='line') return; const area=dist(w.x1,w.y1,w.x2,w.y2)*(w.height||8); wallTotal+=area; const nm=(w.name&&w.name.trim())||'Unnamed'; groups[nm]=(groups[nm]||0)+area; });
   if(!fa && !wallTotal){ el.className='fp-totals'; return; }
   const r=n=>Math.round(n).toLocaleString();
   let html='';
@@ -276,7 +289,15 @@ function wallShape(c, wl, color){
   return {a,b};
 }
 function drawWall(wl, selected){
-  const {a,b}=wallShape(ctx, wl, selected ? '#2F6DB0' : '#243B53');
+  let a,b;
+  if(wl.kind==='line'){
+    // A plain line (e.g. concrete edge, saw-cut) — single stroke, no thickness or wall area.
+    a=W2S({x:wl.x1,y:wl.y1}); b=W2S({x:wl.x2,y:wl.y2});
+    ctx.strokeStyle=selected?'#2F6DB0':'#243B53'; ctx.lineWidth=Math.max(1.6, zoom*0.06);
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+  } else {
+    ({a,b}=wallShape(ctx, wl, selected ? '#2F6DB0' : '#243B53'));
+  }
   const len=dist(wl.x1,wl.y1,wl.x2,wl.y2);
   const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
   if(len>0.5) label(ctx, ftIn(len), mid.x, mid.y - (Math.abs(a.y-b.y)>Math.abs(a.x-b.x)?0:12));
@@ -346,7 +367,7 @@ canvas.addEventListener('pointerdown', e=>{
   shiftHeld=e.shiftKey;
   const {sx,sy}=evPos(e); const wpt=S2W(sx,sy); cursor=wpt;
   if(placeType){ placeFixture(placeType, snapMaybe(wpt)); return; }
-  if(tool==='wall'){ addWallPoint(snapMaybe(wpt)); return; }
+  if(tool==='wall'||tool==='line'){ addWallPoint(snapMaybe(wpt)); return; }
   if(tool==='room'){ roomDrag={a:snapMaybe(wpt)}; return; }
   if(tool==='text'){ const t=prompt('Label text:'); if(t){ doc.items.push({type:'text',x:snap(wpt.x),y:snap(wpt.y),w:2,h:0.6,rot:0,label:t}); markDirty(); } setTool('select'); draw(); return; }
   // select tool
@@ -387,7 +408,7 @@ canvas.addEventListener('pointermove', e=>{
     }
     showTip(tip, sx, sy); canvas.style.cursor = cur;
   } else if(!drag){ showTip(''); if(tool==='select') canvas.style.cursor=''; }
-  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='room') draw();
+  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='line' || tool==='room') draw();
 });
 function showTip(txt,sx,sy){ const t=document.getElementById('fp-tip'); if(!txt){ t.className='fp-tip'; return; } t.textContent=txt; t.className='fp-tip show'; t.style.left=(sx+16)+'px'; t.style.top=sy+'px'; }
 canvas.addEventListener('pointerleave', ()=> showTip(''));
@@ -400,7 +421,10 @@ canvas.addEventListener('pointerup', e=>{
 canvas.addEventListener('dblclick', ()=>{ if(drawPts){ finishWall(); } });
 canvas.addEventListener('wheel', e=>{ e.preventDefault(); const {sx,sy}=evPos(e); const before=S2W(sx,sy); zoom*=(e.deltaY<0?1.12:0.89); zoom=Math.max(4,Math.min(80,zoom)); const after=S2W(sx,sy); panX+=before.x-after.x; panY+=before.y-after.y; draw(); }, {passive:false});
 
-function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts[drawPts.length-1]; doc.walls.push({x1:last.x,y1:last.y,x2:p.x,y2:p.y,height:wallHeight,stud:wallStud,name:''}); drawPts.push(p); markDirty(); } draw(); }
+function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts[drawPts.length-1];
+    const seg = tool==='line' ? {x1:last.x,y1:last.y,x2:p.x,y2:p.y,kind:'line',name:''}
+                              : {x1:last.x,y1:last.y,x2:p.x,y2:p.y,height:wallHeight,stud:wallStud,name:''};
+    doc.walls.push(seg); drawPts.push(p); markDirty(); } draw(); }
 document.getElementById('wall-h').addEventListener('change',e=>{ const v=parseFloat(e.target.value); if(v>0) wallHeight=v; });
 document.getElementById('wall-stud').addEventListener('change',e=>{ wallStud=e.target.value; });
 function finishWall(){ drawPts=null; draw(); }
@@ -425,6 +449,7 @@ function buildPalette(){ const groups={openings:'pal-openings',bath:'pal-bath',k
 function setHint(){ const h=document.getElementById('hint');
   const m = placeType ? 'Click to drop the '+FIX[placeType].label.toLowerCase()+'. Then use Select to move, resize (corner), or rotate (top dot).'
     : tool==='wall' ? 'Click to drop wall corners — snaps to a 6-inch grid; hold Shift to draw freehand. Each segment shows its length + wall area. Double-click or Esc to finish.'
+    : tool==='line' ? 'Click to drop points for a plain line (e.g. concrete edge, saw-cut) — snaps to the grid; hold Shift for freehand. Each segment shows its length. Double-click or Esc to finish.'
     : tool==='room' ? 'Drag a box for the room; you’ll name it and it shows square footage.'
     : tool==='text' ? 'Click where you want a label.'
     : 'Drag empty space to pan · scroll to zoom · click an item to select · Delete to remove.';
@@ -435,7 +460,17 @@ function setHint(){ const h=document.getElementById('hint');
 function showProps(){ const el=document.getElementById('props');
   if(!sel){ el.className='fp-props'; el.innerHTML=''; return; }
   el.className='fp-props show';
-  if(sel.kind==='wall'){ const w=doc.walls[sel.i]; if(w.height==null) w.height=8; if(!w.stud) w.stud='2x4'; const L=dist(w.x1,w.y1,w.x2,w.y2);
+  if(sel.kind==='wall' && doc.walls[sel.i] && doc.walls[sel.i].kind==='line'){
+    const w=doc.walls[sel.i]; const L=dist(w.x1,w.y1,w.x2,w.y2);
+    el.innerHTML='<div style="font-weight:600;color:var(--heading)">Line</div>'
+      +'<label>Label</label><input id="pp-lname" value="'+escAttr(w.name||'')+'" placeholder="e.g. Concrete edge">'
+      +'<label>Length (ft)</label><input id="pp-llen" value="'+ftFeetStr(L)+'">'
+      +'<div class="meta">'+ftIn(L)+'</div>'
+      +'<div class="row"><button class="btn" id="pp-del">Delete</button></div>';
+    document.getElementById('pp-lname').addEventListener('input',ev=>{ w.name=ev.target.value; markDirty(); draw(); });
+    document.getElementById('pp-llen').addEventListener('change',ev=>{ const nf=parseFloat(ev.target.value); if(nf>0){ const cur=dist(w.x1,w.y1,w.x2,w.y2)||1; const ux=(w.x2-w.x1)/cur, uy=(w.y2-w.y1)/cur; w.x2=snap(w.x1+ux*nf); w.y2=snap(w.y1+uy*nf); markDirty(); draw(); showProps(); } });
+    document.getElementById('pp-del').addEventListener('click',deleteSel);
+  } else if(sel.kind==='wall'){ const w=doc.walls[sel.i]; if(w.height==null) w.height=8; if(!w.stud) w.stud='2x4'; const L=dist(w.x1,w.y1,w.x2,w.y2);
     const names=[...new Set(doc.walls.map(x=>x.name).filter(n=>n&&n.trim()))];
     const opt=s=>'<option'+(w.stud===s?' selected':'')+'>'+s+'</option>';
     el.innerHTML='<div style="font-weight:600;color:var(--heading)">Wall</div>'

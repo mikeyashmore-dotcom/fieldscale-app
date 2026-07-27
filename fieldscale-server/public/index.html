@@ -242,6 +242,12 @@
     color:var(--header-text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:9px 10px;border-radius:6px;cursor:pointer;}
   .add-menu button:hover{background:var(--orange);color:#fff;}
   .add-menu button .am-ic{font-size:16px;width:20px;text-align:center;display:inline-block;}
+  .add-menu .am-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;flex:none;border:1px solid rgba(255,255,255,.25);}
+  .add-menu .am-back{color:var(--cyan);font-size:12px;padding:4px 6px 8px;}
+  .add-menu .am-new{border-top:1px solid var(--cyan-dim);margin-top:6px;padding-top:8px;color:var(--cyan);}
+  .add-menu .am-empty{color:var(--steel-light);font-size:12.5px;padding:8px 10px;}
+  /* The old floating type box on the plan is gone — the + button is the only way to add items. */
+  .type-panel{display:none !important;}
   .tool.active{
     background:var(--orange);
     color:#fff;
@@ -1037,20 +1043,13 @@
     <div class="rail-divider"></div>
     <button class="tool" data-tool="calibrate" title="Calibrate Scale">📏<span class="tip">Calibrate scale</span></button>
     <button class="tool" data-tool="measure" title="Quick Measure">📐<span class="tip">Quick measure (not added to takeoff)</span></button>
-    <button class="tool" data-tool="add" id="add-tool" title="Add takeoff item">＋<span class="tip">Add a takeoff item — wall, line, area or count</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="highlight" title="Highlight">▒<span class="tip">Highlight a region of the sheet</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="ai-select" title="AI Select">✦<span class="tip">AI region select</span></button>
   </div>
 
-  <div class="add-menu" id="add-menu" style="display:none">
-    <div class="am-title">Add takeoff</div>
-    <button data-add="wall"><span class="am-ic">▬</span> Wall</button>
-    <button data-add="linear"><span class="am-ic">╱</span> Line</button>
-    <button data-add="area"><span class="am-ic">▱</span> Area</button>
-    <button data-add="count"><span class="am-ic">●</span> Count</button>
-  </div>
+  <div class="add-menu" id="add-menu" style="display:none"></div>
 
   <div class="pages-panel" id="pages-panel">
     <div class="pages-panel-header">
@@ -1087,6 +1086,7 @@
         <div class="takeoff-header">
           <h3>Quantities</h3>
           <span id="item-count" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--steel);">0 items</span>
+          <button class="btn primary" id="add-tool" title="Add a takeoff item — wall, line, area or count" style="margin-left:auto;padding:4px 12px">＋ Add</button>
         </div>
         <div class="takeoff-list" id="takeoff-list">
           <div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>
@@ -3226,10 +3226,10 @@ function activateTool(toolName){
   hideHint();
   if(toolName==='calibrate') showHint('Click the two endpoints of a <b>known dimension</b> on the plan.');
   if(toolName==='measure') showHint('Click to add points. Double-click, <b>Enter</b>, or Finish to see the result — nothing is added to the takeoff.');
-  if(toolName==='linear') showHint('Click to add points along the run. Double-click, <b>Enter</b>, or Finish to end it.');
-  if(toolName==='wall') showHint('Click to trace the wall centerline. Pick a saved type below, then double-click, <b>Enter</b>, or Finish to end it.');
-  if(toolName==='area') showHint('Click to trace the perimeter. Double-click, <b>Enter</b>, or Finish to close it.');
-  if(toolName==='count') showHint('Click each item to count, using the type selected below.');
+  if(toolName==='linear') showHint('Drawing <b>'+activeTypeName('linear')+'</b> — click to add points along the run. Double-click, <b>Enter</b>, or Finish to end it.');
+  if(toolName==='wall') showHint('Drawing <b>'+activeTypeName('wall')+'</b> — click to trace the wall centerline. Double-click, <b>Enter</b>, or Finish to end it.');
+  if(toolName==='area') showHint('Drawing <b>'+activeTypeName('area')+'</b> — click to trace the perimeter. Double-click, <b>Enter</b>, or Finish to close it.');
+  if(toolName==='count') showHint('Placing <b>'+activeTypeName('count')+'</b> — click each item to count.');
   if(toolName==='highlight') showHint('Drag a box to highlight part of this sheet. Click an existing highlight to remove it.');
   if(toolName==='ai-select') showHint('Drag a box around the region you want Claude to analyze.');
   if(toolName==='select') showHint('Click something to select it. Drag <b>left→right</b> to grab only what\'s fully inside; drag <b>right→left</b> to grab anything you touch. Then move it, <b>Ctrl+C/Ctrl+V</b>, or <b>Delete</b>.');
@@ -3259,25 +3259,49 @@ document.getElementById('rail').addEventListener('click',(e)=>{
   activateTool(btn.dataset.tool);
 });
 
-// ---- "Add takeoff" chooser (the + button) ----
-function hideAddMenu(){ const m=document.getElementById('add-menu'); if(m) m.style.display='none'; }
-function toggleAddMenu(btn){
-  const m=document.getElementById('add-menu'); if(!m) return;
-  if(m.style.display!=='none'){ hideAddMenu(); return; }
-  const r=btn.getBoundingClientRect();
-  m.style.display='block';
-  m.style.top = r.top+'px';
-  m.style.left = (r.right+8)+'px';
+// ---- "Add takeoff" chooser (the + button, top-right of the Quantities panel) ----
+// Two steps: pick a kind (Wall/Line/Area/Count) → pick a saved type or make a new one.
+// This is the ONLY way to start a takeoff item; there is no floating type box anymore.
+const addMenu = document.getElementById('add-menu');
+const ADD_CATS = [['wall','▬','Wall'],['linear','╱','Line'],['area','▱','Area'],['count','●','Count']];
+let addMenuCat = null;
+function hideAddMenu(){ addMenu.style.display='none'; }
+function renderAddStep1(){
+  addMenu.innerHTML = '<div class="am-title">Add takeoff</div>' +
+    ADD_CATS.map(([cat,ic,label])=>`<button data-cat="${cat}"><span class="am-ic">${ic}</span> ${label}</button>`).join('');
 }
-document.getElementById('add-menu').addEventListener('click',(e)=>{
-  const b=e.target.closest('[data-add]'); if(!b) return;
-  hideAddMenu();
-  activateTool(b.dataset.add);   // opens the type panel to name it / set assembly / pattern, then draw
+function renderAddStep2(cat){
+  const label = (ADD_CATS.find(c=>c[0]===cat)||[])[2] || '';
+  const lib = state.typeLibrary[cat] || [];
+  const rows = lib.length
+    ? lib.map(t=>`<button data-type="${t.id}"><span class="am-swatch" style="background:${t.color||'#888'}"></span> ${escapeHtml(t.name)}</button>`).join('')
+    : '<div class="am-empty">No saved types yet — make one below.</div>';
+  addMenu.innerHTML = '<div class="am-back" data-back="1">‹ Back</div>' +
+    '<div class="am-title">'+escapeHtml(label)+' — pick a type</div>' + rows +
+    '<button class="am-new" data-new="1"><span class="am-ic">＋</span> New type…</button>';
+}
+function toggleAddMenu(){
+  if(addMenu.style.display!=='none'){ hideAddMenu(); return; }
+  addMenuCat = null; renderAddStep1();
+  addMenu.style.display='block';
+  const r = document.getElementById('add-tool').getBoundingClientRect();
+  const w = addMenu.offsetWidth || 190;
+  addMenu.style.top = (r.bottom+6)+'px';
+  addMenu.style.left = Math.max(8, r.right - w)+'px';   // right-aligned so it doesn't run off-screen
+}
+addMenu.addEventListener('click',(e)=>{
+  e.stopPropagation();   // keep the outside-click closer from firing when we swap the menu's contents
+  if(e.target.closest('[data-back]')){ addMenuCat=null; renderAddStep1(); return; }
+  const catBtn = e.target.closest('[data-cat]');
+  if(catBtn){ addMenuCat = catBtn.dataset.cat; renderAddStep2(addMenuCat); return; }
+  if(e.target.closest('[data-new]')){ const cat=addMenuCat; hideAddMenu(); openTypeModal(cat); return; }
+  const tp = e.target.closest('[data-type]');
+  if(tp){ const cat=addMenuCat; state.activeType[cat]=tp.dataset.type; hideAddMenu(); activateTool(cat); return; }
 });
+document.getElementById('add-tool').addEventListener('click',(e)=>{ e.stopPropagation(); toggleAddMenu(); });
 // Click elsewhere closes the chooser
 document.addEventListener('click',(e)=>{
-  const m=document.getElementById('add-menu');
-  if(m && m.style.display!=='none' && !m.contains(e.target) && !(e.target.closest && e.target.closest('#add-tool'))) hideAddMenu();
+  if(addMenu.style.display!=='none' && !addMenu.contains(e.target) && !(e.target.closest && e.target.closest('#add-tool'))) hideAddMenu();
 });
 
 function showHint(html){ els.hintBanner.innerHTML = html; els.hintBanner.style.display='block'; }
@@ -3427,6 +3451,19 @@ function deleteSelection(){
     return true;
   });
   clearSelection();
+  renderTakeoffList();
+  redrawOverlay();
+  markDirty();
+}
+
+// Reassign a drawn item to a different saved type of the same kind (right-click → switch).
+// Updates the geometry's typeId AND every takeoff row measuring it, so color/pattern and
+// the quantity all re-figure to the new type.
+function reassignType(picked, newTypeId){
+  const cat = picked.kind;
+  if(cat==='wall'){ const w=state.walls.find(x=>x.id===picked.id); if(w) w.typeId=newTypeId; state.items.forEach(it=>{ if(it.wallId===picked.id) it.typeId=newTypeId; }); }
+  else if(cat==='area'){ const a=state.areas.find(x=>x.id===picked.id); if(a) a.typeId=newTypeId; state.items.forEach(it=>{ if(it.areaId===picked.id) it.typeId=newTypeId; }); }
+  else if(cat==='count'){ const it=state.items.find(x=>x.id===picked.id); if(it) it.typeId=newTypeId; }
   renderTakeoffList();
   redrawOverlay();
   markDirty();
@@ -4042,6 +4079,20 @@ els.overlay.addEventListener('contextmenu',(e)=>{
   if(!state.pdfDoc) return;
   e.preventDefault();
   const p = getNativePoint(e);
+  // Right-click a drawn wall/area/count → switch it to a different saved type of the same kind.
+  const picked = pickAt(p);
+  if(picked){
+    const cat = picked.kind; // 'wall' | 'area' | 'count'
+    const curId = cat==='wall' ? (state.walls.find(w=>w.id===picked.id)||{}).typeId
+                : cat==='area' ? (state.areas.find(a=>a.id===picked.id)||{}).typeId
+                : (state.items.find(it=>it.id===picked.id)||{}).typeId;
+    const others = (state.typeLibrary[cat]||[]).filter(t=>t.id!==curId);
+    const menu = others.length
+      ? others.map(t=>({ label:'⇄ Switch to '+t.name, action:()=>reassignType(picked, t.id) }))
+      : [{ label:'No other '+cat+' types yet — use ＋ Add to make one', action:()=>{} }];
+    showRefMenu(e.clientX, e.clientY, menu);
+    return;
+  }
   const hit = refLinkAtPoint(p);
   if(hit){
     const lbl = 'Sheet '+(hit.sheetLabel||('Page '+hit.targetPage)) + (hit.detail?(' · '+hit.detail):'');
@@ -4446,6 +4497,7 @@ seedDefaultTypes();
 function getActiveType(category){
   return state.typeLibrary[category].find(t=>t.id===state.activeType[category]) || state.typeLibrary[category][0] || null;
 }
+function activeTypeName(category){ const t=getActiveType(category); return t ? escapeHtml(t.name) : '(no type)'; }
 
 function getWallSettings(){
   const t = getActiveType('wall');
@@ -4619,8 +4671,8 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
   populateTypeDropdown(category);
   markDirty();
   closeTypeModal();
-  // The type is now designed and armed — collapse the picker so it isn't sitting on the plan.
-  setTypePanelCollapsed(category, true);
+  // The type is designed and selected — arm its takeoff tool so you can draw right away.
+  activateTool(category);
   if(category==='wall') redrawOverlay();
 });
 

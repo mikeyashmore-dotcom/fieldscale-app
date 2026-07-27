@@ -92,6 +92,8 @@
       <button class="tool" data-tool="line"><span class="ico">╱</span> Line</button>
       <button class="tool" data-tool="room"><span class="ico">▭</span> Room (box)</button>
       <button class="tool" data-tool="poly"><span class="ico">⬠</span> Room (polygon)</button>
+      <button class="tool" data-tool="area"><span class="ico">▰</span> Area (sq ft)</button>
+      <div class="wallh-row">Area color <input id="area-color" type="color" value="#E8722C" style="width:38px;padding:0;height:22px;border:none;background:none"></div>
       <button class="tool" data-tool="surface"><span class="ico">▨</span> Surface (box)</button>
       <button class="tool" data-tool="polysurf"><span class="ico">⬡</span> Surface (polygon)</button>
       <div class="wallh-row">Material <select id="surf-mat"><option value="siding">Siding (lap)</option><option value="brick">Brick</option><option value="shingle">Shingles</option><option value="board">Board &amp; batten</option><option value="stucco">Stucco</option><option value="stone">Stone</option></select></div>
@@ -279,7 +281,7 @@ function draw(){
     const last=drawPts[drawPts.length-1];
     if(tip){ const len=dist(last.x,last.y,tip.x,tip.y); const mid=W2S({x:(last.x+tip.x)/2,y:(last.y+tip.y)/2}); label(ctx, ftIn(len)+'  ·  '+Math.round(len*wallHeight)+' sf', mid.x, mid.y-6); }
   }
-  if(cursor && (tool==='wall'||tool==='line'||tool==='poly'||tool==='polysurf'||tool==='room'||tool==='surface'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
+  if(cursor && (tool==='wall'||tool==='line'||tool==='poly'||tool==='polysurf'||tool==='area'||tool==='room'||tool==='surface'||placeType)){ const c=W2S(snapMaybe(cursor)); ctx.fillStyle='#2F6DB0'; ctx.beginPath(); ctx.arc(c.x,c.y,3.5,0,7); ctx.fill(); }
   // room drag preview
   if(roomDrag){ const a=W2S(roomDrag.a), b=W2S(snapMaybe(cursor)); ctx.strokeStyle='#1B4B7A'; ctx.setLineDash([5,4]); ctx.strokeRect(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(b.x-a.x),Math.abs(b.y-a.y)); ctx.setLineDash([]); }
   updateTotals();
@@ -383,8 +385,8 @@ function drawWall(wl, selected){
   if(len>0.5) label(ctx, ftIn(len), mid.x, mid.y - (Math.abs(a.y-b.y)>Math.abs(a.x-b.x)?0:12));
   if(selected){ [a,b].forEach(p=>{ ctx.fillStyle='#fff'; ctx.strokeStyle='#2F6DB0'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(p.x,p.y,5,0,7); ctx.fill(); ctx.stroke(); }); }
 }
-// Point-based items (defined by a list of corner points, not x/y/w/h): polygon room & surface.
-function isPointItem(t){ return t==='poly'||t==='polysurface'; }
+// Point-based items (defined by a list of corner points, not x/y/w/h): polygon room, surface, area.
+function isPointItem(t){ return t==='poly'||t==='polysurface'||t==='area'; }
 // ---- Elevation openings cut the surface material (so brick/siding doesn't run across a window) ----
 function cutsSurface(t){ return t==='elevwin'||t==='elevdoor'||t==='garage'||t==='door'||t==='ddoor'||t==='window'||t==='opening'; }
 function fixtureCorners(it){
@@ -441,6 +443,7 @@ function drawPolySurface(c, it, selected){
 function drawItem(it, selected){
   if(it.type==='poly'){ drawPoly(it, selected); return; }
   if(it.type==='polysurface'){ drawPolySurface(ctx, it, selected); return; }
+  if(it.type==='area'){ drawArea(ctx, it, selected); return; }
   const c=W2S({x:it.x,y:it.y});
   const wpx=it.w*zoom, hpx=it.h*zoom;
   ctx.save(); ctx.translate(c.x,c.y); ctx.rotate((it.rot||0)*Math.PI/180);
@@ -510,7 +513,7 @@ canvas.addEventListener('pointerdown', e=>{
   const {sx,sy}=evPos(e); const wpt=S2W(sx,sy); cursor=wpt;
   if(placeType){ placeFixture(placeType, snapMaybe(wpt)); return; }
   if(tool==='wall'||tool==='line'){ addWallPoint(snapMaybe(wpt)); return; }
-  if(tool==='poly'||tool==='polysurf'){ addPolyPoint(snapMaybe(wpt), sx, sy); return; }
+  if(tool==='poly'||tool==='polysurf'||tool==='area'){ addPolyPoint(snapMaybe(wpt), sx, sy); return; }
   if(tool==='surface'){ roomDrag={a:snapMaybe(wpt), surface:true}; return; }
   if(tool==='room'){ roomDrag={a:snapMaybe(wpt)}; return; }
   if(tool==='text'){ const t=prompt('Label text:'); if(t){ doc.items.push({type:'text',x:snap(wpt.x),y:snap(wpt.y),w:2,h:0.6,rot:0,label:t}); markDirty(); } setTool('select'); draw(); return; }
@@ -556,7 +559,7 @@ canvas.addEventListener('pointermove', e=>{
     }
     showTip(tip, sx, sy); canvas.style.cursor = cur;
   } else if(!drag){ showTip(''); if(tool==='select') canvas.style.cursor=''; }
-  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='line' || tool==='poly' || tool==='polysurf' || tool==='room' || tool==='surface') draw();
+  if(drawPts || roomDrag || placeType || tool==='wall' || tool==='line' || tool==='poly' || tool==='polysurf' || tool==='area' || tool==='room' || tool==='surface') draw();
 });
 function showTip(txt,sx,sy){ const t=document.getElementById('fp-tip'); if(!txt){ t.className='fp-tip'; return; } t.textContent=txt; t.className='fp-tip show'; t.style.left=(sx+16)+'px'; t.style.top=sy+'px'; }
 canvas.addEventListener('pointerleave', ()=> showTip(''));
@@ -570,7 +573,7 @@ canvas.addEventListener('pointerup', e=>{
       sel={kind:'item',i:doc.items.length-1}; markDirty(); showProps();
     } setTool('select'); draw(); }
 });
-canvas.addEventListener('dblclick', ()=>{ if(drawPts){ (tool==='poly'||tool==='polysurf') ? finishPoly() : finishWall(); } });
+canvas.addEventListener('dblclick', ()=>{ if(drawPts){ (tool==='poly'||tool==='polysurf'||tool==='area') ? finishPoly() : finishWall(); } });
 canvas.addEventListener('wheel', e=>{ e.preventDefault(); const {sx,sy}=evPos(e); const before=S2W(sx,sy); zoom*=(e.deltaY<0?1.12:0.89); zoom=Math.max(4,Math.min(80,zoom)); const after=S2W(sx,sy); panX+=before.x-after.x; panY+=before.y-after.y; draw(); }, {passive:false});
 
 function addWallPoint(p){ if(!drawPts){ drawPts=[p]; } else { const last=drawPts[drawPts.length-1];
@@ -599,6 +602,7 @@ function finishPoly(){
   if(drawPts && drawPts.length>=3){
     const pts=drawPts.map(p=>({x:p.x,y:p.y}));
     if(tool==='polysurf'){ const mat=(document.getElementById('surf-mat')||{}).value||'siding'; doc.items.push({type:'polysurface', points:pts, material:mat, label:''}); }
+    else if(tool==='area'){ const col=(document.getElementById('area-color')||{}).value||'#E8722C'; doc.items.push({type:'area', points:pts, color:col, label:''}); }
     else { const nm=prompt('Room name:','Room')||'Room'; doc.items.push({type:'poly', points:pts, label:nm}); }
     sel={kind:'item', i:doc.items.length-1}; markDirty(); showProps();
   }
@@ -615,6 +619,21 @@ function drawPoly(it, selected){
   ctx.font='11px "IBM Plex Mono", monospace'; ctx.fillStyle='#3E7A96'; ctx.fillText(area.toFixed(0)+' sq ft', cs.x, cs.y+10);
   if(selected){ pts.forEach(p=>{ const s=W2S(p); ctx.fillStyle='#fff'; ctx.strokeStyle='#2F6DB0'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(s.x,s.y,4,0,7); ctx.fill(); ctx.stroke(); }); }
   ctx.restore();
+}
+// A colored area with its square footage — for coloring/measuring regions on the plan.
+function drawArea(c, it, selected){
+  const wpts=it.points||[]; if(wpts.length<2) return;
+  const pts=wpts.map(p=>W2S(p)); const col=it.color||'#E8722C';
+  c.save();
+  c.beginPath(); pts.forEach((p,i)=> i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y)); c.closePath();
+  c.globalAlpha=0.28; c.fillStyle=col; c.fill(); c.globalAlpha=1;
+  c.strokeStyle=selected?'#2F6DB0':col; c.lineWidth=1.8; c.stroke();
+  c.restore();
+  const ct=polyCentroid(wpts), cs=W2S(ct), area=polyArea(wpts);
+  c.textAlign='center'; c.textBaseline='middle';
+  if(it.label){ c.fillStyle='#17293D'; c.font='600 12px Oswald, sans-serif'; c.fillText(it.label, cs.x, cs.y-7); }
+  c.font='600 12px "IBM Plex Mono", monospace'; c.fillStyle='#17293D'; c.fillText(area.toFixed(0)+' sq ft', cs.x, cs.y+(it.label?8:0));
+  if(selected){ pts.forEach(p=>{ c.fillStyle='#fff'; c.strokeStyle='#2F6DB0'; c.lineWidth=2; c.beginPath(); c.arc(p.x,p.y,4,0,7); c.fill(); c.stroke(); }); }
 }
 function placeFixture(type, p){ const f=FIX[type]; doc.items.push({type, x:p.x, y:p.y, w:f.w, h:f.h, rot:0, label:''}); sel={kind:'item',i:doc.items.length-1}; markDirty(); setTool('select'); showProps(); draw(); }
 
@@ -640,6 +659,7 @@ function setHint(){ const h=document.getElementById('hint');
     : tool==='line' ? 'Click to drop points for a plain line (e.g. concrete edge, saw-cut) — snaps to the grid; hold Shift for freehand. Each segment shows its length. Double-click or Esc to finish.'
     : tool==='room' ? 'Drag a box for the room; you’ll name it and it shows square footage.'
     : tool==='poly' ? 'Click each corner of the room; click the first point again (or double-click / Enter) to close it. Shows square footage.'
+    : tool==='area' ? 'Click each corner of the area to measure; click the first point (or double-click / Enter) to close it. Fills with the chosen color and shows square footage. Pick the color above first.'
     : tool==='surface' ? 'Drag a box to fill with the chosen material (siding, brick, shingles…) — for elevation surfaces. Pick the material above first.'
     : tool==='polysurf' ? 'Click each corner, then click the first point (or double-click / Enter) to close — fills the shape with the chosen material. Pick the material above first.'
     : tool==='text' ? 'Click where you want a label.'
@@ -697,6 +717,16 @@ function showProps(){ const el=document.getElementById('props');
     document.getElementById('pp-pmat').addEventListener('change',ev=>{ it.material=ev.target.value; markDirty(); draw(); });
     document.getElementById('pp-plabel').addEventListener('input',ev=>{ it.label=ev.target.value; markDirty(); draw(); });
     document.getElementById('pp-del').addEventListener('click',deleteSel);
+  } else if(sel.kind==='item' && doc.items[sel.i] && doc.items[sel.i].type==='area'){
+    const it=doc.items[sel.i]; const area=polyArea(it.points||[]);
+    el.innerHTML='<div style="font-weight:600;color:var(--heading)">Area</div>'
+      +'<label>Color</label><input id="pp-acolor" type="color" value="'+escAttr(it.color||'#E8722C')+'" style="width:44px;height:24px;padding:0;border:none;background:none">'
+      +'<label>Label</label><input id="pp-plabel" value="'+escAttr(it.label||'')+'">'
+      +'<div class="meta">Area: <b>'+area.toFixed(0)+'</b> sq ft</div>'
+      +'<div class="row"><button class="btn" id="pp-del">Delete</button></div>';
+    document.getElementById('pp-acolor').addEventListener('input',ev=>{ it.color=ev.target.value; markDirty(); draw(); });
+    document.getElementById('pp-plabel').addEventListener('input',ev=>{ it.label=ev.target.value; markDirty(); draw(); });
+    document.getElementById('pp-del').addEventListener('click',deleteSel);
   } else { const it=doc.items[sel.i];
     let html='<div style="font-weight:600;color:var(--heading)">'+(it.type==='room'?'Room':it.type==='surface'?'Surface':it.type==='text'?'Label':(FIX[it.type]?FIX[it.type].label:'Item'))+'</div>';
     html+='<label>Label</label><input id="pp-label" value="'+escAttr(it.label||'')+'">';
@@ -724,8 +754,8 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Shift'){ shiftHeld=true; if(drawPts||roomDrag) draw(); }
   if(/input|textarea/i.test((e.target.tagName||''))) return;
   if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
-  else if(e.key==='Escape'){ if(drawPts){ (tool==='poly'||tool==='polysurf') ? finishPoly() : finishWall(); } else { setTool('select'); } }
-  else if(e.key==='Enter'){ if(drawPts){ e.preventDefault(); (tool==='poly'||tool==='polysurf') ? finishPoly() : finishWall(); } }
+  else if(e.key==='Escape'){ if(drawPts){ (tool==='poly'||tool==='polysurf'||tool==='area') ? finishPoly() : finishWall(); } else { setTool('select'); } }
+  else if(e.key==='Enter'){ if(drawPts){ e.preventDefault(); (tool==='poly'||tool==='polysurf'||tool==='area') ? finishPoly() : finishWall(); } }
   else if(e.key==='v') setTool('select');
   else if(e.key==='w') setTool('wall');
   else if(e.key==='r') setTool('room');
@@ -859,6 +889,7 @@ function drawWallOn(c,wl){
 }
 function drawItemOn(c,it){
   if(it.type==='polysurface'){ drawPolySurface(c, it, false); return; }
+  if(it.type==='area'){ drawArea(c, it, false); return; }
   if(it.type==='poly'){ const pts=it.points||[]; if(pts.length<2) return; c.save();
     c.beginPath(); pts.forEach((p,i)=>{ const s=W2S(p); i?c.lineTo(s.x,s.y):c.moveTo(s.x,s.y); }); c.closePath();
     c.fillStyle='rgba(111,195,228,.10)'; c.fill(); c.strokeStyle='#3E7A96'; c.lineWidth=1.5; c.stroke();

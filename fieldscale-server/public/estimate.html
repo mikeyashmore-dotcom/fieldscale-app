@@ -261,6 +261,15 @@
           <label class="pdopt"><input type="checkbox" id="opt-line" /> Show line total</label>
           <div class="pdhint">These are <strong>off by default</strong> — the proposal shows just the item descriptions. Tick a box to add that column. Overhead, profit &amp; tax are always folded into whichever prices you show; the Total stays the same.</div>
         </div>
+        <div class="block">
+          <h3>Customer options — Good / Better / Best <span style="font-weight:400;font-size:12px;color:var(--steel)">(optional)</span></h3>
+          <div class="pdhint" style="margin-bottom:10px">Offer up to three price levels so the customer picks one. Fill in a name and price for each you want to show; leave blank to skip. These appear as a “Choose your option” comparison on the proposal.</div>
+          <div id="tier-rows" style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:8px;align-items:center"><input id="tier0-name" placeholder="e.g. Good — Standard" style="flex:1;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /><input id="tier0-desc" placeholder="What's included" style="flex:2;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /><input id="tier0-price" inputmode="decimal" placeholder="Price $" style="width:100px;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /></div>
+            <div style="display:flex;gap:8px;align-items:center"><input id="tier1-name" placeholder="e.g. Better" style="flex:1;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /><input id="tier1-desc" placeholder="What's included" style="flex:2;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /><input id="tier1-price" inputmode="decimal" placeholder="Price $" style="width:100px;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /></div>
+            <div style="display:flex;gap:8px;align-items:center"><input id="tier2-name" placeholder="e.g. Best — Premium" style="flex:1;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /><input id="tier2-desc" placeholder="What's included" style="flex:2;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /><input id="tier2-price" inputmode="decimal" placeholder="Price $" style="width:100px;padding:8px 10px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px" /></div>
+          </div>
+        </div>
       </div>
       <div class="totals">
         <div class="tr"><span>Subtotal</span><span class="v" id="t-sub">$0.00</span></div>
@@ -598,6 +607,9 @@ function syncDocFromForm(){
   doc.balanceDue=document.getElementById('balance-due').value;
   doc.showUnitPrice=document.getElementById('opt-unit').checked;
   doc.showLineTotal=document.getElementById('opt-line').checked;
+  // Good/Better/Best options — keep only rows that have a name or a price.
+  doc.tiers=[0,1,2].map(i=>({ name:val('tier'+i+'-name').trim(), desc:val('tier'+i+'-desc').trim(), price:parseFloat(document.getElementById('tier'+i+'-price').value)||0 }))
+    .filter(t=>t.name||t.price>0);
   // Keep each line's unitCost = material + labor(hrs×rate) at full precision so the invoice, PDF and
   // server totals match the estimate exactly (rounding it here would drift the invoice by pennies).
   // Also snapshot the effective markup % and taxable flag so the invoice conversion and the public
@@ -784,6 +796,12 @@ function proposalDocHTML(forDownload){
       ${showLineTotal?`<td class="r">${money(optAmt(l))}</td>`:''}
     </tr>`).join('');
   const nCols = 2+(showQty?1:0)+(showUnit?1:0)+(showUnitPrice?1:0)+(showLineTotal?1:0);
+  // Good / Better / Best options — a comparison the customer chooses from.
+  const tiers=(doc.tiers||[]).filter(t=>(t.name||'').trim()||Number(t.price)>0);
+  const tiersSection = tiers.length ? `<div class="sec"><h4>Choose your option</h4>
+    <table><thead><tr><th>Option</th><th>What's included</th><th class="r">Price</th></tr></thead>
+    <tbody>${tiers.map(t=>`<tr><td><strong>${escapeHtml(t.name||'')}</strong></td><td>${escapeHtml(t.desc||'')}</td><td class="r"><strong>${money(Number(t.price)||0)}</strong></td></tr>`).join('')}</tbody></table>
+    <div style="color:var(--steel);font-size:11px">Pick the option that fits — let us know which you'd like and we'll proceed.</div></div>` : '';
   const optSection = optLines.length ? `<div class="sec"><h4>Optional add-ons</h4>
     <table><thead><tr><th class="c">#</th><th>Description</th>${showQty?'<th class="r">Qty</th>':''}${showUnit?'<th>Unit</th>':''}${showUnitPrice?'<th class="r">Unit price</th>':''}${showLineTotal?'<th class="r">Amount</th>':''}</tr></thead>
     <tbody>${optRows}</tbody></table>
@@ -851,6 +869,7 @@ function proposalDocHTML(forDownload){
     <div class="tr"><span>Discount${doc.discountType!=='amt'&&doc.discount?` (${doc.discount}%)`:''}</span><span>-${money(t.discount)}</span></div>`:''}
     <div class="tr total"><span>Total</span><span>${money(t.total)}</span></div>
   </div>
+  ${tiersSection}
   ${optSection}
   ${doc.notes?`<div class="sec"><h4>Scope of work</h4><div class="body">${escapeHtml(doc.notes)}</div></div>`:''}
   ${termsBody?`<div class="sec"><h4>Terms</h4><div class="body">${termsBody}</div></div>`:''}
@@ -927,6 +946,8 @@ function fillForm(){
   document.getElementById('balance-due').value = doc.balanceDue || '';
   document.getElementById('opt-unit').checked = doc.showUnitPrice===true;
   document.getElementById('opt-line').checked = doc.showLineTotal===true;
+  (doc.tiers||[]).forEach((t,i)=>{ if(i>2) return; const n=document.getElementById('tier'+i+'-name'); if(!n) return;
+    n.value=t.name||''; document.getElementById('tier'+i+'-desc').value=t.desc||''; document.getElementById('tier'+i+'-price').value=t.price||''; });
 }
 function set(id,v){ document.getElementById(id).value = (v==null?'':v); }
 

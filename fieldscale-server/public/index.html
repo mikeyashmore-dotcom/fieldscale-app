@@ -551,6 +551,8 @@
   .btn.tiny{font-size:11px;padding:4px 10px;}
   .legend-popover .lp-empty{font-size:12px;color:var(--steel);padding:6px 2px;}
   .scale-btn-wrap{position:relative;display:flex;align-items:center;gap:6px;flex:none;}
+  /* Search popover is opened from the left rail 🔍 tool — pin it near the rail, above the canvas. */
+  #search-popover{position:fixed;top:56px;left:64px;right:auto;max-height:82vh;overflow:auto;z-index:60;}
   .topbar .btn{white-space:nowrap;}
   /* The shared header (top-right) already provides the account menu, theme toggle and log-out,
      so the takeoff page's own account button is redundant — hide it. */
@@ -960,8 +962,8 @@
     <input class="proj-name" id="proj-name" value="Untitled Project — Sheet A1.01" />
     <div class="topbar-spacer"></div>
     <div class="scale-btn-wrap" id="search-btn-wrap">
-      <button class="btn" id="search-toggle-btn" title="Search across all sheets and reference documents">🔍 Search</button>
       <button class="btn" id="compare-btn" title="Overlay this sheet against another version and highlight what changed">🔀 Compare</button>
+      <!-- Search moved to the left tool rail (🔍). This popover is opened from there now. -->
       <div class="scale-popover" id="search-popover" style="width:360px;">
         <div class="sp-row" style="margin-bottom:0;">
           <input type="text" id="doc-search-input" placeholder="Search all sheets & reference docs…" style="flex:1;font-size:13px;padding:7px 8px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);" disabled />
@@ -1095,18 +1097,7 @@
     <div class="pages-panel-header">
       <h4>Sheets</h4>
     </div>
-    <div id="sheet-search-wrap" style="display:none;padding:0 6px 6px;position:relative">
-      <input id="sheet-search-input" placeholder="Search all sheets…" style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 22px 5px 7px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal)" />
-      <span id="sheet-search-clear" title="Clear search" style="position:absolute;right:12px;top:4px;cursor:pointer;color:var(--steel);font-size:14px;display:none">✕</span>
-      <div id="sheet-search-status" style="font-size:11px;padding:3px 2px 0"></div>
-      <div id="sheet-search-note" style="font-size:11px;color:var(--steel);padding:3px 2px 0"></div>
-      <div id="sheet-search-nav" style="display:none;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap">
-        <button class="btn" id="sheet-search-prev" style="padding:2px 9px;font-size:13px" title="Previous match on this sheet">‹</button>
-        <button class="btn" id="sheet-search-next" style="padding:2px 9px;font-size:13px" title="Next match on this sheet">›</button>
-        <span id="sheet-search-matchcount" style="font-size:11px;color:var(--steel)"></span>
-        <button class="btn" id="sheet-search-hl" style="padding:2px 8px;font-size:11px" title="Turn the matches on this sheet into permanent highlights (in the current highlighter color)">🖍️ Highlight these</button>
-      </div>
-    </div>
+    <!-- The simple sheet-search box was merged into the full Search (🔍 rail tool → search popover). -->
     <div class="pages-list" id="pages-list"></div>
     <div class="pages-resize" id="pages-resize" title="Drag to resize the sheet list"></div>
   </div>
@@ -1494,7 +1485,6 @@ els.fileInput.addEventListener('change', async (e)=>{
   els.pageNav.style.display = state.numPages>1 ? 'flex':'none';
   els.zoomControls.style.display='flex';
   document.getElementById('scale-toggle-btn').disabled = false;
-  document.getElementById('search-toggle-btn').disabled = false;
   document.getElementById('autotag-btn').disabled = false;
   state.pdfTextIndex = []; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++;
   state.searchHighlightPage = null;
@@ -2297,7 +2287,6 @@ async function restoreProjectState(data){
     els.pageNav.style.display = state.numPages>1 ? 'flex':'none';
     els.zoomControls.style.display='flex';
     document.getElementById('scale-toggle-btn').disabled = false;
-    document.getElementById('search-toggle-btn').disabled = false;
   document.getElementById('autotag-btn').disabled = false;
     state.pdfTextIndex = []; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++;
     openPagesPanel();
@@ -2605,7 +2594,6 @@ document.getElementById('np-start').addEventListener('click', async ()=>{
   els.pageNav.style.display = state.numPages>1 ? 'flex':'none';
   els.zoomControls.style.display='flex';
   document.getElementById('scale-toggle-btn').disabled = false;
-  document.getElementById('search-toggle-btn').disabled = false;
   document.getElementById('autotag-btn').disabled = false;
   openPagesPanel();
   npOverlay.classList.remove('open');
@@ -2739,15 +2727,12 @@ async function callClaudeVision(base64Image, promptText, maxTokens){
   return data.text;
 }
 
-const searchToggleBtn = document.getElementById('search-toggle-btn');
 const searchPopover = document.getElementById('search-popover');
-searchToggleBtn.addEventListener('click', (e)=>{
-  e.stopPropagation();
-  searchPopover.classList.toggle('open');
-  if(searchPopover.classList.contains('open')) document.getElementById('doc-search-input').focus();
-});
+// Close the search popover when clicking outside it (it's opened from the 🔍 rail tool).
 document.addEventListener('click', (e)=>{
-  if(!searchPopover.contains(e.target) && e.target!==searchToggleBtn){
+  if(!searchPopover) return;
+  const railTool = document.getElementById('sheet-search-tool');
+  if(!searchPopover.contains(e.target) && !(railTool && railTool.contains(e.target))){
     searchPopover.classList.remove('open');
   }
 });
@@ -2941,12 +2926,12 @@ document.getElementById('pages-reopen-tab').addEventListener('click', openPagesP
 // lets you step through them with ‹ / › (or Enter). Reuses the background text index.
 let sheetSearchActive=false, sheetSearchCounts={}, sheetSearchQuery='', sheetSearchMatchIdx=-1, sheetSearchZoomed=false, sheetSearchNamePages=new Set();
 function toggleSheetSearch(){
-  const wrap=document.getElementById('sheet-search-wrap');
-  const open = wrap.style.display==='none';
-  wrap.style.display = open ? 'block' : 'none';
+  // The 🔍 rail tool now opens the full search popover (sheets + reference documents).
+  const pop=document.getElementById('search-popover'); if(!pop) return;
+  const open = !pop.classList.contains('open');
+  pop.classList.toggle('open', open);
   const tool=document.getElementById('sheet-search-tool'); if(tool) tool.classList.toggle('active', open);
-  if(open){ const inp=document.getElementById('sheet-search-input'); inp.focus(); inp.select(); updateSheetSearchReady(); }
-  else { clearSheetSearch(); }
+  if(open){ const inp=document.getElementById('doc-search-input'); if(inp){ inp.focus(); inp.select(); } if(typeof updateSheetSearchReady==='function') updateSheetSearchReady(); }
 }
 // Shows ⏳ while the sheets are still being indexed and ✓ once they're all searchable.
 function updateSheetSearchReady(){

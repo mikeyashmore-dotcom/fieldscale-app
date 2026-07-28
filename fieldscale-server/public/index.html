@@ -388,6 +388,8 @@
   .item-row[draggable="true"]:active{cursor:grabbing;}
   .trade-title[draggable="true"]{cursor:grab;}
   .trade-group.drop-hover{outline:2px dashed var(--accent);outline-offset:2px;border-radius:5px;background:rgba(47,109,176,.06);}
+  .trade-title .caret{display:inline-block;width:12px;font-size:9px;color:var(--steel);}
+  .trade-title .fold-count{color:var(--steel-light);font-weight:400;}
   .trade-title{
     font-family:'IBM Plex Mono',monospace;
     font-size:10.5px;
@@ -1387,6 +1389,7 @@ const state = {
   items:[], // {id, label, trade, type, qty, unit, color}
   stickyRows:{}, // trade|label -> row that stays in the Quantities panel (at 0) after its items are deleted
   folders:[], // user-created folder names for organizing the Quantities panel (items carry a matching .group)
+  collapsedFolders:{}, // which Quantities folders/trade-groups are collapsed (keyed by mode|name)
   walls:[], // {id, points, thicknessIn, material} - persistent wall geometry for rendering
   areas:[], // {id, points, typeId} - persistent area geometry for rendering (color resolved live)
   quickMeasurements:[], // {points, label} - non-committed quick-measure results
@@ -2206,6 +2209,7 @@ async function serializeProjectState(){
     legendHidden: state.legendHidden,
     locked: !!state.locked,
     folders: state.folders || [],
+    collapsedFolders: state.collapsedFolders || {},
     numPages: state.numPages
   };
 }
@@ -2231,6 +2235,7 @@ async function restoreProjectState(data){
   state.legendHidden = data.legendHidden || {};
   state.locked = !!data.locked;
   state.folders = Array.isArray(data.folders) ? data.folders : [];
+  state.collapsedFolders = (data.collapsedFolders && typeof data.collapsedFolders==='object') ? data.collapsedFolders : {};
 
   // Per-sheet scales. Projects saved before scales were per-sheet have a single
   // `calibration` — that one scale was in force everywhere, so copy it onto every
@@ -2537,7 +2542,7 @@ function npResetToBlank(name){
   state.items=[]; state.stickyRows={}; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.annotations=[]; state.refLinks=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
-  state.locked=false; updateLockUI(); state.folders=[];
+  state.locked=false; updateLockUI(); state.folders=[]; state.collapsedFolders={};
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++; lineSnapOn=false; state.searchHighlights=[]; state.searchHighlightPage=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
@@ -5924,6 +5929,15 @@ let takeoffPageMode = 'thispage'; // 'thispage' | 'all' — show this sheet's qu
       dragState=null; clearHover(); renderTakeoffList();
     });
     list.addEventListener('dragend', ()=>{ dragState=null; clearHover(); });
+    // Click a folder/trade header to collapse or expand it (hides the rows inside).
+    list.addEventListener('click', (e)=>{
+      const t = e.target.closest && e.target.closest('[data-collapse]');
+      if(!t) return;
+      const key = t.getAttribute('data-collapse');
+      state.collapsedFolders = state.collapsedFolders || {};
+      state.collapsedFolders[key] = !state.collapsedFolders[key];
+      markDirty(); renderTakeoffList();
+    });
   }
 })();
 function renderTakeoffList(){
@@ -5966,13 +5980,18 @@ function renderTakeoffList(){
     if(outerSet.has('(unassigned)')) orderedOuters.push('(unassigned)');
   } else { orderedOuters = [...outerSet].sort(); }
   let html = `<div class="takeoff-col-header"><span></span><span>Name</span><span>SF</span><span>LF</span><span>CY</span><span>EA</span><span></span></div>`;
+  state.collapsedFolders = state.collapsedFolders || {};
   orderedOuters.forEach(outer=>{
     const isFolder = takeoffGroupMode==='group' && outer!=='(unassigned)';
-    html += `<div class="trade-group" data-outer="${escapeHtml(outer)}"><div class="trade-title"${isFolder?` draggable="true" data-drag="folder" data-folder="${escapeHtml(outer)}" title="Drag to reorder folders · drop a quantity row here to move it in"`:''}>${isFolder?'📁 ':''}${escapeHtml(outer)}</div>`;
     const agg = aggByOuter[outer] || {};
     const labels = new Set(Object.keys(agg));
     Object.values(state.stickyRows).filter(s=>s.mode===takeoffGroupMode && s.outer===outer).forEach(s=>labels.add(s.label));
-    [...labels].forEach(label=>{
+    const collKey = takeoffGroupMode+'|'+outer;
+    const collapsed = !!state.collapsedFolders[collKey];
+    const caret = collapsed ? '▸' : '▾';
+    const countBadge = collapsed && labels.size ? ` <span class="fold-count">(${labels.size})</span>` : '';
+    html += `<div class="trade-group${collapsed?' collapsed':''}" data-outer="${escapeHtml(outer)}"><div class="trade-title"${isFolder?` draggable="true" data-drag="folder" data-folder="${escapeHtml(outer)}"`:''} data-collapse="${escapeHtml(collKey)}" style="cursor:pointer" title="Click to ${collapsed?'expand':'collapse'}${isFolder?' · drag to reorder · drop a row here to move it in':''}"><span class="caret">${caret}</span>${isFolder?' 📁 ':' '}${escapeHtml(outer)}${countBadge}</div>`;
+    if(!collapsed) [...labels].forEach(label=>{
       const skKey = takeoffGroupMode+'|'+outer+'|'+label;
       const g = agg[label], sticky = state.stickyRows[skKey];
       const perPage = takeoffPageMode==='thispage';

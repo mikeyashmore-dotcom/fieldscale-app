@@ -1077,7 +1077,8 @@ const server = http.createServer(async (req, res) => {
           status: invoiceStatus(total, paid), payLink: (idoc.payLink && /^https?:\/\//i.test(idoc.payLink)) ? idoc.payLink : '' };
       });
       const changeOrders = (jd.changeOrders || []).map(c => ({ id: c.id, description: c.description || '',
-        priceDelta: Number(c.priceDelta) || 0, status: c.status || 'pending' }));
+        priceDelta: Number(c.priceDelta) || 0, status: c.status || 'pending',
+        signedBy: (c.signature && c.signature.name) ? c.signature.name : '', signedAt: (c.signature && c.signature.at) || 0 }));
       return sendJSON(res, 200, {
         company: { name: comp.name || (companyRec && companyRec.name) || '', logo: comp.logo || '', phone: comp.phone || '',
           email: comp.email || '', website: comp.website || '', license: comp.license || '', address: comp.address || '' },
@@ -1099,6 +1100,11 @@ const server = http.createServer(async (req, res) => {
       if (co.status === 'approved' || co.status === 'rejected') return sendJSON(res, 200, { status: co.status });
       co.status = (b.decision === 'approved') ? 'approved' : 'rejected';
       co.decidedAt = Date.now();
+      // E-signature: record the customer's typed name when they approve (like estimate acceptance).
+      if (co.status === 'approved') {
+        const nm = String(b.name || '').trim();
+        if (nm) { const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || ''; co.signature = { name: nm.slice(0, 120), at: Date.now(), ip: String(ip).slice(0, 60) }; }
+      }
       writeJobDoc(job.id, jd);
       job.updatedAt = Date.now();
       saveDB(db);

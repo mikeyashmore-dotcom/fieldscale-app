@@ -70,10 +70,13 @@ function render(d){
   const coHtml = (d.changeOrders||[]).length ? `<h2>Change orders</h2>`+
     pendingCOs.map(c=>`<div class="co-card" data-co="${c.id}"><div class="row">
         <div><strong>${esc(c.description)||'Change order'}</strong><div class="meta">Price change: ${c.priceDelta>=0?'+':''}${money(c.priceDelta)}</div></div>
-        <div><button class="btn green" data-approve="${c.id}">Approve</button> <button class="btn ghost" data-reject="${c.id}">Decline</button></div>
+        <span class="pill pending">pending</span></div>
+      <div class="row" style="margin-top:10px;gap:8px">
+        <input class="co-sig" data-sig="${c.id}" placeholder="Type your name to approve" style="flex:1;min-width:200px;border:1px solid var(--steel-light);border-radius:3px;padding:9px 11px;font-size:14px;font-family:inherit" />
+        <button class="btn green" data-approve="${c.id}">Approve</button> <button class="btn ghost" data-reject="${c.id}">Decline</button>
       </div></div>`).join('')+
     decidedCOs.map(c=>`<div class="co-card"><div class="row">
-        <div><strong>${esc(c.description)||'Change order'}</strong><div class="meta">Price change: ${c.priceDelta>=0?'+':''}${money(c.priceDelta)}</div></div>
+        <div><strong>${esc(c.description)||'Change order'}</strong><div class="meta">Price change: ${c.priceDelta>=0?'+':''}${money(c.priceDelta)}</div>${(c.status==='approved'&&c.signedBy)?`<div class="meta">✓ Signed by ${esc(c.signedBy)}${c.signedAt?(' on '+new Date(c.signedAt).toLocaleDateString()):''}</div>`:''}</div>
         <span class="pill ${c.status}">${esc(c.status)}</span></div></div>`).join('') : '';
   document.getElementById('root').innerHTML=`<div class="sheet">
     <div class="head">
@@ -97,9 +100,16 @@ async function onCO(e){
   const rj=e.target.getAttribute&&e.target.getAttribute('data-reject');
   const id=ap||rj; if(!id) return;
   const decision=ap?'approved':'rejected';
-  if(!confirm(decision==='approved'?'Approve this change order?':'Decline this change order?')) return;
+  let name='';
+  if(decision==='approved'){
+    const inp=document.querySelector('.co-sig[data-sig="'+id+'"]');
+    name=(inp&&inp.value||'').trim();
+    if(!name){ if(inp) inp.focus(); alert('Please type your name to approve this change order.'); return; }
+  } else {
+    if(!confirm('Decline this change order?')) return;
+  }
   e.target.disabled=true;
-  try{ await api('/api/public/portal/co',{method:'POST',body:JSON.stringify({token,coId:id,decision})}); load(); }
+  try{ await api('/api/public/portal/co',{method:'POST',body:JSON.stringify({token,coId:id,decision,name})}); load(); }
   catch(err){ alert(err.message); e.target.disabled=false; }
 }
 async function load(){

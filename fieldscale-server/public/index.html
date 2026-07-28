@@ -5984,8 +5984,41 @@ function syncQuantitiesModeButtons(){
       state.collapsedFolders[key] = !state.collapsedFolders[key];
       markDirty(); renderTakeoffList();
     });
+    // Right-click a folder header → delete (or rename) the folder.
+    list.addEventListener('contextmenu', (e)=>{
+      const fld = e.target.closest && e.target.closest('[data-folder]');
+      if(!fld) return;
+      e.preventDefault();
+      const name = fld.getAttribute('data-folder');
+      showRefMenu(e.clientX, e.clientY, [
+        { label:'✎ Rename folder', action:()=>{ const nn=(prompt('Rename folder "'+name+'" to:', name)||'').trim(); if(!nn || nn===name) return; renameFolder(name, nn); } },
+        { label:'🗑 Delete folder', action:()=>{ if(confirm('Delete the folder "'+name+'"?\n\nThe items in it move back to (unassigned) — they are NOT deleted.')) deleteFolder(name); } }
+      ]);
+    });
   }
 })();
+// Remove a folder: drop it from the list, un-assign its items and any types pointing at it.
+function deleteFolder(name){
+  state.folders = (state.folders||[]).filter(f=>f!==name);
+  (state.items||[]).forEach(it=>{ if((it.group||'')===name) it.group=''; });
+  ['wall','linear','area','count'].forEach(cat=>(state.typeLibrary[cat]||[]).forEach(t=>{ if(t.folder===name) t.folder=''; }));
+  // Sticky rows keep an empty folder in the panel — drop this folder's so it actually goes away.
+  Object.keys(state.stickyRows||{}).forEach(k=>{ const s=state.stickyRows[k]; if(s && s.mode==='group' && s.outer===name) delete state.stickyRows[k]; });
+  if(state.collapsedFolders){ delete state.collapsedFolders['group|'+name]; }
+  markDirty(); renderTakeoffList();
+  if(typeof saveProject==='function') saveProject(true);
+}
+function renameFolder(oldName, newName){
+  state.folders = (state.folders||[]).map(f=>f===oldName?newName:f);
+  // de-dupe if the new name already existed
+  state.folders = [...new Set(state.folders)];
+  (state.items||[]).forEach(it=>{ if((it.group||'')===oldName) it.group=newName; });
+  ['wall','linear','area','count'].forEach(cat=>(state.typeLibrary[cat]||[]).forEach(t=>{ if(t.folder===oldName) t.folder=newName; }));
+  Object.keys(state.stickyRows||{}).forEach(k=>{ const s=state.stickyRows[k]; if(s && s.mode==='group' && s.outer===oldName){ delete state.stickyRows[k]; s.outer=newName; state.stickyRows['group|'+newName+'|'+s.label]=s; } });
+  if(state.collapsedFolders && state.collapsedFolders['group|'+oldName]!==undefined){ state.collapsedFolders['group|'+newName]=state.collapsedFolders['group|'+oldName]; delete state.collapsedFolders['group|'+oldName]; }
+  markDirty(); renderTakeoffList();
+  if(typeof saveProject==='function') saveProject(true);
+}
 function renderTakeoffList(){
   state.stickyRows = state.stickyRows || {};
   els.itemCount.textContent = state.items.length + ' item' + (state.items.length===1?'':'s');

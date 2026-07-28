@@ -165,6 +165,7 @@
       </div>
       <div class="cost-out" id="bva-out"></div>
       <p class="cost-hint">Cost-to-complete projects the final cost from what you’ve spent and how far along you are. Enter % complete to catch overruns early.</p>
+      <div id="pbcheck-out" style="margin-top:12px"></div>
     </div>
 
     <div class="block fin-hide" style="padding:0;overflow:hidden">
@@ -536,6 +537,27 @@ function renderBva(){
   ];
   document.getElementById('bva-out').innerHTML=stats.map(s=>`
     <div class="stat ${s[2]}"><div class="lab">${s[0]}</div><div class="num">${s[1]}</div></div>`).join('');
+  renderPriceBookCheck(budget, actual, projectedFinal, pct);
+}
+// Price Book check — reads the projected-vs-estimated gap and tells the contractor, in plain terms,
+// whether the price book that produced this estimate is pricing this kind of work accurately.
+function renderPriceBookCheck(budget, actual, projectedFinal, pct){
+  const el=document.getElementById('pbcheck-out'); if(!el) return;
+  const box=(bg,bd,color,html)=>`<div style="background:${bg};border:1px solid ${bd};color:${color};border-radius:6px;padding:11px 14px;font-size:13px">${html}</div>`;
+  if(!budget || budget<=0){ el.innerHTML=box('var(--surface-2)','var(--paper-line)','var(--steel)','Add the <b>estimated cost (budget)</b> above to check it against your actuals.'); return; }
+  if(actual<=0 || pct<=0){ el.innerHTML=box('var(--surface-2)','var(--paper-line)','var(--steel)','💡 <b>Price book check:</b> log your real costs and a % complete as the job runs — then this shows whether your price book priced the job accurately.'); return; }
+  const variancePct = (projectedFinal-budget)/budget*100;   // + = projected over the estimate
+  const v = Math.round(Math.abs(variancePct));
+  // Which price-book items this job was priced from (the scope lines), so they know what to review.
+  const items=(doc.lines||[]).filter(l=>(l.name||'').trim()).map(l=>`${escapeHtml(l.name)}${l.code?` <span style="color:var(--steel)">(${escapeHtml(l.code)})</span>`:''}`);
+  const list = items.length ? `<div style="margin-top:8px;font-size:12px">Items to review in your <a href="/estimates.html">Price Book</a>: ${items.slice(0,12).join(' · ')}${items.length>12?` +${items.length-12} more`:''}</div>` : '';
+  if(v<=8){
+    el.innerHTML=box('rgba(62,142,90,.10)','var(--good)','#2f6b4a',`✓ <b>Price book looks accurate</b> — this job’s projected cost is within ${v}% of what you estimated. Your pricing for this kind of work is on target.`);
+  } else if(variancePct>0){
+    el.innerHTML=box('rgba(192,67,47,.10)','var(--danger)','var(--danger)',`⚠ <b>Price book may be underpricing</b> — this job is projected to finish about <b>${v}% over</b> the estimated cost. If jobs like this keep running over, nudge these items up so future bids cover your real costs.${list}`);
+  } else {
+    el.innerHTML=box('rgba(183,121,31,.10)','var(--warn)','var(--warn)',`ℹ <b>Estimate ran high</b> — this job is projected about <b>${v}% under</b> the estimated cost. Your price book may be padding this work; you could sharpen these items to bid more competitively.${list}`);
+  }
 }
 ['c-contract','c-budget'].forEach(id=>document.getElementById(id).addEventListener('input', renderCosting));
 document.getElementById('pct-complete').addEventListener('input', renderBva);

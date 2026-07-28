@@ -1085,6 +1085,7 @@
     <button class="tool" data-tool="highlight" title="Highlight">🖍️<span class="tip">Highlight a region of the sheet</span></button>
     <button class="tool" data-tool="sheetsearch" id="sheet-search-tool" title="Search sheets">🔍<span class="tip">Search all sheets — matching sheets show in the list with a count</span></button>
     <button class="tool" data-tool="markup" id="markup-tool" title="Markups (text, arrow, box…)">✎<span class="tip">Add markups — text, arrow, box, line, ellipse</span></button>
+    <button class="tool" data-tool="askai" id="askai-tool" title="Ask AI about the plans">💬<span class="tip">Ask AI about these plans — opens the AI Assist panel</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="ai-select" title="AI Select">✦<span class="tip">AI region select</span></button>
   </div>
@@ -2933,6 +2934,13 @@ function toggleSheetSearch(){
   const tool=document.getElementById('sheet-search-tool'); if(tool) tool.classList.toggle('active', open);
   if(open){ const inp=document.getElementById('doc-search-input'); if(inp){ inp.focus(); inp.select(); } if(typeof updateSheetSearchReady==='function') updateSheetSearchReady(); }
 }
+// The 💬 rail button opens the AI Assist panel (right side) and jumps to the "Ask about the plans" chat.
+function openAskAI(){
+  const tab=document.querySelector('.panel-tab[data-panel="ai"]');
+  if(tab) tab.click();
+  const inp=document.getElementById('askplans-input');
+  if(inp) setTimeout(()=>{ try{ inp.scrollIntoView({block:'nearest'}); inp.focus(); }catch(e){} }, 60);
+}
 // Shows ⏳ while the sheets are still being indexed and ✓ once they're all searchable.
 function updateSheetSearchReady(){
   const el=document.getElementById('sheet-search-status'); if(!el) return;
@@ -3729,6 +3737,7 @@ document.getElementById('rail').addEventListener('click',(e)=>{
   if(!btn) return;
   if(btn.dataset.tool==='add'){ e.stopPropagation(); toggleAddMenu(btn); return; }
   if(btn.dataset.tool==='sheetsearch'){ e.stopPropagation(); toggleSheetSearch(); return; }
+  if(btn.dataset.tool==='askai'){ e.stopPropagation(); openAskAI(); return; }
   if(btn.dataset.tool==='markup'){ e.stopPropagation(); hideAddMenu(); toggleMarkupMenu(btn); return; }
   hideAddMenu(); hideMarkupMenu();
   activateTool(btn.dataset.tool);

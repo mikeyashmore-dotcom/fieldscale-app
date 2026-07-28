@@ -1050,6 +1050,7 @@ const server = http.createServer(async (req, res) => {
       doc.signature = { name: name.slice(0, 120), at: Date.now(), ip: String(ip).slice(0, 60), tier: chosen };
       writeEstimateDoc(est.id, doc);
       est.status = 'accepted'; est.updatedAt = Date.now();
+      if (chosen) est.acceptedTier = chosen;   // surfaced on the contractor's estimates list
       saveDB(db);
       return sendJSON(res, 200, { accepted: true, at: doc.signature.at });
     }
@@ -2039,6 +2040,7 @@ const server = http.createServer(async (req, res) => {
         const list = db.estimates.filter(e => e.companyId === me.companyId)
           .map(e => ({ id: e.id, name: e.name, client: e.client || '', total: e.total || 0,
                        status: e.jobId ? 'job' : (e.status || 'draft'), jobId: e.jobId || '',
+                       acceptedTier: e.acceptedTier || '',
                        createdAt: e.createdAt, updatedAt: e.updatedAt }))
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);

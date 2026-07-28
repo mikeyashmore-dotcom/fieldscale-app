@@ -170,7 +170,7 @@ function render(list){
       <td>${escapeHtml(e.name)}</td>
       <td class="muted">${escapeHtml(e.client)||'—'}</td>
       <td class="num">${money(e.total)}</td>
-      <td><span class="pill ${escapeHtml(e.status||'draft')}">${escapeHtml(e.status||'draft')}</span></td>
+      <td><span class="pill ${escapeHtml(e.status||'draft')}">${escapeHtml(e.status||'draft')}</span>${e.acceptedTier?`<div class="muted" style="font-size:11px;margin-top:3px">Chose: ${escapeHtml(e.acceptedTier)}</div>`:''}</td>
       <td class="muted">${fmtDate(e.updatedAt)}</td>
       <td class="num"><button class="act" data-del="${e.id}" title="Delete">✕</button></td>
     </tr>`).join('');

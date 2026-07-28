@@ -977,6 +977,14 @@ async function init(){
     }
     doc = Object.assign({ company:{}, client:{}, lines:[], markupPct:0, taxPct:0, discount:0, discountType:'pct' }, est.doc||{});
     doc.company = doc.company||{}; doc.client = doc.client||{}; doc.lines = doc.lines||[];
+    // Show the contractor that the customer approved — and which Good/Better/Best option they picked.
+    if(doc.signature && doc.signature.name){
+      const b=document.createElement('div');
+      b.style.cssText='background:rgba(62,142,90,.12);border:1px solid var(--good);color:#2f6b4a;border-radius:6px;padding:10px 14px;margin:0 0 14px;font-size:13px;font-weight:600';
+      const when = doc.signature.at ? new Date(doc.signature.at).toLocaleDateString() : '';
+      b.innerHTML='✓ Approved by '+escapeHtml(doc.signature.name)+(when?(' on '+escapeHtml(when)):'')+(doc.signature.tier?(' · Customer chose: <b>'+escapeHtml(doc.signature.tier)+'</b>'):'');
+      const content=document.getElementById('content'); content.insertBefore(b, content.firstChild);
+    }
     // Migrate older lines onto the flat/build-up model. Any line without a pricing mode becomes a
     // flat line at its existing per-unit price, so totals are unchanged and it's editable going forward.
     doc.lines.forEach(l=>{

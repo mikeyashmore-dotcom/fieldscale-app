@@ -1030,6 +1030,7 @@ const server = http.createServer(async (req, res) => {
         estimateClass: doc.estimateClass || 'residential',
         validDays: doc.validDays || 0, depositPct: doc.depositPct || 0, balanceDue: doc.balanceDue || '',
         discount: doc.discount || 0, discountType: doc.discountType || 'pct',
+        tiers: Array.isArray(doc.tiers) ? doc.tiers : [],
         notes: doc.notes || '', terms: doc.terms || '', signature: doc.signature || null });
     }
     if (pathname === '/api/public/estimate-accept' && req.method === 'POST') {
@@ -1042,7 +1043,11 @@ const server = http.createServer(async (req, res) => {
       const doc = readEstimateDoc(est.id);
       if (doc.signature && doc.signature.name) return sendJSON(res, 200, { alreadyAccepted: true, at: doc.signature.at });
       const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
-      doc.signature = { name: name.slice(0, 120), at: Date.now(), ip: String(ip).slice(0, 60) };
+      // Good/Better/Best: record which option the customer chose (only if this estimate offers tiers).
+      const tiers = Array.isArray(doc.tiers) ? doc.tiers : [];
+      let chosen = '';
+      if (tiers.length) { const want = String(b.selectedTier || '').trim(); const m = tiers.find(t => (t.name || '') === want); chosen = m ? (m.name || '') : ''; }
+      doc.signature = { name: name.slice(0, 120), at: Date.now(), ip: String(ip).slice(0, 60), tier: chosen };
       writeEstimateDoc(est.id, doc);
       est.status = 'accepted'; est.updatedAt = Date.now();
       saveDB(db);

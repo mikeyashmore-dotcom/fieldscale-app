@@ -107,10 +107,18 @@ function render(d){
   if((Number(d.validDays)||0)>0) termsExtra.push(`This proposal is valid for ${d.validDays} days from the date of issue.`);
   const termsBody=[...termsExtra.map(esc), ...(d.terms?[esc(d.terms)]:[])].join('\n');
   const sig=d.signature;
+  // Good / Better / Best options the customer can choose from before approving.
+  const tiers=(d.tiers||[]).filter(x=>(x.name||'').trim()||Number(x.price)>0);
+  const tierChoose = (tiers.length && !(sig&&sig.name)) ? `<div class="sec"><h4>Choose your option</h4>
+      <div id="tier-opts">${tiers.map((x,i)=>`<label style="display:flex;gap:10px;align-items:baseline;padding:11px 13px;border:1px solid var(--paper-line);border-radius:6px;margin-bottom:8px;cursor:pointer">
+        <input type="radio" name="tier" value="${esc(x.name||('Option '+(i+1)))}" ${i===0?'checked':''}/>
+        <span style="flex:1"><strong>${esc(x.name||('Option '+(i+1)))}</strong>${x.desc?`<div style="color:var(--steel);font-size:12px;margin-top:2px">${esc(x.desc)}</div>`:''}</span>
+        <strong>${money(Number(x.price)||0)}</strong></label>`).join('')}</div></div>` : '';
+  const acceptedTier = (sig&&sig.tier) ? `<br>Chosen option: <strong>${esc(sig.tier)}</strong>` : '';
   const approveBlock = sig&&sig.name
-    ? `<div class="accepted"><strong>✓ Approved</strong><br>Accepted by <strong>${esc(sig.name)}</strong> on ${pdfDate(sig.at)}.</div>`
+    ? `<div class="accepted"><strong>✓ Approved</strong><br>Accepted by <strong>${esc(sig.name)}</strong> on ${pdfDate(sig.at)}.${acceptedTier}</div>`
     : `<div class="approve"><h3>Approve this estimate</h3>
-        <p>By typing your name below and clicking Approve, you accept this proposal and its total of <strong>${money(t.total)}</strong>.</p>
+        <p>${tiers.length?'Pick your option above, then type your name below and click Approve to accept this proposal.':`By typing your name below and clicking Approve, you accept this proposal and its total of <strong>${money(t.total)}</strong>.`}</p>
         <div class="row">
           <input id="sig" placeholder="Type your full name" />
           <button id="approve-btn">Approve &amp; accept</button>
@@ -135,15 +143,18 @@ function render(d){
     ${optSection}
     ${d.notes?`<div class="sec"><h4>Notes</h4><div class="body">${esc(d.notes)}</div></div>`:''}
     ${termsBody?`<div class="sec"><h4>Terms</h4><div class="body">${termsBody}</div></div>`:''}
+    ${tierChoose}
     ${approveBlock}
   </div>`;
   const btn=document.getElementById('approve-btn');
   if(btn){ btn.addEventListener('click', async ()=>{
     const name=(document.getElementById('sig').value||'').trim();
     if(!name){ document.getElementById('sig').focus(); return; }
+    const tierEl=document.querySelector('input[name="tier"]:checked');
+    const selectedTier=tierEl?tierEl.value:'';
     btn.disabled=true; btn.textContent='Submitting…';
     try{
-      await api('/api/public/estimate-accept', { method:'POST', body: JSON.stringify({ token, name }) });
+      await api('/api/public/estimate-accept', { method:'POST', body: JSON.stringify({ token, name, selectedTier }) });
       load();
     }catch(err){ btn.disabled=false; btn.textContent='Approve & accept'; alert(err.message); }
   }); }

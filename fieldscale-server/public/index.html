@@ -5983,12 +5983,36 @@ document.getElementById('save-sheet-btn').addEventListener('click', ()=>{
 // Export the WHOLE plan set as one PDF — every (non-hidden) sheet with its measurements,
 // highlights and markups drawn on. Re-renders each page, composites it exactly like Save Sheet,
 // and hands the images to the browser's print → "Save as PDF" (no PDF library, keeps zero-dep).
-document.getElementById('export-set-btn').addEventListener('click', async ()=>{
+// Clicking the button opens a sheet picker so you can export just the sheets you want.
+document.getElementById('export-set-btn').addEventListener('click', ()=>{
   if(!state.pdfDoc){ alert('Load a plan first.'); return; }
+  openExportPicker();
+});
+function openExportPicker(){
+  const list=document.getElementById('exportset-list');
+  let html='';
+  for(let p=1;p<=state.numPages;p++){
+    const pn=state.pageNames[p];
+    const label=(pn&&(pn.number||pn.name))?[pn.number,pn.name].filter(Boolean).join(' — '):('Sheet '+p);
+    const hidden=(state.hiddenPages||[]).includes(p);
+    html+=`<label style="display:flex;align-items:center;gap:9px;padding:6px 2px;font-size:13px;border-bottom:1px solid var(--paper-line)">
+      <input type="checkbox" class="exportset-cb" value="${p}" ${hidden?'':'checked'} />
+      <span>${escapeHtml(label)}${hidden?' <span style="color:var(--steel);font-size:11px">(hidden)</span>':''}</span></label>`;
+  }
+  list.innerHTML=html;
+  updateExportCount();
+  document.getElementById('exportset-ov').style.display='flex';
+}
+function updateExportCount(){
+  const n=document.querySelectorAll('.exportset-cb:checked').length;
+  document.getElementById('exportset-count').textContent=n+' of '+state.numPages+' sheet'+(state.numPages===1?'':'s')+' selected';
+  const run=document.getElementById('exportset-run'); if(run) run.disabled = n===0;
+}
+function closeExportPicker(){ document.getElementById('exportset-ov').style.display='none'; }
+// Render the chosen sheets (each with its measurements/markups) and hand them to Save-as-PDF.
+async function runPlanSetExport(pages){
   const btn=document.getElementById('export-set-btn'); const orig=btn.textContent;
   clearSelection();
-  const pages=[]; for(let p=1;p<=state.numPages;p++){ if(!(state.hiddenPages||[]).includes(p)) pages.push(p); }
-  if(!pages.length){ alert('No sheets to export.'); return; }
   const savedPage=state.pageNum;
   btn.disabled=true;
   const shots=[];
@@ -6020,7 +6044,7 @@ document.getElementById('export-set-btn').addEventListener('click', async ()=>{
     +'</style></head><body>'+body
     +'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},450);};<\/scr'+'ipt></body></html>');
   win.document.close();
-});
+}
 document.getElementById('export-csv').addEventListener('click', ()=>{
   if(state.items.length===0){ alert('No items to export yet.'); return; }
   // The job details ride along on the export — a takeoff that doesn't say which job,
@@ -6995,6 +7019,42 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
   document.getElementById('askplans-send').addEventListener('click', send);
   input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); send(); } });
 })();
+</script>
+
+<!-- Export plan set — pick which sheets -->
+<div id="exportset-ov" style="display:none;position:fixed;inset:0;z-index:90;background:rgba(14,42,71,.55);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:8px;width:min(460px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 14px 44px rgba(0,0,0,.35)">
+    <div style="background:var(--ink-navy);color:var(--header-text);padding:11px 15px;display:flex;align-items:center;gap:10px">
+      <span style="font-family:'Oswald',sans-serif;font-size:15px">📄 Export plan set</span>
+      <span style="flex:1"></span><span id="exportset-close" style="cursor:pointer;font-size:18px">✕</span>
+    </div>
+    <div style="padding:10px 15px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--paper-line);font-size:12px;color:var(--charcoal)">
+      <span>Choose the sheets to export:</span><span style="flex:1"></span>
+      <button class="btn ghost" id="exportset-all" style="padding:3px 9px;font-size:12px">All</button>
+      <button class="btn ghost" id="exportset-none" style="padding:3px 9px;font-size:12px">None</button>
+    </div>
+    <div id="exportset-list" style="overflow:auto;padding:6px 15px;color:var(--charcoal)"></div>
+    <div style="padding:11px 15px;border-top:1px solid var(--paper-line);display:flex;gap:10px;justify-content:flex-end;align-items:center">
+      <span id="exportset-count" style="font-size:12px;color:var(--steel);margin-right:auto"></span>
+      <button class="btn ghost" id="exportset-cancel" type="button">Cancel</button>
+      <button class="btn primary" id="exportset-run" type="button">Export selected</button>
+    </div>
+  </div>
+</div>
+<script>
+// Wired here (after the modal exists in the DOM) rather than in the main script above.
+document.getElementById('exportset-list').addEventListener('change', updateExportCount);
+document.getElementById('exportset-close').addEventListener('click', closeExportPicker);
+document.getElementById('exportset-cancel').addEventListener('click', closeExportPicker);
+document.getElementById('exportset-ov').addEventListener('click', e=>{ if(e.target.id==='exportset-ov') closeExportPicker(); });
+document.getElementById('exportset-all').addEventListener('click', ()=>{ document.querySelectorAll('.exportset-cb').forEach(c=>c.checked=true); updateExportCount(); });
+document.getElementById('exportset-none').addEventListener('click', ()=>{ document.querySelectorAll('.exportset-cb').forEach(c=>c.checked=false); updateExportCount(); });
+document.getElementById('exportset-run').addEventListener('click', ()=>{
+  const pages=[...document.querySelectorAll('.exportset-cb:checked')].map(c=>Number(c.value)).sort((a,b)=>a-b);
+  if(!pages.length) return;
+  closeExportPicker();
+  runPlanSetExport(pages);
+});
 </script>
 
 <!-- Revision compare / overlay -->

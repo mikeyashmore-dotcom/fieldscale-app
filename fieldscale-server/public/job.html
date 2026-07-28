@@ -817,6 +817,23 @@ function setupSectionToggles(){
     rows.push(`<label style="display:flex;gap:6px;align-items:center;font-size:13px;white-space:nowrap"><input type="checkbox" data-seckey="${key}" ${on?'checked':''}/> ${title}</label>`);
   });
   list.innerHTML = rows.join('');
+  // A small "Hide" button in the top-right of each toggleable section — a shortcut for the
+  // "Sections on this job" checklist. It unchecks the section, which hides it and saves.
+  SECTION_DEFS.forEach(([key])=>{
+    const el = els[key]; if(!el) return;
+    if(el.querySelector(':scope > .sec-hide-btn')) return;   // don't add twice
+    if(getComputedStyle(el).position==='static') el.style.position='relative';
+    const btn=document.createElement('button');
+    btn.type='button'; btn.className='sec-hide-btn'; btn.textContent='Hide';
+    btn.title='Hide this section — bring it back from "Sections on this job" at the top';
+    btn.style.cssText='position:absolute;top:8px;right:10px;z-index:3;font-size:11px;padding:2px 9px;border:1px solid var(--paper-line);background:var(--surface);color:var(--steel);border-radius:4px;cursor:pointer;line-height:1.4';
+    btn.addEventListener('click',(e)=>{ e.stopPropagation();
+      const cb=list.querySelector('[data-seckey="'+key+'"]');
+      if(cb){ cb.checked=false; cb.dispatchEvent(new Event('change',{bubbles:true})); }
+      else { el.style.display='none'; }
+    });
+    el.appendChild(btn);
+  });
   const hdr=document.getElementById('sec-hdr'), caret=document.getElementById('sec-caret');
   hdr.addEventListener('click', ()=>{ const open=list.style.display==='none'; list.style.display=open?'flex':'none'; caret.textContent=open?'▴':'▾'; });
   // Collapsed by default — Mike's preference. Click the header to expand it.

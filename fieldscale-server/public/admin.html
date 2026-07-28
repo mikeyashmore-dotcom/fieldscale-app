@@ -8,13 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   /* Shared design system with the takeoff app (index.html) for a cohesive look. */
-  :root{
-    --ink-navy:var(--heading); --blueprint:var(--blueprint); --blueprint-2:var(--blueprint-2);
-    --cyan:var(--cyan); --cyan-dim:var(--cyan-dim); --orange:var(--accent); --orange-dim:var(--accent-dim);
-    --paper:var(--paper); --paper-line:var(--paper-line); --charcoal:var(--charcoal);
-    --steel:var(--steel); --steel-light:var(--steel-light); --good:var(--good); --danger:var(--danger);
-    --radius:3px;
-  }
+  /* Colors come from the shared theme tokens (app-nav.js / fs-theme.css) so light + dark both work.
+     Keep only this page's tighter corner radius. */
+  :root{ --radius:3px; }
   *{box-sizing:border-box}
   body{margin:0;font-family:'IBM Plex Sans',sans-serif;background:var(--paper);color:var(--charcoal);font-size:14px}
   a{color:var(--blueprint-2);text-decoration:none}

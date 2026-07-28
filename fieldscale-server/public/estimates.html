@@ -416,7 +416,10 @@ function fieldForHeader(h){
   if(inc(['labor cost','labour cost','total labor'])||h==='labor'||h==='labour') return 'labor';
   if(h==='unit'||h==='uom'||h==='units'||h==='u/m'||inc(['unit of measure'])) return 'unit';
   if(inc(['category','trade','csi','division','section','class','group'])||h==='code'||h==='type') return 'category';
-  if(inc(['name','item','description','product','task','service'])) return 'name';
+  // Name: prefer real name/description columns; match bare "item"/"product" only as a whole word so
+  // an "Item ID" / "Item #" / "SKU" column isn't mistaken for the item name.
+  if(inc(['description','item name','product name','part name','item desc'])) return 'name';
+  if(['name','item','product','task','service','part','activity'].includes(h)) return 'name';
   return null;
 }
 let importState=null;   // {headers:[], rows:[[]], hasHeader:bool}

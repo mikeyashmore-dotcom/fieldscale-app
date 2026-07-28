@@ -550,7 +550,16 @@
   .lp-actions{display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--paper-line);padding-top:10px;}
   .btn.tiny{font-size:11px;padding:4px 10px;}
   .legend-popover .lp-empty{font-size:12px;color:var(--steel);padding:6px 2px;}
-  .scale-btn-wrap{position:relative;}
+  .scale-btn-wrap{position:relative;display:flex;align-items:center;gap:6px;flex:none;}
+  .topbar .btn{white-space:nowrap;}
+  /* The shared header (top-right) already provides the account menu, theme toggle and log-out,
+     so the takeoff page's own account button is redundant — hide it. */
+  #account-wrap{display:none;}
+  /* Group the takeoff tools with even spacing so the header reads as tidy clusters, not a jumble. */
+  .topbar > .scale-btn-wrap,
+  .topbar > .page-nav,
+  .topbar > .zoom-controls,
+  .topbar > .legend-btn-wrap{margin-left:2px;}
   .scale-popover{
     display:none;
     position:absolute;
@@ -951,16 +960,18 @@
     <input class="proj-name" id="proj-name" value="Untitled Project — Sheet A1.01" />
     <div class="topbar-spacer"></div>
     <div class="scale-btn-wrap" id="search-btn-wrap">
-      <button class="btn" id="search-toggle-btn">🔍 Search Sheets</button>
+      <button class="btn" id="search-toggle-btn" title="Search across all sheets and reference documents">🔍 Search</button>
       <button class="btn" id="compare-btn" title="Overlay this sheet against another version and highlight what changed">🔀 Compare</button>
       <button class="btn" id="askplans-btn" title="Ask Claude questions about these plans">💬 Ask AI</button>
-      <button class="btn" id="autotag-btn" disabled title="Let AI find the detail/section callouts on this sheet and turn them into clickable links to those sheets">🏷 Auto-tag refs</button>
       <div class="scale-popover" id="search-popover" style="width:360px;">
         <div class="sp-row" style="margin-bottom:0;">
           <input type="text" id="doc-search-input" placeholder="Search all sheets & reference docs…" style="flex:1;font-size:13px;padding:7px 8px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);" disabled />
         </div>
         <div id="search-match-counter" style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--steel);margin-top:5px;"></div>
         <div class="sp-note" id="search-index-status" style="margin-top:6px;"></div>
+        <div class="sp-divider" style="border-top:1px solid var(--paper-line);margin:10px 0 0;padding-top:10px;">
+          <button class="btn" id="autotag-btn" disabled title="Let AI find the detail/section callouts on this sheet and turn them into clickable links to those sheets" style="width:100%;">🏷 Auto-tag reference callouts</button>
+        </div>
         <div id="doc-search-results" style="margin-top:8px;max-height:230px;overflow-y:auto;"></div>
         <div class="sp-divider">
           <h4>Reference Documents</h4>

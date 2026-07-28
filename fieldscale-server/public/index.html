@@ -3604,6 +3604,34 @@ els.stageWrap.addEventListener('wheel', (e)=>{
   els.stageWrap.scrollLeft = cursorX*ratio - (e.clientX-rect.left);
   els.stageWrap.scrollTop = cursorY*ratio - (e.clientY-rect.top);
 }, {passive:false});
+
+// Pinch-to-zoom for tablets — mirrors the wheel zoom, anchored at the two-finger midpoint so the
+// sheet zooms around where you pinch. One-finger pan already works via the stage's native scrolling,
+// and this only fires on TWO fingers, so it has no effect on desktop/mouse use.
+let pinch = null;
+function touchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+els.stageWrap.addEventListener('touchstart', (e)=>{
+  if(!state.pdfDoc || e.touches.length!==2) return;
+  pinch = { startDist: touchDist(e.touches), startZoom: state.zoom };
+}, {passive:false});
+els.stageWrap.addEventListener('touchmove', (e)=>{
+  if(!pinch || e.touches.length!==2) return;
+  e.preventDefault();
+  const rect = els.stageWrap.getBoundingClientRect();
+  const midX = (e.touches[0].clientX + e.touches[1].clientX)/2;
+  const midY = (e.touches[0].clientY + e.touches[1].clientY)/2;
+  const contentX = midX - rect.left + els.stageWrap.scrollLeft;
+  const contentY = midY - rect.top + els.stageWrap.scrollTop;
+  const oldZoom = state.zoom;
+  const newZoom = Math.min(4, Math.max(0.2, pinch.startZoom * (touchDist(e.touches)/pinch.startDist)));
+  const ratio = newZoom/oldZoom;
+  state.zoom = newZoom;
+  applyZoomToDom();
+  els.stageWrap.scrollLeft = contentX*ratio - (midX-rect.left);
+  els.stageWrap.scrollTop = contentY*ratio - (midY-rect.top);
+}, {passive:false});
+els.stageWrap.addEventListener('touchend', (e)=>{ if(e.touches.length<2) pinch=null; });
+els.stageWrap.addEventListener('touchcancel', ()=>{ pinch=null; });
 // Hidden sheets stay in the PDF — they're just out of the way. Navigation steps over them,
 // so paging through a 90-sheet set only walks the dozen you actually care about.
 function isHidden(p){ return state.hiddenPages.includes(p); }

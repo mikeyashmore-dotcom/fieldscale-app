@@ -3822,6 +3822,8 @@ function selectableOnPage(){
     ...state.areas.filter(onPage).map(a=>({kind:'area',  id:a.id, pts:a.points})),
     ...state.items.filter(it=>it.category==='count' && it.point && onPage(it))
                   .map(it=>({kind:'count', id:it.id, pts:[it.point]})),
+    ...state.items.filter(it=>it.category==='linear' && Array.isArray(it.points) && it.points.length>=2 && onPage(it))
+                  .map(it=>({kind:'linear', id:it.id, pts:it.points})),
     ...state.annotations.filter(a=>(a.pageNum||1)===state.pageNum)
                   .map(a=>({kind:'anno', id:a.id, anno:a,
                     pts:(a.kind==='line'||a.kind==='arrow') ? [{x:a.x1,y:a.y1},{x:a.x2,y:a.y2}] : annoCorners(a) }))
@@ -3837,6 +3839,7 @@ function pickAt(p){
     const c = cands[i];
     if(c.kind==='count' && dist(p, c.pts[0]) <= Math.max(tol, 10)) return c;
     if(c.kind==='wall'  && nearPolyline(p, c.pts, Math.max(tol, 6))) return c;
+    if(c.kind==='linear' && nearPolyline(p, c.pts, Math.max(tol, 6))) return c;
     if(c.kind==='area'  && (pointInPolygon(p, c.pts) || nearPolyline(p, [...c.pts, c.pts[0]], tol))) return c;
     if(c.kind==='anno'){
       const a=c.anno;
@@ -3854,6 +3857,7 @@ function vertexHandleAt(p){
   const tol = 8 / state.zoom;   // a touch bigger than the 4px handle, so it's easy to grab
   for(const sel of state.selection){
     if(sel.kind==='wall'){ const w=state.walls.find(x=>x.id===sel.id); if(w){ for(let i=0;i<w.points.length;i++){ if(dist(p,w.points[i])<=tol) return {kind:'wall', id:sel.id, index:i}; } } }
+    else if(sel.kind==='linear'){ const it=state.items.find(x=>x.id===sel.id); if(it&&it.points){ for(let i=0;i<it.points.length;i++){ if(dist(p,it.points[i])<=tol) return {kind:'linear', id:sel.id, index:i}; } } }
     else if(sel.kind==='area'){ const a=state.areas.find(x=>x.id===sel.id); if(a){ for(let i=0;i<a.points.length;i++){ if(dist(p,a.points[i])<=tol) return {kind:'area', id:sel.id, index:i}; } } }
     else if(sel.kind==='anno'){ const a=state.annotations.find(x=>x.id===sel.id); if(a){
       if(a.kind==='line'||a.kind==='arrow'){
@@ -3879,6 +3883,7 @@ function recomputeItemRaw(kind, id){
   const u = state.calibration.unitsPerNativePixel;
   if(kind==='area'){ const a=state.areas.find(x=>x.id===id); if(!a) return; const real=areaNetPx(a)*u*u; state.items.forEach(it=>{ if(it.areaId===id) it.raw=real; }); }
   else if(kind==='wall'){ const w=state.walls.find(x=>x.id===id); if(!w) return; let px=0; for(let i=1;i<w.points.length;i++) px+=dist(w.points[i-1],w.points[i]); const real=px*u; state.items.forEach(it=>{ if(it.wallId===id) it.raw=real; }); }
+  else if(kind==='linear'){ const it=state.items.find(x=>x.id===id); if(!it||!it.points) return; let px=0; for(let i=1;i<it.points.length;i++) px+=dist(it.points[i-1],it.points[i]); it.raw=px*u; }
 }
 
 function applyMarquee(rect, crossing, additive){
@@ -3910,6 +3915,9 @@ function moveSelection(dx, dy){
     } else if(sel.kind==='count'){
       const it = state.items.find(x=>x.id===sel.id);
       if(it && it.point) it.point = {x:it.point.x+dx, y:it.point.y+dy};
+    } else if(sel.kind==='linear'){
+      const it = state.items.find(x=>x.id===sel.id);
+      if(it && it.points) it.points = it.points.map(p=>({x:p.x+dx, y:p.y+dy}));
     } else if(sel.kind==='anno'){
       const a = state.annotations.find(x=>x.id===sel.id);
       if(a){ if(a.kind==='line'||a.kind==='arrow'){ a.x1+=dx; a.y1+=dy; a.x2+=dx; a.y2+=dy; } else { a.x+=dx; a.y+=dy; } }
@@ -3926,6 +3934,7 @@ function deleteSelection(){
   const wallIds  = new Set(state.selection.filter(s=>s.kind==='wall').map(s=>s.id));
   const areaIds  = new Set(state.selection.filter(s=>s.kind==='area').map(s=>s.id));
   const countIds = new Set(state.selection.filter(s=>s.kind==='count').map(s=>s.id));
+  const linearIds= new Set(state.selection.filter(s=>s.kind==='linear').map(s=>s.id));
   const annoIds  = new Set(state.selection.filter(s=>s.kind==='anno').map(s=>s.id));
   const hlIds    = new Set(state.selection.filter(s=>s.kind==='highlight').map(s=>s.id));
 
@@ -3937,6 +3946,7 @@ function deleteSelection(){
   // delete a wall off the sheet and its footage would quietly stay in the total.
   state.items = state.items.filter(it=>{
     if(countIds.has(it.id)) return false;
+    if(linearIds.has(it.id)) return false;
     if(it.wallId && wallIds.has(it.wallId)) return false;
     if(it.areaId && areaIds.has(it.areaId)) return false;
     return true;
@@ -3955,7 +3965,7 @@ function reassignType(picked, newTypeId){
   const cat = picked.kind;
   if(cat==='wall'){ const w=state.walls.find(x=>x.id===picked.id); if(w) w.typeId=newTypeId; state.items.forEach(it=>{ if(it.wallId===picked.id) it.typeId=newTypeId; }); }
   else if(cat==='area'){ const a=state.areas.find(x=>x.id===picked.id); if(a) a.typeId=newTypeId; state.items.forEach(it=>{ if(it.areaId===picked.id) it.typeId=newTypeId; }); }
-  else if(cat==='count'){ const it=state.items.find(x=>x.id===picked.id); if(it) it.typeId=newTypeId; }
+  else if(cat==='count' || cat==='linear'){ const it=state.items.find(x=>x.id===picked.id); if(it) it.typeId=newTypeId; }
   renderTakeoffList();
   redrawOverlay();
   markDirty();
@@ -4049,6 +4059,13 @@ function drawSelection(){
       octx.closePath();
       octx.stroke();
       a.points.forEach(p=>drawHandle(p));
+    } else if(sel.kind==='linear'){
+      const it = state.items.find(x=>x.id===sel.id);
+      if(!it || !it.points || !onPage(it)) return;
+      octx.beginPath();
+      it.points.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y));
+      octx.stroke();
+      it.points.forEach(p=>drawHandle(p));
     } else if(sel.kind==='anno'){
       const a = state.annotations.find(x=>x.id===sel.id);
       if(!a || !onPage(a)) return;
@@ -4263,6 +4280,9 @@ els.overlay.addEventListener('mousemove',(e)=>{
           if(a.kind==='line'||a.kind==='arrow'){ if(vd.index===0){a.x1=p.x;a.y1=p.y;} else {a.x2=p.x;a.y2=p.y;} }
           else { const opp=vd.anchor; a.x=Math.min(p.x,opp.x); a.y=Math.min(p.y,opp.y); a.w=Math.abs(p.x-opp.x); a.h=Math.abs(p.y-opp.y); }
         }
+      } else if(vd.kind==='linear'){
+        const it=state.items.find(o=>o.id===vd.id);
+        if(it && it.points && it.points[vd.index]) it.points[vd.index] = {x:p.x, y:p.y};
       } else {
         const obj=(vd.kind==='wall'?state.walls:state.areas).find(o=>o.id===vd.id);
         if(obj && obj.points[vd.index]) obj.points[vd.index] = {x:p.x, y:p.y};
@@ -5503,7 +5523,7 @@ function finishLinear(){
   for(let i=1;i<pts.length;i++) totalPx += dist(pts[i-1],pts[i]);
   if(!requireCalibration()){ state.drawing=null; redrawOverlay(); updateFinishBtn(); return; }
   const real = totalPx*state.calibration.unitsPerNativePixel;
-  addTakeoffItem({category:'linear', typeId:state.activeType.linear, raw:real});
+  addTakeoffItem({category:'linear', typeId:state.activeType.linear, raw:real, points:pts.map(p=>({x:p.x,y:p.y}))});
   state.drawing=null;
   els.hud.style.display='none';
   updateFinishBtn();
@@ -5981,6 +6001,14 @@ function redrawOverlay(){
   state.quickMeasurements.filter(onThisPage).forEach(m=> drawQuickMeasure(m.points, m.label));
 
   drawAnnotations();
+
+  // draw linear runs (the "Line" tool) so they're visible + selectable on the sheet
+  state.items.filter(it=>it.category==='linear' && Array.isArray(it.points) && it.points.length>=2 && onThisPage(it)).forEach(it=>{
+    const t = state.typeLibrary.linear.find(x=>x.id===it.typeId);
+    octx.save(); octx.strokeStyle = t?t.color:'#2E86AB'; octx.lineWidth = 2.4/state.zoom; octx.lineCap='round'; octx.lineJoin='round';
+    octx.beginPath(); it.points.forEach((p,i)=> i===0? octx.moveTo(p.x,p.y) : octx.lineTo(p.x,p.y)); octx.stroke();
+    octx.restore();
+  });
 
   // draw completed count markers (color resolved live from the count type)
   state.items.filter(it=>it.category==='count' && it.point && onThisPage(it)).forEach(it=>{

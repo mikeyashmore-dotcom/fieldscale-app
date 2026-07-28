@@ -1134,10 +1134,8 @@
           <button class="btn primary" id="add-tool" title="Add a takeoff item — wall, line, area or count" style="margin-left:auto;padding:4px 12px">＋ Add</button>
         </div>
         <div class="takeoff-groupbar" style="display:flex;gap:6px;align-items:center;padding:0 10px 6px;font-size:11px;color:var(--steel)">
-          <span>Folder:</span>
-          <input id="current-group" placeholder="(none)" list="group-list" title="New items you draw go into this folder" style="flex:1;min-width:0;font-size:11px;padding:3px 6px;border:1px solid var(--steel-light);border-radius:3px" />
-          <datalist id="group-list"></datalist>
-          <button class="btn" id="add-folder-btn" title="Create a new folder" style="padding:3px 8px;font-size:11px">＋ Folder</button>
+          <span style="flex:1;min-width:0"></span>
+          <button class="btn" id="add-folder-btn" title="Create a new folder — then drag rows in, or assign a type to it in the type builder" style="padding:3px 8px;font-size:11px">＋ Folder</button>
           <button class="btn" id="group-mode-btn" title="Group the Quantities list by trade or by folder" style="padding:3px 8px;font-size:11px;white-space:nowrap">By trade</button>
           <button class="btn" id="page-mode-btn" title="Show only the quantities taken off on THIS sheet, or the totals across all sheets" style="padding:3px 8px;font-size:11px;white-space:nowrap">This sheet</button>
         </div>
@@ -5361,6 +5359,7 @@ function buildModalFields(category, existing){
     <div><label>Construction code <span style="text-transform:none;font-weight:400;color:var(--steel)">(matches the estimate line)</span></label><select id="tf-code">${CSI.map(c=>`<option value="${escapeHtml(c)}" ${c===code?'selected':''}>${c||'— none —'}</option>`).join('')}</select></div>
     <div><label>Color</label><input type="color" id="tf-color" value="${color}" /></div>
     <div><label>Unit cost <span style="text-transform:none;font-weight:400;color:var(--steel)">(optional — $ per unit measured; shows a running total on the summary)</span></label><input type="number" id="tf-unitcost" step="0.01" min="0" value="${existing && existing.unitCost ? existing.unitCost : ''}" placeholder="e.g. 3.50" /></div>
+    ${(state.folders && state.folders.length) ? `<div><label>Folder <span style="text-transform:none;font-weight:400;color:var(--steel)">(optional — this type's items go into this folder)</span></label><select id="tf-folder"><option value="">— none —</option>${state.folders.map(f=>`<option value="${escapeHtml(f)}" ${existing && existing.folder===f ? 'selected':''}>${escapeHtml(f)}</option>`).join('')}</select></div>` : ''}
   `;
   if(category==='wall'){
     const studKey = existing ? existing.studKey : '2x4';
@@ -5526,9 +5525,19 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
       const pat = document.getElementById('tf-pattern'); entry.pattern = pat ? pat.value : 'solid';
     }
   }
+  // Folder this type belongs to (from the type builder). Preserve it if the field wasn't shown.
+  const _existingType = modalState.editId ? (state.typeLibrary[category]||[]).find(t=>t.id===modalState.editId) : null;
+  const _folderSel = document.getElementById('tf-folder');
+  entry.folder = _folderSel ? _folderSel.value : ((_existingType && _existingType.folder) || '');
   const lib = state.typeLibrary[category];
   const idx = lib.findIndex(t=>t.id===entry.id);
   if(idx>=0) lib[idx]=entry; else lib.push(entry);
+  // Assigning a folder in the builder moves this type's existing measurements into it right away.
+  if(entry.folder){
+    state.folders = state.folders || [];
+    if(!state.folders.includes(entry.folder)) state.folders.push(entry.folder);
+    state.items.forEach(it=>{ if(it.typeId===entry.id) it.group=entry.folder; });
+  }
   state.activeType[category] = entry.id;
   populateTypeDropdown(category);
   if(category==='wall') reconcileWallItems(entry.id);   // existing walls pick up added/removed measure kinds
@@ -5886,7 +5895,8 @@ function flashLocked(){ showHint('🔒 This takeoff is locked (read-only). Open 
 function addTakeoffItem(item){
   if(state.locked){ flashLocked(); return; }
   item.id = 'it_'+Math.random().toString(36).slice(2,9);
-  if(item.group==null) item.group = ((document.getElementById('current-group')||{}).value||'').trim();  // tag with the current area/phase
+  // New items inherit the folder assigned to their TYPE (set in the type builder), if any.
+  if(item.group==null){ const t=(state.typeLibrary[item.category]||[]).find(x=>x.id===item.typeId); item.group=(t&&t.folder)||''; }
   item.pageNum = item.pageNum || state.pageNum;  // which sheet it was taken off
   state.items.push(item);
   renderTakeoffList();
@@ -5924,9 +5934,9 @@ function syncQuantitiesModeButtons(){
     if(!name) return;
     state.folders = state.folders || [];
     if(!state.folders.includes(name)) state.folders.push(name);
-    const inp=document.getElementById('current-group'); if(inp) inp.value=name;   // new items go here
     if(takeoffGroupMode!=='group'){ takeoffGroupMode='group'; btn.textContent='By folder'; }
     markDirty(); renderTakeoffList();
+    if(typeof saveProject==='function') saveProject(true);   // save right away so it survives a refresh
   });
   const pb=document.getElementById('page-mode-btn');
   if(pb) pb.addEventListener('click', ()=>{ takeoffPageMode = takeoffPageMode==='thispage'?'all':'thispage'; pb.textContent = takeoffPageMode==='all'?'All sheets':'This sheet'; pb.classList.toggle('primary', takeoffPageMode==='all'); renderTakeoffList(); });

@@ -2219,6 +2219,8 @@ async function serializeProjectState(){
     locked: !!state.locked,
     folders: state.folders || [],
     collapsedFolders: state.collapsedFolders || {},
+    quantitiesGroupMode: takeoffGroupMode,   // 'trade' | 'group' (By folder) — remember the panel view
+    quantitiesPageMode: takeoffPageMode,     // 'thispage' | 'all'
     numPages: state.numPages
   };
 }
@@ -2245,6 +2247,11 @@ async function restoreProjectState(data){
   state.locked = !!data.locked;
   state.folders = Array.isArray(data.folders) ? data.folders : [];
   state.collapsedFolders = (data.collapsedFolders && typeof data.collapsedFolders==='object') ? data.collapsedFolders : {};
+  // Remember the Quantities panel view (By trade / By folder, This sheet / All sheets) so folders
+  // don't vanish on reopen.
+  takeoffGroupMode = (data.quantitiesGroupMode==='group') ? 'group' : 'trade';
+  takeoffPageMode  = (data.quantitiesPageMode==='all') ? 'all' : 'thispage';
+  syncQuantitiesModeButtons();
 
   // Per-sheet scales. Projects saved before scales were per-sheet have a single
   // `calibration` — that one scale was in force everywhere, so copy it onto every
@@ -2551,6 +2558,7 @@ function npResetToBlank(name){
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
   state.locked=false; updateLockUI(); state.folders=[]; state.collapsedFolders={};
+  takeoffGroupMode='trade'; takeoffPageMode='thispage'; syncQuantitiesModeButtons();
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++; lineSnapOn=false; state.searchHighlights=[]; state.searchHighlightPage=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
@@ -5900,6 +5908,13 @@ document.getElementById('clear-all').addEventListener('click', ()=>{
 
 let takeoffGroupMode = 'trade';  // 'trade' | 'group' — how the Quantities panel is grouped
 let takeoffPageMode = 'thispage'; // 'thispage' | 'all' — show this sheet's quantities, or the totals
+// Keep the two toggle buttons' labels/state in sync with the modes (e.g. after loading a project).
+function syncQuantitiesModeButtons(){
+  const gb=document.getElementById('group-mode-btn');
+  if(gb) gb.textContent = takeoffGroupMode==='group' ? 'By folder' : 'By trade';
+  const pb=document.getElementById('page-mode-btn');
+  if(pb){ pb.textContent = takeoffPageMode==='all' ? 'All sheets' : 'This sheet'; pb.classList.toggle('primary', takeoffPageMode==='all'); }
+}
 (function(){
   const btn=document.getElementById('group-mode-btn');
   if(btn) btn.addEventListener('click', ()=>{ takeoffGroupMode = takeoffGroupMode==='trade'?'group':'trade'; btn.textContent = takeoffGroupMode==='group'?'By folder':'By trade'; renderTakeoffList(); });

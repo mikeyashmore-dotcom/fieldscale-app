@@ -1125,10 +1125,11 @@
           <button class="btn primary" id="add-tool" title="Add a takeoff item — wall, line, area or count" style="margin-left:auto;padding:4px 12px">＋ Add</button>
         </div>
         <div class="takeoff-groupbar" style="display:flex;gap:6px;align-items:center;padding:0 10px 6px;font-size:11px;color:var(--steel)">
-          <span>Area/phase:</span>
-          <input id="current-group" placeholder="(none)" list="group-list" title="New items you draw get tagged with this area/phase" style="flex:1;min-width:0;font-size:11px;padding:3px 6px;border:1px solid var(--steel-light);border-radius:3px" />
+          <span>Folder:</span>
+          <input id="current-group" placeholder="(none)" list="group-list" title="New items you draw go into this folder" style="flex:1;min-width:0;font-size:11px;padding:3px 6px;border:1px solid var(--steel-light);border-radius:3px" />
           <datalist id="group-list"></datalist>
-          <button class="btn" id="group-mode-btn" title="Group the Quantities list by trade or by area/phase" style="padding:3px 8px;font-size:11px;white-space:nowrap">By trade</button>
+          <button class="btn" id="add-folder-btn" title="Create a new folder" style="padding:3px 8px;font-size:11px">＋ Folder</button>
+          <button class="btn" id="group-mode-btn" title="Group the Quantities list by trade or by folder" style="padding:3px 8px;font-size:11px;white-space:nowrap">By trade</button>
           <button class="btn" id="page-mode-btn" title="Show only the quantities taken off on THIS sheet, or the totals across all sheets" style="padding:3px 8px;font-size:11px;white-space:nowrap">This sheet</button>
         </div>
         <div class="takeoff-list" id="takeoff-list">
@@ -1380,6 +1381,7 @@ const state = {
   calibrations:{},   // {pageNum: {unitsPerNativePixel, unitLabel, source}} — every sheet keeps its own scale
   items:[], // {id, label, trade, type, qty, unit, color}
   stickyRows:{}, // trade|label -> row that stays in the Quantities panel (at 0) after its items are deleted
+  folders:[], // user-created folder names for organizing the Quantities panel (items carry a matching .group)
   walls:[], // {id, points, thicknessIn, material} - persistent wall geometry for rendering
   areas:[], // {id, points, typeId} - persistent area geometry for rendering (color resolved live)
   quickMeasurements:[], // {points, label} - non-committed quick-measure results
@@ -2198,6 +2200,7 @@ async function serializeProjectState(){
     legendPos: state.legendPos,
     legendHidden: state.legendHidden,
     locked: !!state.locked,
+    folders: state.folders || [],
     numPages: state.numPages
   };
 }
@@ -2222,6 +2225,7 @@ async function restoreProjectState(data){
   state.legendPos = data.legendPos || null;
   state.legendHidden = data.legendHidden || {};
   state.locked = !!data.locked;
+  state.folders = Array.isArray(data.folders) ? data.folders : [];
 
   // Per-sheet scales. Projects saved before scales were per-sheet have a single
   // `calibration` — that one scale was in force everywhere, so copy it onto every
@@ -2528,7 +2532,7 @@ function npResetToBlank(name){
   state.items=[]; state.stickyRows={}; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.annotations=[]; state.refLinks=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
-  state.locked=false; updateLockUI();
+  state.locked=false; updateLockUI(); state.folders=[];
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++; lineSnapOn=false; state.searchHighlights=[]; state.searchHighlightPage=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
@@ -5867,7 +5871,17 @@ let takeoffGroupMode = 'trade';  // 'trade' | 'group' — how the Quantities pan
 let takeoffPageMode = 'thispage'; // 'thispage' | 'all' — show this sheet's quantities, or the totals
 (function(){
   const btn=document.getElementById('group-mode-btn');
-  if(btn) btn.addEventListener('click', ()=>{ takeoffGroupMode = takeoffGroupMode==='trade'?'group':'trade'; btn.textContent = takeoffGroupMode==='group'?'By area':'By trade'; renderTakeoffList(); });
+  if(btn) btn.addEventListener('click', ()=>{ takeoffGroupMode = takeoffGroupMode==='trade'?'group':'trade'; btn.textContent = takeoffGroupMode==='group'?'By folder':'By trade'; renderTakeoffList(); });
+  const af=document.getElementById('add-folder-btn');
+  if(af) af.addEventListener('click', ()=>{
+    const name=(prompt('Name this folder (e.g. Kitchen, Phase 1, First floor):','')||'').trim();
+    if(!name) return;
+    state.folders = state.folders || [];
+    if(!state.folders.includes(name)) state.folders.push(name);
+    const inp=document.getElementById('current-group'); if(inp) inp.value=name;   // new items go here
+    if(takeoffGroupMode!=='group'){ takeoffGroupMode='group'; btn.textContent='By folder'; }
+    markDirty(); renderTakeoffList();
+  });
   const pb=document.getElementById('page-mode-btn');
   if(pb) pb.addEventListener('click', ()=>{ takeoffPageMode = takeoffPageMode==='thispage'?'all':'thispage'; pb.textContent = takeoffPageMode==='all'?'All sheets':'This sheet'; pb.classList.toggle('primary', takeoffPageMode==='all'); renderTakeoffList(); });
 })();
@@ -5897,6 +5911,7 @@ function renderTakeoffList(){
   }));
   const outerSet = new Set(Object.keys(aggByOuter));
   Object.values(state.stickyRows).forEach(s=>{ if(s.mode===takeoffGroupMode) outerSet.add(s.outer); });
+  if(takeoffGroupMode==='group') (state.folders||[]).forEach(f=>outerSet.add(f));   // show empty folders too
   if(outerSet.size===0){
     els.takeoffList.innerHTML = '<div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>';
     return;
@@ -5935,7 +5950,7 @@ function renderTakeoffList(){
   });
   els.takeoffList.innerHTML = html;
   const gl=document.getElementById('group-list');
-  if(gl){ const groups=[...new Set((state.items||[]).map(it=>(it.group||'').trim()).filter(Boolean))].sort(); gl.innerHTML=groups.map(g=>`<option value="${escapeHtml(g)}"></option>`).join(''); }
+  if(gl){ const groups=[...new Set([...(state.items||[]).map(it=>(it.group||'').trim()).filter(Boolean), ...(state.folders||[])])].sort(); gl.innerHTML=groups.map(g=>`<option value="${escapeHtml(g)}"></option>`).join(''); }
   els.takeoffList.querySelectorAll('.item-row').forEach(row=>{
     if(!row.dataset.cat) return;
     row.addEventListener('dblclick', (e)=>{
@@ -5950,10 +5965,16 @@ function renderTakeoffList(){
       e.preventDefault();
       const cat = row.dataset.cat, typeId = row.dataset.typeid;
       if(!state.typeLibrary[cat].find(t=>t.id===typeId)) return;
-      showRefMenu(e.clientX, e.clientY, [
+      const moveTo = (folder)=>{ state.items.forEach(it=>{ if(it.typeId===typeId) it.group=folder; }); markDirty(); renderTakeoffList(); };
+      const folders = [...new Set([...(state.items||[]).map(it=>(it.group||'').trim()).filter(Boolean), ...(state.folders||[])])].sort();
+      const menu = [
         { label:'✎ Edit this type', action:()=>openTypeModal(cat, typeId) },
-        { label:'⧉ Duplicate this type', action:()=>duplicateType(cat, typeId) }
-      ]);
+        { label:'⧉ Duplicate this type', action:()=>duplicateType(cat, typeId) },
+        ...folders.map(f=>({ label:'📁 Move to “'+f+'”', action:()=>moveTo(f) })),
+        { label:'📁 Move to a new folder…', action:()=>{ const n=(prompt('New folder name:','')||'').trim(); if(!n) return; state.folders=state.folders||[]; if(!state.folders.includes(n)) state.folders.push(n); if(takeoffGroupMode!=='group'){ takeoffGroupMode='group'; const gb=document.getElementById('group-mode-btn'); if(gb) gb.textContent='By folder'; } moveTo(n); } },
+        { label:'📤 Remove from folder', action:()=>moveTo('') }
+      ];
+      showRefMenu(e.clientX, e.clientY, menu);
     });
   });
   els.takeoffList.querySelectorAll('.del').forEach(d=>{

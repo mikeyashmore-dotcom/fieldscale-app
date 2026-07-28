@@ -1133,6 +1133,7 @@
           <button class="btn" id="summary-btn" title="Totals rolled up by trade / CSI division, with a printable report">📋 Summary</button>
           <button class="btn" id="export-csv">Export CSV</button>
           <button class="btn" id="save-sheet-btn" title="Save this sheet as an image, with your measurements, highlights and markups">🖼 Save Sheet</button>
+          <button class="btn" id="export-set-btn" title="Export every sheet as one PDF, with your measurements drawn on each">📄 Export Plan Set</button>
           <button class="btn" id="clear-all">Clear All</button>
         </div>
       </div>
@@ -5902,6 +5903,48 @@ document.getElementById('save-sheet-btn').addEventListener('click', ()=>{
   const nm=(document.getElementById('proj-name').value||'takeoff').replace(/[^\w\-]+/g,'_').slice(0,60);
   const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download=nm+'-sheet'+state.pageNum+'.png';
   document.body.appendChild(a); a.click(); a.remove();
+});
+
+// Export the WHOLE plan set as one PDF — every (non-hidden) sheet with its measurements,
+// highlights and markups drawn on. Re-renders each page, composites it exactly like Save Sheet,
+// and hands the images to the browser's print → "Save as PDF" (no PDF library, keeps zero-dep).
+document.getElementById('export-set-btn').addEventListener('click', async ()=>{
+  if(!state.pdfDoc){ alert('Load a plan first.'); return; }
+  const btn=document.getElementById('export-set-btn'); const orig=btn.textContent;
+  clearSelection();
+  const pages=[]; for(let p=1;p<=state.numPages;p++){ if(!(state.hiddenPages||[]).includes(p)) pages.push(p); }
+  if(!pages.length){ alert('No sheets to export.'); return; }
+  const savedPage=state.pageNum;
+  btn.disabled=true;
+  const shots=[];
+  try{
+    for(let i=0;i<pages.length;i++){
+      btn.textContent='Rendering '+(i+1)+'/'+pages.length+'…';
+      state.pageNum=pages[i];
+      await renderPage();
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      const pc=els.pdfCanvas, oc=els.overlay;
+      const c=document.createElement('canvas'); c.width=pc.width; c.height=pc.height;
+      const cx=c.getContext('2d'); cx.fillStyle='#fff'; cx.fillRect(0,0,c.width,c.height);
+      cx.drawImage(pc,0,0); cx.drawImage(oc,0,0);
+      const pn=state.pageNames[pages[i]];
+      const label=(pn&&(pn.number||pn.name))?[pn.number,pn.name].filter(Boolean).join(' — '):('Sheet '+pages[i]);
+      shots.push({ url:c.toDataURL('image/jpeg',0.85), label });
+    }
+  } catch(err){ alert('Could not export: '+err.message); }
+  finally { state.pageNum=savedPage; await renderPage(); btn.disabled=false; btn.textContent=orig; }
+  if(!shots.length) return;
+  const proj=(document.getElementById('proj-name').value||'Takeoff');
+  const win=window.open('','_blank');
+  if(!win){ alert('Allow pop-ups for this site to export the plan set.'); return; }
+  const body=shots.map(s=>`<div class="sheet"><img src="${s.url}"/><div class="cap">${escapeHtml(proj)} · ${escapeHtml(s.label)}</div></div>`).join('');
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+escapeHtml(proj)+' — plan set</title>'
+    +'<style>@page{margin:8mm} *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif}'
+    +'.sheet{page-break-after:always;text-align:center;padding:0} .sheet:last-child{page-break-after:auto}'
+    +'img{max-width:100%;max-height:185mm;object-fit:contain} .cap{font-size:11px;color:#555;margin-top:4px}'
+    +'</style></head><body>'+body
+    +'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},450);};<\/scr'+'ipt></body></html>');
+  win.document.close();
 });
 document.getElementById('export-csv').addEventListener('click', ()=>{
   if(state.items.length===0){ alert('No items to export yet.'); return; }

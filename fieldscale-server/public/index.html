@@ -1058,6 +1058,7 @@
     <div class="rail-divider"></div>
     <button class="tool" data-tool="calibrate" title="Calibrate Scale">📏<span class="tip">Calibrate scale</span></button>
     <button class="tool" data-tool="measure" title="Quick Measure">📐<span class="tip">Quick measure (not added to takeoff)</span></button>
+    <button class="tool" data-tool="arc" title="Arc / curve measure">⌒<span class="tip">Measure a curve — click 3 points: start, a point on the curve, then the end. Added to your takeoff as a curved linear run.</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="highlight" title="Highlight">🖍️<span class="tip">Highlight a region of the sheet</span></button>
     <button class="tool" data-tool="sheetsearch" id="sheet-search-tool" title="Search sheets">🔍<span class="tip">Search all sheets — matching sheets show in the list with a count</span></button>
@@ -3675,6 +3676,7 @@ function activateTool(toolName){
   hideHint();
   if(toolName==='calibrate') showHint('Click the two endpoints of a <b>known dimension</b> on the plan.');
   if(toolName==='measure') showHint('Click to add points. Double-click, <b>Enter</b>, or Finish to see the result — nothing is added to the takeoff.');
+  if(toolName==='arc') showHint('Arc measure — click <b>3 points</b>: the start, a point along the curve, then the end. It’s added to your takeoff as a curved run (LF).');
   if(toolName==='linear') showHint('Drawing <b>'+activeTypeName('linear')+'</b> — click to add points along the run. Double-click, <b>Enter</b>, or Finish to end it.');
   if(toolName==='wall') showHint('Drawing <b>'+activeTypeName('wall')+'</b> — click to trace the wall centerline. Double-click, <b>Enter</b>, or Finish to end it.');
   if(toolName==='area') showHint('Drawing <b>'+activeTypeName('area')+'</b> — click to trace the perimeter. Double-click, <b>Enter</b>, or Finish to close it.');
@@ -3682,7 +3684,7 @@ function activateTool(toolName){
   if(toolName==='highlight') showHint('Drag a box to highlight part of this sheet. Click an existing highlight to remove it.');
   if(toolName==='ai-select') showHint('Drag a box around the region you want Claude to analyze.');
   if(toolName==='select') showHint('Click something to select it. Drag <b>left→right</b> to grab only what\'s fully inside; drag <b>right→left</b> to grab anything you touch. Then move it, <b>Ctrl+C/Ctrl+V</b>, or <b>Delete</b>.');
-  if((toolName==='wall'||toolName==='linear'||toolName==='area') && !state.calibration){
+  if((toolName==='wall'||toolName==='linear'||toolName==='area'||toolName==='arc') && !state.calibration){
     showHint('⚠ No scale set yet — open the <b>Scale</b> button (top right) first, or thickness/measurements won\'t calculate.');
   }
   ['wall','linear','area','count'].forEach(cat=>{
@@ -4289,6 +4291,11 @@ els.overlay.addEventListener('mousedown',(e)=>{
     if(!state.drawing) state.drawing = {points:[p]};
     else { p = applySnap(state.drawing.points[state.drawing.points.length-1], p); state.drawing.points.push(p); }
     updateFinishBtn();
+  } else if(state.tool==='arc'){
+    // Three clicks make an arc: start, a point on the curve, end. The 3rd click finishes it.
+    if(!state.drawing) state.drawing = {arc:true, points:[p]};
+    else { const last=state.drawing.points[state.drawing.points.length-1]; state.drawing.points.push(applySnap(last, p)); }
+    if(state.drawing.points.length>=3) finishArc(); else updateFinishBtn();
   } else if(state.tool==='count'){
     setTypePanelCollapsed('count', true);
     addCountPoint(p);
@@ -4389,6 +4396,10 @@ els.overlay.addEventListener('mousemove',(e)=>{
     state.drawing.hover = applySnap(last, p);
     redrawOverlay();
     updateHudForDrawing(e);
+  } else if(state.tool==='arc' && state.drawing){
+    const last = state.drawing.points[state.drawing.points.length-1];
+    state.drawing.hover = applySnap(last, p);
+    redrawOverlay();
   } else if(state.tool==='calibrate' && state.drawing){
     state.drawing.hover = p;
     redrawOverlay();
@@ -5591,6 +5602,42 @@ function finishLinear(){
 }
 
 // ---------- Area ----------
+// ---------- Arc / curve measure ----------
+// An arc is defined by 3 clicks (start, a point on the curve, end). We fit the circle through them,
+// sample the arc into a short polyline, and store it as a normal LINEAR item — so all the linear
+// machinery (LF display, select, move, delete, redraw) handles it for free.
+function circleFrom3(a,b,c){
+  const ax=a.x,ay=a.y,bx=b.x,by=b.y,cx=c.x,cy=c.y;
+  const d=2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+  if(Math.abs(d)<1e-6) return null; // collinear → no circle
+  const ux=((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/d;
+  const uy=((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/d;
+  return {cx:ux, cy:uy, r:Math.hypot(ax-ux,ay-uy)};
+}
+function normAngle(a){ while(a<=-Math.PI)a+=2*Math.PI; while(a>Math.PI)a-=2*Math.PI; return a; }
+function computeArc(p1,p2,p3,N){
+  N=N||28;
+  const c=circleFrom3(p1,p2,p3);
+  if(!c){ return {points:[{x:p1.x,y:p1.y},{x:p3.x,y:p3.y}], lengthPx:dist(p1,p3)}; }
+  const a1=Math.atan2(p1.y-c.cy,p1.x-c.cx), a2=Math.atan2(p2.y-c.cy,p2.x-c.cx), a3=Math.atan2(p3.y-c.cy,p3.x-c.cx);
+  let sweep=normAngle(a3-a1); const b2=normAngle(a2-a1);
+  if(sweep>=0){ if(!(b2>=0 && b2<=sweep)) sweep-=2*Math.PI; } else { if(!(b2<=0 && b2>=sweep)) sweep+=2*Math.PI; }
+  const pts=[]; for(let i=0;i<=N;i++){ const a=a1+sweep*i/N; pts.push({x:c.cx+c.r*Math.cos(a), y:c.cy+c.r*Math.sin(a)}); }
+  return {points:pts, lengthPx:Math.abs(sweep)*c.r};
+}
+function finishArc(){
+  const raw = state.drawing.points;
+  if(raw.length<3){ return; }
+  if(!requireCalibration()){ state.drawing=null; redrawOverlay(); updateFinishBtn(); return; }
+  const arc=computeArc(raw[0], raw[1], raw[2], 28);
+  const real = arc.lengthPx*state.calibration.unitsPerNativePixel;
+  addTakeoffItem({ category:'linear', typeId:state.activeType.linear, raw:real,
+    points:arc.points.map(p=>({x:p.x,y:p.y})), arc:true, arcPts:raw.map(p=>({x:p.x,y:p.y})) });
+  state.drawing=null;
+  els.hud.style.display='none';
+  updateFinishBtn();
+  redrawOverlay();
+}
 function finishArea(){
   const pts = state.drawing.points;
   if(pts.length<3){ state.drawing=null; redrawOverlay(); updateFinishBtn(); return; }
@@ -6201,6 +6248,17 @@ function redrawOverlay(){
       const previewPts = state.drawing.hover ? [...pts, state.drawing.hover] : pts;
       drawQuickMeasure(previewPts, null, true);
       pts.forEach(p=>drawDot(p,'#16697A'));
+    } else if(state.tool==='arc'){
+      const pts = state.drawing.points;
+      const at = getActiveType('linear'); const col = at?at.color:'#2E86AB';
+      let preview;
+      if(pts.length>=2 && state.drawing.hover) preview = computeArc(pts[0], pts[1], state.drawing.hover, 28).points;
+      else if(pts.length===1 && state.drawing.hover) preview = [pts[0], state.drawing.hover];
+      else preview = pts;
+      octx.save(); octx.strokeStyle=col; octx.lineWidth=2.4/state.zoom;
+      octx.beginPath(); preview.forEach((p,i)=> i===0?octx.moveTo(p.x,p.y):octx.lineTo(p.x,p.y)); octx.stroke();
+      octx.restore();
+      pts.forEach(p=>drawDot(p,col));
     } else if(state.tool==='linear'){
       const pts = state.drawing.points;
       octx.strokeStyle='#2E86AB'; octx.lineWidth=2;

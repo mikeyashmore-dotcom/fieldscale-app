@@ -204,6 +204,28 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Import column-mapper: match another program's CSV columns to Fieldscale's fields -->
+<div id="import-ov" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(14,42,71,.55);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:8px;width:min(760px,95vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.35)">
+    <div style="background:var(--ink-navy);color:var(--header-text);padding:12px 16px;display:flex;align-items:center;gap:10px">
+      <span style="font-family:'Oswald',sans-serif;font-size:16px">⬆ Import price book</span>
+      <span style="flex:1"></span><span id="import-close" style="cursor:pointer;font-size:18px">✕</span>
+    </div>
+    <div style="padding:14px 18px;overflow:auto">
+      <p style="margin:0 0 12px;color:var(--steel);font-size:13px">Moving from another program? Match your file's columns to Fieldscale's fields. We guessed for you — adjust any that are off. <b id="import-rowcount"></b></p>
+      <div id="import-map-rows" style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;align-items:center;font-size:13px"></div>
+      <div style="margin-top:16px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);margin-bottom:6px">Preview (first 3 rows)</div>
+        <div style="overflow:auto;border:1px solid var(--paper-line);border-radius:6px"><table id="import-preview" style="width:100%;border-collapse:collapse;font-size:12px"></table></div>
+      </div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--paper-line);display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn ghost" id="import-cancel" type="button">Cancel</button>
+      <button class="btn primary" id="import-confirm" type="button">Import items</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const TOKEN_STORAGE = 'fieldscale_token';
 const USERNAME_STORAGE = 'fieldscale_username';
@@ -371,17 +393,90 @@ function importRows(rows){
   });
   return count;
 }
+// ---- Import with column mapping (handles CSV exports from any program) ----
+const IMPORT_FIELDS=[
+  {key:'name', label:'Item name', required:true},
+  {key:'category', label:'Category / trade / CSI'},
+  {key:'unit', label:'Unit (SF, LF, EA…)'},
+  {key:'material', label:'Material / unit cost ($)'},
+  {key:'laborHours', label:'Labor hours'},
+  {key:'laborRate', label:'Labor rate ($/hr)'},
+  {key:'labor', label:'Flat labor cost ($)'},
+  {key:'waste', label:'Waste %'}
+];
+// Best-guess which of OUR fields a source column header maps to. Order matters — more specific first
+// (e.g. "unit cost" must land on material, not the Unit field).
+function fieldForHeader(h){
+  h=String(h||'').trim().toLowerCase();
+  const inc=arr=>arr.some(s=>h.includes(s));
+  if(inc(['labor hour','laborhrs','labor hrs','man hour','manhour','labor-hours'])||h==='hours'||h==='hrs'||h==='mh') return 'laborHours';
+  if(inc(['labor rate','laborrate','$/hr','hourly'])||h==='rate') return 'laborRate';
+  if(inc(['waste','wastage','scrap'])) return 'waste';
+  if(inc(['unit cost','unitcost','material','matcost','mat cost','unit price'])||h==='cost'||h==='price') return 'material';
+  if(inc(['labor cost','labour cost','total labor'])||h==='labor'||h==='labour') return 'labor';
+  if(h==='unit'||h==='uom'||h==='units'||h==='u/m'||inc(['unit of measure'])) return 'unit';
+  if(inc(['category','trade','csi','division','section','class','group'])||h==='code'||h==='type') return 'category';
+  if(inc(['name','item','description','product','task','service'])) return 'name';
+  return null;
+}
+let importState=null;   // {headers:[], rows:[[]], hasHeader:bool}
+const importKeywords=['name','item','description','category','csi','code','division','section','trade','unit','uom','material','cost','price','labor','labour','hour','hrs','rate','waste'];
+function openImportMapper(allRows){
+  if(!allRows.length){ toast('That file looks empty.', true); return; }
+  const first=allRows[0].map(x=>x.trim().toLowerCase());
+  const hasHeader=first.some(h=>importKeywords.some(k=>h.includes(k)));
+  const headers = hasHeader ? allRows[0].map(x=>x.trim()) : allRows[0].map((_,j)=>'Column '+(j+1));
+  const rows = hasHeader ? allRows.slice(1) : allRows;
+  importState={headers,rows,hasHeader};
+  // Auto-map: walk columns left→right, assign each to the first unclaimed field it matches.
+  const map={}; const used={};
+  headers.forEach((h,j)=>{ const f=hasHeader?fieldForHeader(h):(IMPORT_FIELDS[j]?IMPORT_FIELDS[j].key:null); if(f && !used[f]){ map[f]=j; used[f]=1; } });
+  // Build the field → column dropdowns.
+  const opts = ['<option value="-1">— skip —</option>'].concat(headers.map((h,j)=>`<option value="${j}">${escapeHtml(h)}</option>`)).join('');
+  document.getElementById('import-map-rows').innerHTML = IMPORT_FIELDS.map(f=>
+    `<label style="font-weight:${f.required?'600':'400'}">${f.label}${f.required?' *':''}</label>`+
+    `<select data-fkey="${f.key}" style="padding:6px 8px;border:1px solid var(--steel-light);border-radius:4px;font-size:13px">${opts.replace(`value="${map[f.key]==null?-1:map[f.key]}"`, `value="${map[f.key]==null?-1:map[f.key]}" selected`)}</select>`
+  ).join('');
+  document.getElementById('import-rowcount').textContent = rows.length+' row'+(rows.length===1?'':'s')+' found.';
+  renderImportPreview();
+  document.getElementById('import-ov').style.display='flex';
+}
+function currentMap(){ const m={}; document.querySelectorAll('#import-map-rows select').forEach(s=>{ const v=parseInt(s.value,10); if(v>=0) m[s.dataset.fkey]=v; }); return m; }
+function renderImportPreview(){
+  const m=currentMap(); const {rows}=importState;
+  const cols=IMPORT_FIELDS.filter(f=>m[f.key]!=null);
+  const head='<thead><tr>'+cols.map(f=>`<th style="text-align:left;padding:5px 8px;background:var(--surface-2);color:var(--steel);font-size:11px">${escapeHtml(f.label)}</th>`).join('')+'</tr></thead>';
+  const body='<tbody>'+rows.slice(0,3).map(r=>'<tr>'+cols.map(f=>`<td style="padding:5px 8px;border-top:1px solid var(--paper-line)">${escapeHtml((r[m[f.key]]||'').trim())}</td>`).join('')+'</tr>').join('')+'</tbody>';
+  document.getElementById('import-preview').innerHTML=head+body;
+}
+document.getElementById('import-map-rows').addEventListener('change', renderImportPreview);
+function closeImportMapper(){ document.getElementById('import-ov').style.display='none'; importState=null; }
+document.getElementById('import-close').addEventListener('click', closeImportMapper);
+document.getElementById('import-cancel').addEventListener('click', closeImportMapper);
+document.getElementById('import-ov').addEventListener('click', e=>{ if(e.target.id==='import-ov') closeImportMapper(); });
+document.getElementById('import-confirm').addEventListener('click', ()=>{
+  const m=currentMap();
+  if(m.name==null){ toast('Pick which column is the item name.', true); return; }
+  const {rows}=importState; let count=0;
+  rows.forEach(r=>{
+    const get=k=> (m[k]!=null && m[k]<r.length) ? String(r[m[k]]).trim() : '';
+    const name=get('name'); if(!name) return;
+    items.push({ id:'pi_'+Math.random().toString(16).slice(2,10), name, category:get('category'), unit:get('unit'),
+      material:parseFloat(get('material'))||0, laborHours:parseFloat(get('laborHours'))||0,
+      laborRate:parseFloat(get('laborRate'))||0, labor:parseFloat(get('labor'))||0, waste:parseFloat(get('waste'))||0 });
+    count++;
+  });
+  closeImportMapper(); render();
+  toast(count ? `Imported ${count} item${count===1?'':'s'} — review, then Save.` : 'No rows had an item name.', !count);
+});
 document.getElementById('import-csv-btn').addEventListener('click', () => document.getElementById('csv-input').click());
 document.getElementById('csv-input').addEventListener('change', e => {
   const file = e.target.files[0];
   if(!file) return;
   const reader = new FileReader();
   reader.onload = () => {
-    try{
-      const n = importRows(parseCSV(String(reader.result)));
-      render();
-      toast(n ? `Imported ${n} item${n===1?'':'s'} — review, then Save.` : 'No usable rows found in that CSV.', !n);
-    }catch(err){ toast('Could not read CSV: ' + err.message, true); }
+    try{ openImportMapper(parseCSV(String(reader.result))); }
+    catch(err){ toast('Could not read CSV: ' + err.message, true); }
   };
   reader.readAsText(file);
   e.target.value = ''; // let the same file be re-imported later

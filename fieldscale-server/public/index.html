@@ -5276,6 +5276,7 @@ function buildModalFields(category, existing){
     <div><label>Description <span style="text-transform:none;font-weight:400;color:var(--steel)">(optional — carries onto the estimate line)</span></label><input type="text" id="tf-desc" value="${escapeHtml(desc)}" placeholder="e.g. Frame exterior walls incl. plates & headers" /></div>
     <div><label>Construction code <span style="text-transform:none;font-weight:400;color:var(--steel)">(matches the estimate line)</span></label><select id="tf-code">${CSI.map(c=>`<option value="${escapeHtml(c)}" ${c===code?'selected':''}>${c||'— none —'}</option>`).join('')}</select></div>
     <div><label>Color</label><input type="color" id="tf-color" value="${color}" /></div>
+    <div><label>Unit cost <span style="text-transform:none;font-weight:400;color:var(--steel)">(optional — $ per unit measured; shows a running total on the summary)</span></label><input type="number" id="tf-unitcost" step="0.01" min="0" value="${existing && existing.unitCost ? existing.unitCost : ''}" placeholder="e.g. 3.50" /></div>
   `;
   if(category==='wall'){
     const studKey = existing ? existing.studKey : '2x4';
@@ -5414,7 +5415,8 @@ document.getElementById('type-modal-save').addEventListener('click', ()=>{
   const color = document.getElementById('tf-color').value;
   const description = (document.getElementById('tf-desc')||{}).value ? document.getElementById('tf-desc').value.trim() : '';
   const codeVal = (document.getElementById('tf-code')||{}).value || '';
-  let entry = { id: modalState.editId || ('type_'+Math.random().toString(36).slice(2,9)), name, color, description, code: codeVal };
+  const unitCost = parseFloat((document.getElementById('tf-unitcost')||{}).value)||0;
+  let entry = { id: modalState.editId || ('type_'+Math.random().toString(36).slice(2,9)), name, color, description, code: codeVal, unitCost };
   if(category==='wall'){
     const measureKinds = Array.from(document.querySelectorAll('.tf-measure-cb')).filter(cb=>cb.checked).map(cb=>cb.value);
     if(measureKinds.length===0){ alert('Pick at least one thing to measure (Length, Face Area, Volume, or Stud Count).'); return; }
@@ -5678,13 +5680,14 @@ function addCountPoint(p){
 function resolveItemDisplay(item){
   const t = state.typeLibrary[item.category] ? state.typeLibrary[item.category].find(x=>x.id===item.typeId) : null;
   if(!t){
-    return {label:'(deleted type)', qty:item.raw||0, unit:'', trade:'General', color:'#999999', type:'Linear'};
+    return {label:'(deleted type)', qty:item.raw||0, unit:'', trade:'General', color:'#999999', type:'Linear', unitCost:0};
   }
+  const uc = t.unitCost||0;
   if(item.category==='count'){
-    return {label:t.defaultLabel||t.name, qty:item.raw, unit:'EA', trade:t.trade, color:t.color, type:'Count'};
+    return {label:t.defaultLabel||t.name, qty:item.raw, unit:'EA', trade:t.trade, color:t.color, type:'Count', unitCost:uc};
   }
   if(item.category==='linear'){
-    return {label:t.name, qty:item.raw, unit:'LF', trade:t.trade, color:t.color, type:'Linear'};
+    return {label:t.name, qty:item.raw, unit:'LF', trade:t.trade, color:t.color, type:'Linear', unitCost:uc};
   }
   if(item.category==='area'){
     // item.raw is always the FOOTPRINT (what you actually traced on the plan). The slope
@@ -5697,7 +5700,7 @@ function resolveItemDisplay(item){
       label: p ? `${t.name} (${p})` : t.name,
       qty: t.reportSquares ? sloped/100 : sloped,
       unit: t.reportSquares ? 'SQ' : 'SF',
-      trade: t.trade, color: t.color, type:'Area'
+      trade: t.trade, color: t.color, type:'Area', unitCost:uc
     };
   }
   if(item.category==='wall'){
@@ -5708,9 +5711,9 @@ function resolveItemDisplay(item){
     else if(item.measureKind==='stud_count'){ qty=Math.ceil((lengthFt*12)/(t.studSpacingIn||16))+1; unit='EA'; type='Count'; }
     else { qty=lengthFt; unit='LF'; type='Linear'; }
     const trade = (WALL_MATERIAL_STYLE[t.material]||WALL_MATERIAL_STYLE.other).trade;
-    return {label:t.name, qty, unit, trade, color:t.color, type};
+    return {label:t.name, qty, unit, trade, color:t.color, type, unitCost:uc};
   }
-  return {label:'Item', qty:item.raw||0, unit:'', trade:'General', color:'#999999', type:'Linear'};
+  return {label:'Item', qty:item.raw||0, unit:'', trade:'General', color:'#999999', type:'Linear', unitCost:0};
 }
 
 // Flat, saveable rollup of the takeoff (one row per trade+label+unit) so an estimate can
@@ -5722,11 +5725,15 @@ function computeTakeoffSummary(){
     if(!r || !Number(r.qty)) return;
     const type = state.typeLibrary[it.category] && state.typeLibrary[it.category].find(x=>x.id===it.typeId);
     const key=(r.trade||'General')+'|'+r.label+'|'+r.unit;
-    if(!agg[key]) agg[key]={label:r.label, unit:r.unit, trade:r.trade||'General', qty:0, description:(type&&type.description)||'', code:(type&&type.code)||''};
+    if(!agg[key]) agg[key]={label:r.label, unit:r.unit, trade:r.trade||'General', qty:0, cost:0, description:(type&&type.description)||'', code:(type&&type.code)||''};
     agg[key].qty += Number(r.qty)||0;
+    agg[key].cost += (Number(r.qty)||0)*(Number(r.unitCost)||0);
   });
-  return Object.values(agg).map(x=>({label:x.label, qty:Math.round(x.qty*100)/100, unit:x.unit, trade:x.trade, description:x.description||'', code:x.code||''}))
-    .sort((a,b)=> a.trade<b.trade?-1:a.trade>b.trade?1:(a.label<b.label?-1:1));
+  return Object.values(agg).map(x=>{
+    const qty=Math.round(x.qty*100)/100;
+    const cost=Math.round(x.cost*100)/100;
+    return {label:x.label, qty, unit:x.unit, trade:x.trade, cost, unitCost: qty? Math.round((cost/qty)*100)/100 : 0, description:x.description||'', code:x.code||''};
+  }).sort((a,b)=> a.trade<b.trade?-1:a.trade>b.trade?1:(a.label<b.label?-1:1));
 }
 
 function requireCalibration(){
@@ -5913,13 +5920,15 @@ document.getElementById('export-csv').addEventListener('click', ()=>{
 
   // Sheet is included because quantities from different sheets were measured at
   // different scales — an estimator checking the numbers needs to know which sheet.
-  csv += 'Sheet,Trade,Label,Type,Quantity,Unit\n';
+  csv += 'Sheet,Trade,Label,Type,Quantity,Unit,Unit Cost,Line Cost\n';
   state.items.forEach(it=>{
     const r = resolveItemDisplay(it);
     const p = it.pageNum || 1;
     const pn = state.pageNames[p];
     const sheet = (pn && (pn.number || pn.name)) ? [pn.number, pn.name].filter(Boolean).join(' — ') : `Page ${p}`;
-    csv += `"${sheet}","${r.trade}","${r.label}","${r.type}",${r.qty.toFixed(2)},"${r.unit}"\n`;
+    const uc = Number(r.unitCost)||0;
+    const line = (Number(r.qty)||0)*uc;
+    csv += `"${sheet}","${r.trade}","${r.label}","${r.type}",${r.qty.toFixed(2)},"${r.unit}",${uc.toFixed(2)},${line.toFixed(2)}\n`;
   });
   const blob = new Blob([csv], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
@@ -5935,20 +5944,34 @@ function buildTakeoffGroups(){
   rows.forEach(r=>{ const k = r.trade||'General'; (groups[k]=groups[k]||[]).push(r); });
   return groups;
 }
+function fsMoney(n){ return '$'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function summaryHtml(){
   const groups = buildTakeoffGroups(); const keys = Object.keys(groups).sort();
   if(!keys.length) return '<p style="color:var(--steel)">No measurements yet.</p>';
-  return keys.map(k=>`<div style="margin-bottom:12px">
-      <div style="font-weight:600;color:#0E2A47;border-bottom:1px solid #E4DFCF;padding-bottom:3px;margin-bottom:4px">${escapeHtml(k)} <span style="color:#7C8896;font-weight:400;font-size:11px">· ${groups[k].length} item${groups[k].length===1?'':'s'}</span></div>
+  const hasCost = keys.some(k=>groups[k].some(r=>r.cost>0));
+  const costTh = hasCost ? '<th style="padding:2px 4px;text-align:right">Cost</th>' : '';
+  let grand = 0;
+  const blocks = keys.map(k=>{
+    const groupTotal = groups[k].reduce((s,r)=>s+(Number(r.cost)||0),0); grand += groupTotal;
+    return `<div style="margin-bottom:12px">
+      <div style="font-weight:600;color:#0E2A47;border-bottom:1px solid #E4DFCF;padding-bottom:3px;margin-bottom:4px">${escapeHtml(k)} <span style="color:#7C8896;font-weight:400;font-size:11px">· ${groups[k].length} item${groups[k].length===1?'':'s'}</span>${hasCost&&groupTotal?`<span style="float:right;color:#0E2A47;font-family:'IBM Plex Mono',monospace">${fsMoney(groupTotal)}</span>`:''}</div>
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
-        <thead><tr style="color:#7C8896;text-align:left;font-size:11px"><th style="padding:2px 4px">Item</th><th style="padding:2px 4px">CSI</th><th style="padding:2px 4px;text-align:right">Qty</th><th style="padding:2px 4px">Unit</th></tr></thead>
-        <tbody>${groups[k].map(r=>`<tr><td style="padding:2px 4px">${escapeHtml(r.label)}</td><td style="padding:2px 4px;color:#7C8896">${escapeHtml(r.code||'—')}</td><td style="padding:2px 4px;text-align:right;font-family:'IBM Plex Mono',monospace">${(Number(r.qty)||0).toLocaleString()}</td><td style="padding:2px 4px">${escapeHtml(r.unit)}</td></tr>`).join('')}</tbody>
-      </table></div>`).join('');
+        <thead><tr style="color:#7C8896;text-align:left;font-size:11px"><th style="padding:2px 4px">Item</th><th style="padding:2px 4px">CSI</th><th style="padding:2px 4px;text-align:right">Qty</th><th style="padding:2px 4px">Unit</th>${costTh}</tr></thead>
+        <tbody>${groups[k].map(r=>`<tr><td style="padding:2px 4px">${escapeHtml(r.label)}</td><td style="padding:2px 4px;color:#7C8896">${escapeHtml(r.code||'—')}</td><td style="padding:2px 4px;text-align:right;font-family:'IBM Plex Mono',monospace">${(Number(r.qty)||0).toLocaleString()}</td><td style="padding:2px 4px">${escapeHtml(r.unit)}</td>${hasCost?`<td style="padding:2px 4px;text-align:right;font-family:'IBM Plex Mono',monospace">${r.cost?fsMoney(r.cost):'—'}</td>`:''}</tr>`).join('')}</tbody>
+      </table></div>`;
+  }).join('');
+  const total = hasCost ? `<div style="margin-top:6px;padding-top:8px;border-top:2px solid #0E2A47;font-weight:700;color:#0E2A47;font-size:14px">Estimated total <span style="float:right;font-family:'IBM Plex Mono',monospace">${fsMoney(grand)}</span></div>` : '';
+  return blocks + total;
 }
 function printTakeoffReport(){
   const meta = state.projectMeta||{}; const proj = document.getElementById('proj-name').value||'Takeoff';
   const groups = buildTakeoffGroups(); const keys = Object.keys(groups).sort();
-  const body = keys.map(k=>`<h2>${escapeHtml(k)}</h2><table><thead><tr><th>Item</th><th>CSI</th><th class="r">Quantity</th><th>Unit</th></tr></thead><tbody>${groups[k].map(r=>`<tr><td>${escapeHtml(r.label)}</td><td>${escapeHtml(r.code||'')}</td><td class="r">${(Number(r.qty)||0).toLocaleString()}</td><td>${escapeHtml(r.unit)}</td></tr>`).join('')}</tbody></table>`).join('');
+  const hasCost = keys.some(k=>groups[k].some(r=>r.cost>0));
+  let grand = 0;
+  const body = keys.map(k=>{
+    const groupTotal = groups[k].reduce((s,r)=>s+(Number(r.cost)||0),0); grand += groupTotal;
+    return `<h2>${escapeHtml(k)}${hasCost&&groupTotal?`<span style="float:right;font-size:13px;color:#0E2A47">${fsMoney(groupTotal)}</span>`:''}</h2><table><thead><tr><th>Item</th><th>CSI</th><th class="r">Quantity</th><th>Unit</th>${hasCost?'<th class="r">Cost</th>':''}</tr></thead><tbody>${groups[k].map(r=>`<tr><td>${escapeHtml(r.label)}</td><td>${escapeHtml(r.code||'')}</td><td class="r">${(Number(r.qty)||0).toLocaleString()}</td><td>${escapeHtml(r.unit)}</td>${hasCost?`<td class="r">${r.cost?fsMoney(r.cost):'—'}</td>`:''}</tr>`).join('')}</tbody></table>`;
+  }).join('') + (hasCost?`<h2 style="border:none;margin-top:20px">Estimated total <span style="float:right">${fsMoney(grand)}</span></h2>`:'');
   const metaLine = [meta.client?('Client / GC: '+escapeHtml(meta.client)):'', meta.address?('Address: '+escapeHtml(meta.address)):'', 'Generated: '+escapeHtml(new Date().toLocaleString())].filter(Boolean).join(' &nbsp;·&nbsp; ');
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+escapeHtml(proj)+' — Takeoff</title>'
     +'<style>body{font-family:Arial,Helvetica,sans-serif;color:#1C1E22;margin:32px;font-size:13px}'

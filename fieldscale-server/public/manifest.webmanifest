@@ -1,15 +1,16 @@
 {
-  "name": "Fieldscale",
+  "name": "Fieldscale — Takeoff & Estimating",
   "short_name": "Fieldscale",
-  "description": "Takeoff, estimating, jobs and invoicing for contractors — works in the field, even offline.",
+  "description": "Construction takeoff, estimating, invoicing and job management for contractors.",
   "start_url": "/home.html",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0E2A47",
-  "theme_color": "#0E2A47",
   "orientation": "any",
+  "background_color": "#F4F6F9",
+  "theme_color": "#15273A",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

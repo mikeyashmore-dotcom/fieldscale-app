@@ -30,6 +30,28 @@
   document.head.appendChild(st);
 })();
 
+// ---- Installable app (PWA): manifest + icons + home-screen meta, and register the service worker.
+// Injected here so every page that loads app-nav.js becomes installable — no per-page edits. ----
+(function () {
+  function head(tag, attrs) {
+    var sel = tag + Object.keys(attrs).map(function (k) { return '[' + k + '="' + attrs[k] + '"]'; }).join('');
+    if (document.head.querySelector(sel)) return;
+    var el = document.createElement(tag);
+    Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+    document.head.appendChild(el);
+  }
+  head('link', { rel: 'manifest', href: '/manifest.webmanifest' });
+  head('meta', { name: 'theme-color', content: '#15273A' });
+  head('meta', { name: 'mobile-web-app-capable', content: 'yes' });
+  head('meta', { name: 'apple-mobile-web-app-capable', content: 'yes' });
+  head('meta', { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' });
+  head('meta', { name: 'apple-mobile-web-app-title', content: 'Fieldscale' });
+  head('link', { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' });
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
+  }
+})();
+
 // Shared top navigation + à-la-carte gating. This renders the whole header menu (grouped into a
 // few dropdowns) so every page gets the same nav from one place — pages only need an empty
 // <nav></nav> in the header and a <meta name="fs-module" content="..."> for module gating.

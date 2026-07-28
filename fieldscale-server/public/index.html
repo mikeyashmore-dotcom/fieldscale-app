@@ -1129,6 +1129,7 @@
           <input id="current-group" placeholder="(none)" list="group-list" title="New items you draw get tagged with this area/phase" style="flex:1;min-width:0;font-size:11px;padding:3px 6px;border:1px solid var(--steel-light);border-radius:3px" />
           <datalist id="group-list"></datalist>
           <button class="btn" id="group-mode-btn" title="Group the Quantities list by trade or by area/phase" style="padding:3px 8px;font-size:11px;white-space:nowrap">By trade</button>
+          <button class="btn" id="page-mode-btn" title="Show only the quantities taken off on THIS sheet, or the totals across all sheets" style="padding:3px 8px;font-size:11px;white-space:nowrap">This sheet</button>
         </div>
         <div class="takeoff-list" id="takeoff-list">
           <div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>
@@ -2831,6 +2832,7 @@ async function renderPage(){
   els.pageLabel.textContent = `${state.pageNum} / ${state.numPages}`;
   redrawOverlay();
   renderPagesList();
+  renderTakeoffList();   // per-sheet quantities update when you change sheets
 }
 // Zoom that fits the whole sheet inside the viewport.
 function fitPageZoom(){
@@ -5862,24 +5864,29 @@ document.getElementById('clear-all').addEventListener('click', ()=>{
 });
 
 let takeoffGroupMode = 'trade';  // 'trade' | 'group' — how the Quantities panel is grouped
+let takeoffPageMode = 'thispage'; // 'thispage' | 'all' — show this sheet's quantities, or the totals
 (function(){
   const btn=document.getElementById('group-mode-btn');
   if(btn) btn.addEventListener('click', ()=>{ takeoffGroupMode = takeoffGroupMode==='trade'?'group':'trade'; btn.textContent = takeoffGroupMode==='group'?'By area':'By trade'; renderTakeoffList(); });
+  const pb=document.getElementById('page-mode-btn');
+  if(pb) pb.addEventListener('click', ()=>{ takeoffPageMode = takeoffPageMode==='thispage'?'all':'thispage'; pb.textContent = takeoffPageMode==='all'?'All sheets':'This sheet'; pb.classList.toggle('primary', takeoffPageMode==='all'); renderTakeoffList(); });
 })();
 function renderTakeoffList(){
   state.stickyRows = state.stickyRows || {};
   els.itemCount.textContent = state.items.length + ' item' + (state.items.length===1?'':'s');
   const UNIT_COLS = ['SF','LF','CY','EA'];
-  const resolved = state.items.map(it=>{ const r = resolveItemDisplay(it); return {...r, id:it.id, category:it.category, typeId:it.typeId, group:(it.group||'').trim()}; });
+  const resolved = state.items.map(it=>{ const r = resolveItemDisplay(it); return {...r, id:it.id, category:it.category, typeId:it.typeId, group:(it.group||'').trim(), pageNum: it.pageNum||1}; });
   // Outer grouping: by trade (default) or by the item's area/phase group.
   const outerOf = (it)=> takeoffGroupMode==='group' ? (it.group||'(unassigned)') : it.trade;
   const aggByOuter = {};
   resolved.forEach(it=>{
     const ok = outerOf(it);
     const A = aggByOuter[ok] = aggByOuter[ok] || {};
-    const g = A[it.label] = A[it.label] || { label:it.label, color:it.color, ids:[], sums:{LF:0,SF:0,CY:0,EA:0}, has:{LF:false,SF:false,CY:false,EA:false}, category:it.category, typeId:it.typeId };
+    const g = A[it.label] = A[it.label] || { label:it.label, color:it.color, ids:[], pageIds:[], sums:{LF:0,SF:0,CY:0,EA:0}, pageSums:{LF:0,SF:0,CY:0,EA:0}, has:{LF:false,SF:false,CY:false,EA:false}, category:it.category, typeId:it.typeId };
     g.ids.push(it.id);
-    if(UNIT_COLS.includes(it.unit)){ g.sums[it.unit]+=it.qty; g.has[it.unit]=true; }
+    const onThisSheet = it.pageNum===state.pageNum;
+    if(onThisSheet) g.pageIds.push(it.id);
+    if(UNIT_COLS.includes(it.unit)){ g.sums[it.unit]+=it.qty; g.has[it.unit]=true; if(onThisSheet) g.pageSums[it.unit]+=it.qty; }
     if(!g.category && it.category){ g.category=it.category; g.typeId=it.typeId; }
   });
   // Remember each row that currently has items, so it stays in the panel at 0 once deleted (keyed by mode).
@@ -5902,15 +5909,20 @@ function renderTakeoffList(){
     Object.values(state.stickyRows).filter(s=>s.mode===takeoffGroupMode && s.outer===outer).forEach(s=>labels.add(s.label));
     [...labels].forEach(label=>{
       const skKey = takeoffGroupMode+'|'+outer+'|'+label;
-      const g = agg[label], sticky = state.stickyRows[skKey], zero = !g;
+      const g = agg[label], sticky = state.stickyRows[skKey];
+      const perPage = takeoffPageMode==='thispage';
+      const shownSums = g ? (perPage ? g.pageSums : g.sums) : {};
       const color = g? g.color : (sticky? sticky.color : '#999');
       const cat = g? g.category : (sticky? sticky.category : null);
       const typeId = g? g.typeId : (sticky? sticky.typeId : null);
       const unitsHas = g? g.has : (sticky? sticky.units : {});
-      const ids = g? g.ids : [];
+      // Which measurements this row's ✕ acts on: on "this sheet" only the ones on this page.
+      const ids = g ? (perPage ? g.pageIds : g.ids) : [];
+      // Dimmed if there's nothing to show in the current view (no items, or none on this sheet).
+      const zero = !UNIT_COLS.some(u => unitsHas[u] && (shownSums[u]||0)!==0);
       const cellFor = (u)=>{ if(!unitsHas[u]) return `<span class="qty-col empty">–</span>`;
-        const v = g? g.sums[u] : 0; const disp=(v%1===0)?v:v.toFixed(1);
-        return `<span class="qty-col${zero?' zero':''}">${disp}</span>`; };
+        const v = shownSums[u]||0; const disp=(v%1===0)?v:v.toFixed(1);
+        return `<span class="qty-col${(v===0)?' zero':''}">${disp}</span>`; };
       const canReactivate = cat && typeId;
       html += `<div class="item-row${zero?' zero-row':''}" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" ${canReactivate?`data-cat="${cat}" data-typeid="${typeId}" style="cursor:pointer;"`:''} title="${canReactivate?'Double-click to draw this type again · Right-click to edit it':''}">
         <span class="swatch" style="background:${color}"></span>

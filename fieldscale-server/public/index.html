@@ -383,6 +383,11 @@
   .takeoff-header h3{font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:0.5px;color:var(--heading);margin:0;font-weight:600;text-transform:uppercase;}
   .takeoff-list{flex:1;overflow-y:auto;padding:6px 10px;}
   .trade-group{margin-bottom:10px;}
+  /* Drag & drop in the Quantities panel */
+  .item-row[draggable="true"]{cursor:grab;}
+  .item-row[draggable="true"]:active{cursor:grabbing;}
+  .trade-title[draggable="true"]{cursor:grab;}
+  .trade-group.drop-hover{outline:2px dashed var(--accent);outline-offset:2px;border-radius:5px;background:rgba(47,109,176,.06);}
   .trade-title{
     font-family:'IBM Plex Mono',monospace;
     font-size:10.5px;
@@ -5884,6 +5889,42 @@ let takeoffPageMode = 'thispage'; // 'thispage' | 'all' — show this sheet's qu
   });
   const pb=document.getElementById('page-mode-btn');
   if(pb) pb.addEventListener('click', ()=>{ takeoffPageMode = takeoffPageMode==='thispage'?'all':'thispage'; pb.textContent = takeoffPageMode==='all'?'All sheets':'This sheet'; pb.classList.toggle('primary', takeoffPageMode==='all'); renderTakeoffList(); });
+
+  // ---- Drag & drop: drop a quantity row into a folder; drag a folder header to reorder folders. ----
+  // Delegated on the list container so it survives the innerHTML rebuilds inside renderTakeoffList.
+  const list = els.takeoffList; let dragState = null;
+  function clearHover(){ if(list._dh){ list._dh.classList.remove('drop-hover'); list._dh=null; } }
+  if(list){
+    list.addEventListener('dragstart', (e)=>{
+      const fld = e.target.closest && e.target.closest('[data-drag="folder"]');
+      const row = e.target.closest && e.target.closest('[data-drag="row"]');
+      if(fld){ dragState={type:'folder', name:fld.getAttribute('data-folder')}; }
+      else if(row){ dragState={type:'row', typeId:row.getAttribute('data-typeid')}; }
+      else return;
+      e.dataTransfer.effectAllowed='move'; try{ e.dataTransfer.setData('text/plain', (dragState.name||dragState.typeId||'')); }catch(_){}
+    });
+    list.addEventListener('dragover', (e)=>{
+      if(!dragState) return; const grp = e.target.closest && e.target.closest('.trade-group'); if(!grp) return;
+      e.preventDefault(); e.dataTransfer.dropEffect='move';
+      if(list._dh!==grp){ clearHover(); grp.classList.add('drop-hover'); list._dh=grp; }
+    });
+    list.addEventListener('drop', (e)=>{
+      if(!dragState){ clearHover(); return; }
+      const grp = e.target.closest && e.target.closest('.trade-group'); if(!grp){ dragState=null; clearHover(); return; }
+      e.preventDefault();
+      const target = grp.getAttribute('data-outer');
+      if(dragState.type==='row' && dragState.typeId){
+        const folder = (target==='(unassigned)') ? '' : target;
+        state.items.forEach(it=>{ if(it.typeId===dragState.typeId) it.group=folder; });
+        markDirty();
+      } else if(dragState.type==='folder' && dragState.name && target && target!=='(unassigned)' && target!==dragState.name){
+        const f = state.folders||[]; const from=f.indexOf(dragState.name);
+        if(from>=0){ f.splice(from,1); let to=f.indexOf(target); if(to<0) to=f.length; f.splice(to,0,dragState.name); markDirty(); }
+      }
+      dragState=null; clearHover(); renderTakeoffList();
+    });
+    list.addEventListener('dragend', ()=>{ dragState=null; clearHover(); });
+  }
 })();
 function renderTakeoffList(){
   state.stickyRows = state.stickyRows || {};
@@ -5916,9 +5957,18 @@ function renderTakeoffList(){
     els.takeoffList.innerHTML = '<div class="takeoff-empty">No measurements yet. Calibrate the sheet, then use a takeoff tool on the plan.</div>';
     return;
   }
+  // Order: in folder mode follow the folder order the user set (drag to reorder). Trades stay alphabetical.
+  let orderedOuters;
+  if(takeoffGroupMode==='group'){
+    state.folders = state.folders || [];
+    [...outerSet].forEach(o=>{ if(o && o!=='(unassigned)' && !state.folders.includes(o)) state.folders.push(o); });
+    orderedOuters = state.folders.filter(o=>outerSet.has(o));
+    if(outerSet.has('(unassigned)')) orderedOuters.push('(unassigned)');
+  } else { orderedOuters = [...outerSet].sort(); }
   let html = `<div class="takeoff-col-header"><span></span><span>Name</span><span>SF</span><span>LF</span><span>CY</span><span>EA</span><span></span></div>`;
-  [...outerSet].sort().forEach(outer=>{
-    html += `<div class="trade-group"><div class="trade-title">${escapeHtml(outer)}</div>`;
+  orderedOuters.forEach(outer=>{
+    const isFolder = takeoffGroupMode==='group' && outer!=='(unassigned)';
+    html += `<div class="trade-group" data-outer="${escapeHtml(outer)}"><div class="trade-title"${isFolder?` draggable="true" data-drag="folder" data-folder="${escapeHtml(outer)}" title="Drag to reorder folders · drop a quantity row here to move it in"`:''}>${isFolder?'📁 ':''}${escapeHtml(outer)}</div>`;
     const agg = aggByOuter[outer] || {};
     const labels = new Set(Object.keys(agg));
     Object.values(state.stickyRows).filter(s=>s.mode===takeoffGroupMode && s.outer===outer).forEach(s=>labels.add(s.label));
@@ -5939,7 +5989,7 @@ function renderTakeoffList(){
         const v = shownSums[u]||0; const disp=(v%1===0)?v:v.toFixed(1);
         return `<span class="qty-col${(v===0)?' zero':''}">${disp}</span>`; };
       const canReactivate = cat && typeId;
-      html += `<div class="item-row${zero?' zero-row':''}" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" ${canReactivate?`data-cat="${cat}" data-typeid="${typeId}" style="cursor:pointer;"`:''} title="${canReactivate?'Double-click to draw this type again · Right-click to edit it':''}">
+      html += `<div class="item-row${zero?' zero-row':''}" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" ${canReactivate?`draggable="true" data-drag="row" data-cat="${cat}" data-typeid="${typeId}"`:''} title="${canReactivate?'Drag into a folder · Double-click to draw again · Right-click for options':''}">
         <span class="swatch" style="background:${color}"></span>
         <span class="name" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
         ${UNIT_COLS.map(cellFor).join('')}

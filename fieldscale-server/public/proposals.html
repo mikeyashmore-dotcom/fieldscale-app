@@ -108,6 +108,15 @@ async function apiFetch(path, options={}){
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtDate(ms){ if(!ms) return '—'; return new Date(ms).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// An estimate is "expired" once its valid-until date has passed — but only while it's still open
+// (an accepted, converted, or rejected estimate is settled, so no stale-price warning is needed).
+function isExpired(e){
+  if(!e.validUntil) return false;
+  const st=(e.status||'draft'); if(st==='accepted'||st==='job'||st==='rejected') return false;
+  const d=new Date(e.validUntil); if(isNaN(d.getTime())) return false;
+  const today=new Date(); today.setHours(0,0,0,0);
+  return d.getTime() < today.getTime();
+}
 let toastTimer;
 function toast(msg,isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 
@@ -170,9 +179,9 @@ function render(list){
       <td>${escapeHtml(e.name)}</td>
       <td class="muted">${escapeHtml(e.client)||'—'}</td>
       <td class="num">${money(e.total)}</td>
-      <td><span class="pill ${escapeHtml(e.status||'draft')}">${escapeHtml(e.status||'draft')}</span>${e.acceptedTier?`<div class="muted" style="font-size:11px;margin-top:3px">Chose: ${escapeHtml(e.acceptedTier)}</div>`:''}</td>
+      <td><span class="pill ${escapeHtml(e.status||'draft')}">${escapeHtml(e.status||'draft')}</span>${isExpired(e)?`<span class="pill" style="margin-left:5px;background:rgba(192,67,47,.13);color:var(--danger)">Expired</span>`:''}${e.acceptedTier?`<div class="muted" style="font-size:11px;margin-top:3px">Chose: ${escapeHtml(e.acceptedTier)}</div>`:''}</td>
       <td class="muted">${fmtDate(e.updatedAt)}</td>
-      <td class="num"><button class="act" data-del="${e.id}" title="Delete">✕</button></td>
+      <td class="num"><button class="act" data-dup="${e.id}" title="Duplicate as a new draft">⧉</button> <button class="act" data-del="${e.id}" title="Delete">✕</button></td>
     </tr>`).join('');
 }
 document.getElementById('rows').addEventListener('click', async (e) => {
@@ -180,6 +189,12 @@ document.getElementById('rows').addEventListener('click', async (e) => {
   if(del){ e.stopPropagation();
     if(!confirm('Delete this estimate permanently?')) return;
     try{ await apiFetch('/api/estimates/'+del, { method:'DELETE' }); load(); toast('Estimate deleted.'); }
+    catch(err){ toast(err.message, true); }
+    return;
+  }
+  const dup = e.target.getAttribute && e.target.getAttribute('data-dup');
+  if(dup){ e.stopPropagation();
+    try{ const r=await apiFetch('/api/estimates/'+dup+'/duplicate', { method:'POST' }); toast('Estimate duplicated.'); location.href='/estimate.html?id='+encodeURIComponent(r.id); }
     catch(err){ toast(err.message, true); }
     return;
   }

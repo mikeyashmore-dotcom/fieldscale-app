@@ -8,32 +8,39 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/fs-theme.css">
 <style>
-  .wrap{padding-top:16px}
-  .hi{font-family:'Oswald',sans-serif;font-size:23px;font-weight:600;margin:0 0 2px}
-  .hi .co{color:var(--cyan-dim)}
-  .sub{color:var(--steel);margin:0 0 14px}
-  h2{font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:16px 0 7px}
-  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-  .tile{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 14px;text-decoration:none;display:block;transition:border-color .12s}
-  a.tile:hover{border-color:var(--cyan-dim)}
-  .tile .lab{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel)}
-  .tile .v{font-family:'Oswald',sans-serif;font-size:23px;font-weight:600;color:var(--heading);margin-top:2px}
+  /* ── Polished Home pass (2026-07-28): softer elevated cards, more breathing room,
+     stronger type hierarchy. Scoped to this page; keeps the existing blue accent. ── */
+  :root{
+    --r-card:13px;
+    --card-shadow:0 1px 2px rgba(20,40,70,.05), 0 6px 16px rgba(20,40,70,.06);
+    --card-shadow-hi:0 3px 8px rgba(20,40,70,.08), 0 14px 30px rgba(20,40,70,.11);
+  }
+  .wrap{padding-top:24px}
+  .hi{font-family:'Oswald',sans-serif;font-size:30px;font-weight:700;letter-spacing:-.01em;margin:0 0 3px;color:var(--heading)}
+  .hi .co{color:var(--accent)}
+  .sub{color:var(--steel);margin:0 0 26px;font-size:15px}
+  h2{font-family:'Oswald',sans-serif;font-size:20px;font-weight:700;letter-spacing:-.005em;margin:30px 0 12px;color:var(--heading)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:14px}
+  .tile{background:var(--surface);border:none;border-radius:var(--r-card);padding:16px 18px;text-decoration:none;display:block;box-shadow:var(--card-shadow);transition:transform .14s ease, box-shadow .14s ease}
+  a.tile:hover{transform:translateY(-2px);box-shadow:var(--card-shadow-hi)}
+  .tile .lab{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--steel)}
+  .tile .v{font-family:'Oswald',sans-serif;font-size:27px;font-weight:700;color:var(--heading);margin-top:4px;line-height:1.1}
   .tile .v.pos{color:var(--good)} .tile .v.neg{color:var(--danger)} .tile .v.warn{color:var(--orange-dim)}
-  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
-  .cards-group{font-family:'Oswald',sans-serif;font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--cyan-dim);margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--paper-line)}
-  .cards-group:first-child{margin-top:2px}
-  .card{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:11px 14px;text-decoration:none;color:var(--heading);display:flex;align-items:center;gap:11px;transition:border-color .12s,transform .12s;width:100%;text-align:left;font:inherit;cursor:pointer}
-  .card:hover{border-color:var(--cyan-dim);transform:translateY(-1px)}
-  .card .ic{font-size:20px;flex:none}
-  .card .t{font-family:'Oswald',sans-serif;font-weight:600;font-size:14.5px}
-  .card .d{color:var(--steel);font-size:12px;margin-top:1px}
-  .attn{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:4px 16px}
-  .attn a{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--paper-line);text-decoration:none;color:var(--heading);font-size:14px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+  .cards-group{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--steel);margin:26px 0 12px;padding:0}
+  .cards-group:first-child{margin-top:6px}
+  .card{background:var(--surface);border:none;border-radius:var(--r-card);padding:15px 16px;text-decoration:none;color:var(--heading);display:flex;align-items:center;gap:13px;box-shadow:var(--card-shadow);transition:transform .14s ease, box-shadow .14s ease;width:100%;text-align:left;font:inherit;cursor:pointer}
+  .card:hover{transform:translateY(-2px);box-shadow:var(--card-shadow-hi)}
+  .card .ic{font-size:21px;flex:none;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);border-radius:9px}
+  .card .t{font-family:'Oswald',sans-serif;font-weight:600;font-size:15px}
+  .card .d{color:var(--steel);font-size:12px;margin-top:2px}
+  .attn{background:var(--surface);border:none;border-radius:var(--r-card);padding:6px 20px;box-shadow:var(--card-shadow)}
+  .attn a{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--paper-line);text-decoration:none;color:var(--heading);font-size:14px}
   .attn a:last-child{border-bottom:none}
-  .attn a:hover{color:var(--cyan-dim)}
+  .attn a:hover{color:var(--accent)}
   .attn .pill{font-family:'IBM Plex Mono',monospace;font-size:12px}
   .attn .over{color:var(--danger)} .attn .soon{color:var(--orange-dim)}
-  .attn-empty{color:var(--steel);padding:16px 0;font-size:13px}
+  .attn-empty{color:var(--steel);padding:20px 0;font-size:13px}
 </style>
 <script src="/app-nav.js"></script>
 </head>
@@ -52,7 +59,7 @@
     <h1 class="hi">Welcome back<span id="co-wrap">, <span class="co" id="co-name"></span></span></h1>
     <p class="sub">Here's where your business stands today.</p>
 
-    <div id="ai-ask" style="display:none;background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px">
+    <div id="ai-ask" style="display:none;background:var(--surface);border:none;border-radius:var(--r-card);padding:16px 18px;margin-bottom:16px;box-shadow:var(--card-shadow)">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-family:'Oswald',sans-serif;font-weight:600;color:var(--heading)">✨ Ask Fieldscale</span>
         <span id="ai-on" style="font-size:11px;color:var(--good);background:rgba(74,155,110,.12);padding:1px 8px;border-radius:20px">AI on</span>
@@ -63,7 +70,7 @@
       </div>
     </div>
 
-    <div id="onboard" style="display:none;background:var(--surface);border:1px solid var(--paper-line);border-left:3px solid var(--cyan-dim);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px">
+    <div id="onboard" style="display:none;background:var(--surface);border:none;border-left:3px solid var(--accent);border-radius:var(--r-card);padding:16px 20px;margin-bottom:16px;box-shadow:var(--card-shadow)">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
         <h2 style="margin:0 0 2px">Get set up <span id="ob-count" style="font-size:12px;color:var(--steel);font-weight:400"></span></h2>
         <a href="#" id="ob-dismiss" style="font-size:12px;color:var(--steel)">Dismiss</a>
@@ -76,6 +83,11 @@
 
     <h2>Needs attention</h2>
     <div class="attn" id="attn"></div>
+
+    <div id="thisweek-wrap" style="display:none">
+      <h2>This week</h2>
+      <div class="attn" id="thisweek"></div>
+    </div>
 
     <h2>Jump to</h2>
     <div id="cards"></div>
@@ -214,6 +226,28 @@ async function init(){
   document.getElementById('loading').style.display='none';
   document.getElementById('content').style.display='block';
   setupAiAsk();
+  loadThisWeek();
+}
+
+// ---- "This week": jobs starting or due in the next 7 days, so nothing sneaks up on you ----
+async function loadThisWeek(){
+  let jobs;
+  try{ jobs = await apiFetch('/api/jobs'); }catch(e){ return; }
+  const today=new Date(); today.setHours(0,0,0,0);
+  const end=new Date(today.getTime()+7*86400000);
+  const parse=s=>{ if(!s) return null; const d=new Date(s); return isNaN(d.getTime())?null:(d.setHours(0,0,0,0),d); };
+  const dayLabel=d=>{ const diff=Math.round((d-today)/86400000); if(diff===0) return 'today'; if(diff===1) return 'tomorrow'; return d.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'}); };
+  const items=[];
+  (jobs||[]).forEach(j=>{
+    if(j.status==='complete'||j.status==='cancelled') return;
+    const sd=parse(j.startDate), dd=parse(j.dueDate);
+    if(sd && sd>=today && sd<end) items.push({ at:sd, href:'/job.html?id='+encodeURIComponent(j.id), text:(j.name||'Job')+(j.client?(' · '+j.client):''), pill:'starts '+dayLabel(sd) });
+    if(dd && dd>=today && dd<end) items.push({ at:dd, href:'/job.html?id='+encodeURIComponent(j.id), text:(j.name||'Job')+(j.client?(' · '+j.client):''), pill:'<span class="soon">due '+dayLabel(dd)+'</span>' });
+  });
+  if(!items.length) return;
+  items.sort((a,b)=>a.at-b.at);
+  document.getElementById('thisweek').innerHTML = items.map(x=>`<a href="${x.href}"><span>${esc(x.text)}</span><span class="pill">${x.pill}</span></a>`).join('');
+  document.getElementById('thisweek-wrap').style.display='';
 }
 
 // ---- Conversational search across the company's records (shown only when AI is on) ----

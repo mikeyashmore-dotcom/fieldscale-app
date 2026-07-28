@@ -985,6 +985,16 @@ async function init(){
       b.innerHTML='✓ Approved by '+escapeHtml(doc.signature.name)+(when?(' on '+escapeHtml(when)):'')+(doc.signature.tier?(' · Customer chose: <b>'+escapeHtml(doc.signature.tier)+'</b>'):'');
       const content=document.getElementById('content'); content.insertBefore(b, content.firstChild);
     }
+    // Warn if the prices are past their valid-until date (and it isn't already accepted/converted).
+    if(doc.validUntil && (est.status!=='accepted') && !est.jobId){
+      const d=new Date(doc.validUntil), today=new Date(); today.setHours(0,0,0,0);
+      if(!isNaN(d.getTime()) && d.getTime()<today.getTime()){
+        const b=document.createElement('div');
+        b.style.cssText='background:rgba(192,67,47,.12);border:1px solid var(--danger);color:var(--danger);border-radius:6px;padding:9px 14px;margin:0 0 14px;font-size:13px;font-weight:600';
+        b.textContent='⚠ This estimate’s prices expired on '+d.toLocaleDateString()+'. Update the valid-until date or re-price before sending.';
+        const content=document.getElementById('content'); content.insertBefore(b, content.firstChild);
+      }
+    }
     // Migrate older lines onto the flat/build-up model. Any line without a pricing mode becomes a
     // flat line at its existing per-unit price, so totals are unchanged and it's editable going forward.
     doc.lines.forEach(l=>{

@@ -2040,7 +2040,7 @@ const server = http.createServer(async (req, res) => {
         const list = db.estimates.filter(e => e.companyId === me.companyId)
           .map(e => ({ id: e.id, name: e.name, client: e.client || '', total: e.total || 0,
                        status: e.jobId ? 'job' : (e.status || 'draft'), jobId: e.jobId || '',
-                       acceptedTier: e.acceptedTier || '',
+                       acceptedTier: e.acceptedTier || '', validUntil: e.validUntil || '',
                        createdAt: e.createdAt, updatedAt: e.updatedAt }))
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);
@@ -2082,6 +2082,21 @@ const server = http.createServer(async (req, res) => {
           name: String(name || tpl.name).slice(0, 200), client: '', total: 0, status: 'draft',
           createdAt: Date.now(), updatedAt: Date.now() };
         writeEstimateDoc(est.id, Object.assign({ company: {}, client: {}, project: '' }, body));
+        db.estimates.push(est);
+        saveDB(db);
+        return sendJSON(res, 200, { id: est.id });
+      }
+      // Duplicate an existing estimate as a fresh draft (great for repeat / similar jobs).
+      const estDupMatch = pathname.match(/^\/api\/estimates\/([a-zA-Z0-9_]+)\/duplicate$/);
+      if (estDupMatch && req.method === 'POST') {
+        const src = db.estimates.find(e => e.id === estDupMatch[1] && e.companyId === me.companyId);
+        if (!src) return sendJSON(res, 404, { error: 'Estimate not found.' });
+        const newDoc = JSON.parse(JSON.stringify(readEstimateDoc(src.id) || {}));
+        delete newDoc.signature;   // a copy is unsigned/unapproved until sent again
+        const est = { id: 'e_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: String((src.name || 'Estimate') + ' (copy)').slice(0, 200), client: src.client || '',
+          total: src.total || 0, status: 'draft', createdAt: Date.now(), updatedAt: Date.now() };
+        writeEstimateDoc(est.id, newDoc);
         db.estimates.push(est);
         saveDB(db);
         return sendJSON(res, 200, { id: est.id });
@@ -2183,7 +2198,7 @@ const server = http.createServer(async (req, res) => {
           if (client !== undefined) est.client = String(client).slice(0, 200);
           if (typeof total === 'number') est.total = total;
           if (status !== undefined) est.status = String(status).slice(0, 40);
-          if (doc !== undefined) writeEstimateDoc(est.id, doc);
+          if (doc !== undefined) { writeEstimateDoc(est.id, doc); est.validUntil = (doc && doc.validUntil) ? String(doc.validUntil).slice(0, 20) : ''; }
           est.updatedAt = Date.now();
           saveDB(db);
           return sendJSON(res, 200, { id: est.id, updatedAt: est.updatedAt });
@@ -2810,6 +2825,7 @@ const server = http.createServer(async (req, res) => {
             const profit = contract - ((Number(c.budget) || 0) + co.cost);
             const margin = contract > 0 ? Math.round(profit / contract * 1000) / 10 : null;
             const base = { id: j.id, number: j.number || '', name: j.name, client: j.client || '', status: j.status || 'scheduled',
+                     startDate: jd.startDate || '', dueDate: jd.dueDate || '',
                      createdAt: j.createdAt, updatedAt: j.updatedAt };
             // People without financial access never see money — omit contract/margin from their list.
             return canSeeFinancials(me) ? Object.assign(base, { contract, margin }) : base;

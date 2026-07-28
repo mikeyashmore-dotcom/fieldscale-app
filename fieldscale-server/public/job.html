@@ -362,6 +362,56 @@
       <div style="padding:10px 14px"><button class="btn ghost" id="add-warranty">＋ Add warranty item</button></div>
     </div>
 
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Permits</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Permits pulled for this job — numbers, dates and status — so nothing lapses.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Permit</th><th>Permit #</th><th>Authority</th><th>Issued</th><th>Expires</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="permit-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-permit">＋ Add permit</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Equipment</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Owned or rented equipment on this job — when it went out, when it's due back, and where it stands.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Item</th><th>Owned / rented</th><th>Supplier / owner</th><th>Out</th><th>Due back</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="equip-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-equip">＋ Add equipment</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Safety</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Toolbox talks, safety inspections and incident reports — a record you can show for compliance.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Date</th><th>Type</th><th>Topic / description</th><th>Who</th><th>Action / outcome</th><th>Status</th><th></th></tr></thead>
+        <tbody id="safety-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-safety">＋ Add safety entry</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Service &amp; warranty callbacks</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">Post-job service tickets and warranty callbacks — what the customer reported and how it was resolved.</p></div>
+      <div class="lines-scroll"><table class="lines">
+        <thead><tr><th>Reported</th><th>Issue</th><th>Status</th><th>Scheduled</th><th>Assigned to</th><th>Resolution / notes</th><th></th></tr></thead>
+        <tbody id="service-lines"></tbody>
+      </table></div>
+      <div style="padding:10px 14px"><button class="btn ghost" id="add-service">＋ Add service ticket</button></div>
+    </div>
+
+    <div class="block" style="padding:0;overflow:hidden">
+      <div style="padding:14px 14px 0"><h3 style="margin:0">Progress photos</h3>
+        <p style="font-size:12px;color:var(--steel);margin:6px 0 0">A before / during / after picture record of the job. Tag each photo so it tells the story. Photos are saved with the job.</p></div>
+      <div style="padding:12px 14px">
+        <div id="photo-gallery"></div>
+        <input type="file" id="progphoto-input" accept="image/*" multiple style="display:none" />
+        <button class="btn ghost" id="add-progphoto" style="margin-top:8px">＋ Add photos</button>
+      </div>
+    </div>
+
     <div class="block">
       <h3>Notes</h3>
       <textarea id="notes" placeholder="Job notes, instructions, materials to order…"></textarea>
@@ -709,6 +759,11 @@ const SECTION_DEFS = [
   ['rfis','RFIs'],
   ['submittals','Submittals'],
   ['warranty','Warranty'],
+  ['permits','Permits'],
+  ['equipment','Equipment'],
+  ['safety','Safety'],
+  ['service','Service & warranty callbacks'],
+  ['photos','Progress photos'],
   ['notes','Notes'],
   ['clientmsg','Message to client'],
 ];
@@ -801,6 +856,87 @@ const renderSubmittals = bindListSection('submittals','sub-lines','add-sub',[
   {f:'status',type:'select',opts:['Draft','Sent','Approved','Rejected','Closed']},
   {f:'notes',ph:''}
 ], ()=>({subject:'',type:'Submittal',to:'',date:'',status:'Draft',notes:''}));
+const renderPermits = bindListSection('permits','permit-lines','add-permit',[
+  {f:'label',ph:'e.g. Building permit'},
+  {f:'number',ph:'Permit #'},
+  {f:'authority',ph:'City / County'},
+  {f:'issued',type:'date'},
+  {f:'expires',type:'date'},
+  {f:'status',type:'select',opts:['Not applied','Applied','Issued','Expired','Closed']},
+  {f:'notes',ph:''}
+], ()=>({label:'',number:'',authority:'',issued:'',expires:'',status:'Not applied',notes:''}));
+const renderEquipment = bindListSection('equipment','equip-lines','add-equip',[
+  {f:'item',ph:'e.g. Mini excavator'},
+  {f:'own',type:'select',opts:['Owned','Rented']},
+  {f:'supplier',ph:'Rental co / owner'},
+  {f:'out',type:'date'},
+  {f:'back',type:'date'},
+  {f:'status',type:'select',opts:['On site','Returned','Overdue']},
+  {f:'notes',ph:''}
+], ()=>({item:'',own:'Owned',supplier:'',out:'',back:'',status:'On site',notes:''}));
+const renderSafety = bindListSection('safety','safety-lines','add-safety',[
+  {f:'date',type:'date'},
+  {f:'type',type:'select',opts:['Toolbox talk','Safety inspection','Incident','Near miss','PPE check']},
+  {f:'topic',ph:'Topic / what happened'},
+  {f:'who',ph:'Led by / involved'},
+  {f:'action',ph:'Action / outcome'},
+  {f:'status',type:'select',opts:['Open','Closed']}
+], ()=>({date:'',type:'Toolbox talk',topic:'',who:'',action:'',status:'Closed'}));
+const renderService = bindListSection('service','service-lines','add-service',[
+  {f:'reported',type:'date'},
+  {f:'issue',ph:'What the customer reported'},
+  {f:'status',type:'select',opts:['Open','Scheduled','In progress','Resolved','Closed']},
+  {f:'scheduled',type:'date'},
+  {f:'assigned',ph:'Tech / who'},
+  {f:'notes',ph:'Resolution / notes'}
+], ()=>({reported:'',issue:'',status:'Open',scheduled:'',assigned:'',notes:''}));
+
+// ---- Progress photos (reuse the job's receipt store; phase/caption tags live in doc.photoMeta) ----
+const PHOTO_PHASES=['Before','During','After','Other'];
+const isImageReceipt = r => /\.(png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(r.name||'') || (r.type||'').indexOf('image/')===0;
+let photoUrlCache={};
+async function photoThumb(id){
+  if(photoUrlCache[id]) return photoUrlCache[id];
+  try{ const res=await fetch('/api/jobs/'+jobId+'/receipts/'+id,{headers:{'Authorization':'Bearer '+getToken()}});
+    if(!res.ok) return ''; const blob=await res.blob(); const url=URL.createObjectURL(blob); photoUrlCache[id]=url; return url; }
+  catch(e){ return ''; }
+}
+function photoCard(r){
+  const m=(doc.photoMeta||{})[r.id]||{};
+  return `<div style="border:1px solid var(--paper-line);border-radius:8px;overflow:hidden;background:var(--surface)">
+    <div style="aspect-ratio:4/3;background:var(--surface-2);display:flex;align-items:center;justify-content:center;overflow:hidden">
+      <img data-pid="${r.id}" style="width:100%;height:100%;object-fit:cover;display:block" alt="" />
+    </div>
+    <div style="padding:7px 8px">
+      <select data-photophase="${r.id}" style="width:100%;font-size:12px;margin-bottom:5px">${PHOTO_PHASES.map(p=>`<option ${(m.phase||'Other')===p?'selected':''}>${p}</option>`).join('')}</select>
+      <input data-photocap="${r.id}" value="${escapeHtml(m.caption||'')}" placeholder="Caption…" style="width:100%;font-size:12px;box-sizing:border-box" />
+    </div>
+  </div>`;
+}
+function renderPhotos(){
+  doc.photoMeta = doc.photoMeta||{};
+  const gal=document.getElementById('photo-gallery'); if(!gal) return;
+  const imgs = (receipts||[]).filter(isImageReceipt);
+  if(!imgs.length){ gal.innerHTML=`<div style="color:var(--steel);font-size:13px;padding:2px 0 8px">No photos yet. Add photos below — they’re saved with the job.</div>`; return; }
+  const byPhase={}; imgs.forEach(r=>{ const ph=(doc.photoMeta[r.id]||{}).phase||'Other'; (byPhase[ph]=byPhase[ph]||[]).push(r); });
+  gal.innerHTML = PHOTO_PHASES.filter(p=>byPhase[p]&&byPhase[p].length).map(p=>`
+    <div style="margin-bottom:14px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);margin-bottom:6px">${p} <span style="color:var(--steel-light)">· ${byPhase[p].length}</span></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">${byPhase[p].map(photoCard).join('')}</div>
+    </div>`).join('');
+  imgs.forEach(async r=>{ const el=gal.querySelector('img[data-pid="'+r.id+'"]'); if(el && !el.getAttribute('src')){ const u=await photoThumb(r.id); if(u) el.src=u; } });
+}
+document.getElementById('photo-gallery').addEventListener('change', e=>{
+  const ph=e.target.getAttribute&&e.target.getAttribute('data-photophase');
+  if(ph){ doc.photoMeta=doc.photoMeta||{}; doc.photoMeta[ph]=doc.photoMeta[ph]||{}; doc.photoMeta[ph].phase=e.target.value; renderPhotos(); }
+});
+document.getElementById('photo-gallery').addEventListener('input', e=>{
+  const cap=e.target.getAttribute&&e.target.getAttribute('data-photocap');
+  if(cap){ doc.photoMeta=doc.photoMeta||{}; doc.photoMeta[cap]=doc.photoMeta[cap]||{}; doc.photoMeta[cap].caption=e.target.value; }
+});
+document.getElementById('add-progphoto').addEventListener('click', ()=>document.getElementById('progphoto-input').click());
+document.getElementById('progphoto-input').addEventListener('change', async e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; if(!f.length) return; await uploadFiles(f); renderPhotos(); });
+
 document.getElementById('tasks-wrap').addEventListener('input', e=>{
   const t=e.target.getAttribute('data-tt'); if(t!==null){ doc.tasks[t].text=e.target.value; }
 });
@@ -1393,6 +1529,8 @@ function fillForm(){
   renderRfis(); renderSubmittals();
   renderDraws();
   renderWarranty();
+  renderPermits(); renderEquipment(); renderSafety(); renderService();
+  renderPhotos();
   renderTime();
   renderClock();
   renderGeofence();
@@ -1419,6 +1557,7 @@ async function init(){
     doc.costs = doc.costs||[]; doc.dailyLogs = doc.dailyLogs||[];
     doc.tasks = doc.tasks||[]; doc.punch = doc.punch||[]; doc.timeEntries = doc.timeEntries||[]; doc.warranty = doc.warranty||[];
     doc.selections = doc.selections||[]; doc.materials = doc.materials||[]; doc.inspections = doc.inspections||[]; doc.draws = doc.draws||[]; doc.rfis = doc.rfis||[]; doc.submittals = doc.submittals||[];
+    doc.permits = doc.permits||[]; doc.equipment = doc.equipment||[]; doc.safety = doc.safety||[]; doc.service = doc.service||[]; doc.photoMeta = doc.photoMeta||{};
     // One-time migration: the old combined list stored submittals in doc.rfis with type:'Submittal'. Move them out.
     if(doc.rfis.some(r=>r.type==='Submittal')){
       doc.submittals = doc.submittals.concat(doc.rfis.filter(r=>r.type==='Submittal'));

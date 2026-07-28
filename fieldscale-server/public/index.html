@@ -969,6 +969,8 @@
         <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Private to your account — saved on the server so you can pick up where you left off from any device.</div>
         <button class="btn primary" id="project-new-btn" style="width:100%;margin-bottom:8px;">＋ New Project</button>
         <button class="btn save" id="project-save-btn" style="width:100%;margin-bottom:8px;">💾 Save Current Project</button>
+        <button class="btn" id="project-lock-btn" style="width:100%;margin-bottom:8px;">🔒 Lock Takeoff (bid set)</button>
+        <div class="sp-note" style="margin-top:-4px;margin-bottom:8px;">Locking makes this takeoff read-only so a finished bid can’t be changed by accident. Unlock any time to edit.</div>
         <div class="checkbox-row" style="margin-bottom:6px;">
           <input type="checkbox" id="autosave-toggle" checked/>
           <label for="autosave-toggle" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:var(--charcoal);margin:0;">Autosave while I work</label>
@@ -1091,6 +1093,7 @@
   <button class="pages-reopen-tab" id="pages-reopen-tab" title="Show sheet list">☰ SHEETS</button>
 
   <div class="stage-wrap" id="stage-wrap">
+    <div id="lock-banner" style="display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:40;background:#B7791F;color:#fff;padding:6px 16px;border-radius:16px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.2);">🔒 Locked — read-only bid set. Unlock in 📂 Projects to edit.</div>
     <div class="empty-state" id="empty-state">
       <h2>NO PLAN LOADED</h2>
       <p>Upload a PDF plan sheet to begin. Calibrate a known dimension first, then use the measurement tools to take off quantities. Right-click a detail callout to add a reference tag that jumps to another sheet.</p>
@@ -2188,6 +2191,7 @@ async function serializeProjectState(){
     legendScale: state.legendScale,
     legendPos: state.legendPos,
     legendHidden: state.legendHidden,
+    locked: !!state.locked,
     numPages: state.numPages
   };
 }
@@ -2211,6 +2215,7 @@ async function restoreProjectState(data){
   state.legendScale = data.legendScale || 1;
   state.legendPos = data.legendPos || null;
   state.legendHidden = data.legendHidden || {};
+  state.locked = !!data.locked;
 
   // Per-sheet scales. Projects saved before scales were per-sheet have a single
   // `calibration` — that one scale was in force everywhere, so copy it onto every
@@ -2235,6 +2240,7 @@ async function restoreProjectState(data){
   });
 
   ['wall','linear','area','count'].forEach(cat=> populateTypeDropdown(cat));
+  updateLockUI();
   syncCalibrationForPage();
   let bytes = null;
   if(data.pdfBytes){                       // preferred: raw bytes streamed from the server
@@ -2516,6 +2522,7 @@ function npResetToBlank(name){
   state.items=[]; state.stickyRows={}; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.annotations=[]; state.refLinks=[];
   state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
+  state.locked=false; updateLockUI();
   state.pageNum=1; state.numPages=1; state.pdfTextIndex=[]; vectorSegsByPage={}; vectorGridByPage={}; vecCacheGen++; lineSnapOn=false; state.searchHighlights=[]; state.searchHighlightPage=null;
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
@@ -2588,6 +2595,24 @@ document.getElementById('project-new-btn').addEventListener('click', async ()=>{
 });
 
 document.getElementById('project-save-btn').addEventListener('click', ()=> saveProject(false));
+
+function updateLockUI(){
+  const btn = document.getElementById('project-lock-btn');
+  const banner = document.getElementById('lock-banner');
+  if(btn) btn.textContent = state.locked ? '🔓 Unlock Takeoff (edit)' : '🔒 Lock Takeoff (bid set)';
+  if(banner) banner.style.display = state.locked ? 'block' : 'none';
+  document.body.classList.toggle('takeoff-locked', !!state.locked);
+}
+document.getElementById('project-lock-btn').addEventListener('click', ()=>{
+  state.locked = !state.locked;
+  updateLockUI();
+  if(state.locked){ clearSelection && clearSelection(); redrawOverlay && redrawOverlay(); }
+  showHint(state.locked
+    ? '🔒 Takeoff locked. It’s now read-only so this bid set can’t change. Click Unlock in 📂 Projects to edit again.'
+    : '🔓 Takeoff unlocked — you can edit again.');
+  markDirty();
+  if(typeof saveProject==='function') saveProject(true);
+});
 
 const autosaveToggle = document.getElementById('autosave-toggle');
 autosaveToggle.checked = autosaveEnabled;
@@ -3930,6 +3955,7 @@ function moveSelection(dx, dy){
 
 // --- delete -----------------------------------------------------------------
 function deleteSelection(){
+  if(state.locked){ flashLocked(); return; }
   if(!state.selection.length) return;
   const wallIds  = new Set(state.selection.filter(s=>s.kind==='wall').map(s=>s.id));
   const areaIds  = new Set(state.selection.filter(s=>s.kind==='area').map(s=>s.id));
@@ -4166,10 +4192,13 @@ els.overlay.addEventListener('mousedown',(e)=>{
     if(pointInLegend(p)){ legendDrag={dx:p.x-legendRect.x, dy:p.y-legendRect.y}; isDown=true; els.overlay.style.cursor='grabbing'; e.preventDefault(); return; }
   }
 
+  // Locked takeoff: block every editing tool; Select/Pan still work for viewing.
+  if(state.locked && state.tool!=='select' && state.tool!=='pan'){ flashLocked(); return; }
+
   if(state.tool==='select'){
     // A corner handle of a selected wall/area → drag just that point (clicking the middle still
     // moves the whole shape, below).
-    const vh = vertexHandleAt(p);
+    const vh = state.locked ? null : vertexHandleAt(p);
     if(vh){
       state.vertexDrag = vh; state.moveDrag = null;
       isDown = true; els.overlay.style.cursor = 'grabbing';
@@ -4182,7 +4211,7 @@ els.overlay.addEventListener('mousedown',(e)=>{
       // so you can grab a group by any one of its members.
       if(additive){ toggleSelected(hit.kind, hit.id); }
       else if(!isSelected(hit.kind, hit.id)){ clearSelection(); state.selection.push({kind:hit.kind, id:hit.id}); }
-      if(isSelected(hit.kind, hit.id)){
+      if(!state.locked && isSelected(hit.kind, hit.id)){
         state.moveDrag = {last:p, moved:false};
         els.overlay.style.cursor = 'grabbing';
       }
@@ -5722,7 +5751,9 @@ function guessTrade(label){
 }
 
 // ---------- Takeoff data + table ----------
+function flashLocked(){ showHint('🔒 This takeoff is locked (read-only). Open 📂 Projects and click Unlock to edit.'); }
 function addTakeoffItem(item){
+  if(state.locked){ flashLocked(); return; }
   item.id = 'it_'+Math.random().toString(36).slice(2,9);
   if(item.group==null) item.group = ((document.getElementById('current-group')||{}).value||'').trim();  // tag with the current area/phase
   item.pageNum = item.pageNum || state.pageNum;  // which sheet it was taken off
@@ -5732,6 +5763,7 @@ function addTakeoffItem(item){
   markDirty();
 }
 document.getElementById('clear-all').addEventListener('click', ()=>{
+  if(state.locked){ flashLocked(); return; }
   if(state.items.length && !confirm('Clear all takeoff items?\n\nThis wipes every measurement on every sheet. It cannot be undone.')) return;
   markDirty();
   state.items = [];
@@ -5829,6 +5861,7 @@ function renderTakeoffList(){
   els.takeoffList.querySelectorAll('.del').forEach(d=>{
     d.addEventListener('click', (e)=>{
       e.stopPropagation();
+      if(state.locked){ flashLocked(); return; }
       const ids = (e.target.dataset.ids||'').split(',').filter(Boolean);
       if(ids.length){
         // First ✕: delete the measurements — the row stays in the panel at 0.

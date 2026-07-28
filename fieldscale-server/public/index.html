@@ -7014,6 +7014,7 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
         <button class="btn" data-cmpview="old">Old</button>
         <button class="btn" data-cmpview="new">New</button>
         <button class="btn primary" data-cmpview="diff">Changes</button>
+        <button class="btn" data-cmpview="text">Text changes</button>
       </span>
     </div>
     <div style="padding:6px 14px;font-size:11px;color:#7C8896;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
@@ -7022,6 +7023,7 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
     </div>
     <div style="flex:1;overflow:auto;background:#EEF1F5;display:flex;align-items:flex-start;justify-content:center;padding:10px">
       <canvas id="cmp-canvas" style="max-width:100%;box-shadow:0 2px 10px rgba(0,0,0,.15);background:#fff"></canvas>
+      <div id="cmp-text" style="display:none;width:100%;max-width:860px;font-size:13px;line-height:1.5;color:#1E242C;background:#fff;padding:16px 20px;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.12)"></div>
     </div>
   </div>
 </div>
@@ -7058,10 +7060,35 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
     }
     return { old:ca.getContext('2d').getImageData(0,0,w,h), 'new':bx.getImageData(0,0,w,h), diff:out, w, h };
   }
+  let textDiff=null;   // {removed:[], added:[]} — the spec/notes changes between the two sheets
+  // Pull the readable text off a sheet and group it into lines (by vertical position).
+  async function extractLines(doc, pageNum){
+    const page=await doc.getPage(pageNum); const tc=await page.getTextContent();
+    const rows={};
+    tc.items.forEach(it=>{ if(!it.str || !it.str.trim()) return; const y=Math.round(it.transform[5]/4)*4;
+      (rows[y]=rows[y]||[]).push([it.transform[4], it.str]); });
+    return Object.keys(rows).map(y=>rows[y].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+  }
+  function diffLines(A, B){
+    const setA=new Set(A.map(s=>s.toLowerCase())), setB=new Set(B.map(s=>s.toLowerCase()));
+    return { removed:A.filter(s=>!setB.has(s.toLowerCase())), added:B.filter(s=>!setA.has(s.toLowerCase())) };
+  }
+  function renderTextDiff(td){
+    const el=document.getElementById('cmp-text');
+    if(!td || (!td.removed.length && !td.added.length)){ el.innerHTML='<div style="color:#7C8896">No text differences found between these two sheets.</div>'; return; }
+    el.innerHTML =
+      (td.added.length?`<div style="font-weight:600;color:#2e9e5b;margin-bottom:6px">Added on the new version (${td.added.length})</div>`+
+        td.added.map(s=>`<div style="background:rgba(46,158,91,.10);padding:3px 8px;border-radius:3px;margin-bottom:3px">+ ${escapeHtml(s)}</div>`).join(''):'')
+     +(td.removed.length?`<div style="font-weight:600;color:#C0392B;margin:14px 0 6px">Removed from the old version (${td.removed.length})</div>`+
+        td.removed.map(s=>`<div style="background:rgba(192,57,43,.10);padding:3px 8px;border-radius:3px;margin-bottom:3px">− ${escapeHtml(s)}</div>`).join(''):'');
+  }
   function showView(which){
-    const im=imgs[which]; if(!im) return; const cv=document.getElementById('cmp-canvas');
-    cv.width=im.width; cv.height=im.height; cv.getContext('2d').putImageData(im,0,0);
+    const cv=document.getElementById('cmp-canvas'), tx=document.getElementById('cmp-text');
     document.querySelectorAll('#cmp-view-btns [data-cmpview]').forEach(b=>b.classList.toggle('primary', b.dataset.cmpview===which));
+    if(which==='text'){ cv.style.display='none'; tx.style.display=''; renderTextDiff(textDiff); return; }
+    tx.style.display='none'; cv.style.display='';
+    const im=imgs[which]; if(!im) return;
+    cv.width=im.width; cv.height=im.height; cv.getContext('2d').putImageData(im,0,0);
   }
   function open(){
     if(!state.pdfDoc){ alert('Open a project first.'); return; }
@@ -7093,9 +7120,12 @@ document.querySelectorAll('.panel-tab').forEach(tab=>{
       const ca=await renderPage(state.pdfDoc, a, targetW);
       const cb=await renderPage(docB, b, targetW);
       imgs=buildDiff(ca, cb);
+      // Text/spec diff (best-effort — vector PDFs have real text; scanned images won't).
+      try{ const la=await extractLines(state.pdfDoc, a), lb=await extractLines(docB, b); textDiff=diffLines(la, lb); }
+      catch(e){ textDiff=null; }
       document.getElementById('cmp-view-btns').style.display='';
       showView('diff');
-      status('Red = removed · Green = added.');
+      status('Red = removed · Green = added. Use “Text changes” for spec/notes differences.');
     }catch(err){ status('Compare failed: '+(err.message||err)); }
   });
   document.querySelectorAll('#cmp-view-btns [data-cmpview]').forEach(b=> b.addEventListener('click', ()=>showView(b.dataset.cmpview)));

@@ -28,9 +28,35 @@
   .tile .n{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--heading)}
   .tile .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-top:2px}
   a.tile{text-decoration:none;display:block} a.tile:hover{border-color:var(--cyan-dim)}
-  .stage-h{font-family:'Oswald',sans-serif;font-size:14px;font-weight:600;color:var(--heading);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px;display:flex;align-items:center;gap:8px}
-  .stage-n{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel);background:var(--surface-2);border-radius:20px;padding:1px 9px;font-weight:400}
-  @media (max-width:680px){ .card{overflow-x:auto} table{min-width:560px} }
+  /* ---- Monday-style pipeline board ---- */
+  .board{display:flex;flex-direction:column;gap:16px}
+  .grp{background:var(--surface);border:1px solid var(--paper-line);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(16,42,67,.06)}
+  .grp-h{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;border-left:5px solid var(--gc);background:var(--gcbg);user-select:none}
+  .grp-caret{color:var(--gc);font-size:11px;transition:transform .15s;width:12px;text-align:center}
+  .grp.collapsed .grp-caret{transform:rotate(-90deg)}
+  .grp-title{font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;color:var(--gc);text-transform:uppercase;letter-spacing:.04em}
+  .grp-count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel);background:var(--surface-2);border-radius:20px;padding:1px 9px}
+  .grp-sum{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--steel)}
+  .grp-body{overflow-x:auto}
+  .grp.collapsed .grp-body{display:none}
+  .brow,.grp-head{display:grid;grid-template-columns:minmax(170px,1.7fr) 116px minmax(120px,1.2fr) 110px minmax(100px,1fr) 132px 40px;align-items:center;gap:8px;min-width:720px}
+  .grp-head{padding:7px 14px;border-top:1px solid var(--paper-line);border-bottom:1px solid var(--paper-line);background:var(--paper)}
+  .grp-head span{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);font-weight:600}
+  .brow{padding:9px 14px;border-bottom:1px solid var(--paper-line);border-left:5px solid var(--gc);cursor:pointer;background:var(--surface);transition:background .1s}
+  .brow:last-child{border-bottom:none}
+  .brow:hover{background:var(--surface-2)}
+  .cell{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cell.num{font-family:'IBM Plex Mono',monospace;text-align:right}
+  .cell.muted{color:var(--steel)}
+  .name{display:flex;align-items:center;gap:9px;font-weight:600}
+  .avatar{flex:none;width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Sans',sans-serif}
+  .status{display:inline-block;padding:4px 12px;border-radius:5px;background:var(--gc);color:#fff;font-size:11.5px;font-weight:600;text-transform:capitalize;white-space:nowrap}
+  .due{display:inline-block;padding:3px 9px;border-radius:5px;font-size:12px;background:var(--surface-2);color:var(--steel)}
+  .due.soon{background:rgba(232,150,74,.16);color:#C77A2E}
+  .due.over{background:rgba(192,57,43,.15);color:var(--danger)}
+  .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
+  .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  @media (max-width:680px){ .grp-body{overflow-x:auto} }
 </style>
 </head>
 <body>
@@ -116,32 +142,50 @@ function renderPipeline(list){
     `<div class="tile"><div class="n">${money(openVal)}</div><div class="l">Pipeline value</div></div>`+
     `<a class="tile" href="/proposals.html"><div class="n">${estimating}</div><div class="l">Estimating →</div></a>`;
 }
+// Each pipeline stage gets its own board color (Monday-style group).
+const STAGE_META = {
+  'new':      { label:'New',       color:'#4A90D9' },
+  'contacted':{ label:'Contacted', color:'#E8964A' },
+  'on hold':  { label:'On hold',   color:'#8A94A6' }
+};
+function rgba(hex,a){ hex=hex.replace('#',''); const r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16); return `rgba(${r},${g},${b},${a})`; }
+const AV_COLORS=['#4A90D9','#E8964A','#4A9B6E','#A25DDC','#5FA8D3','#D9686B','#3E9E9E','#C58B3B'];
+function avatarColor(name){ let h=0; const s=String(name||'?'); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return AV_COLORS[h%AV_COLORS.length]; }
+function initials(name){ const p=String(name||'').trim().split(/\s+/).filter(Boolean); if(!p.length) return '?'; return (p[0][0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase(); }
+function dueClass(v){ if(!v) return ''; const d=new Date(v.length<=10?v+'T00:00:00':v); if(isNaN(d)) return ''; const t=new Date(); t.setHours(0,0,0,0); const diff=(d-t)/86400000; if(diff<0) return 'over'; if(diff<=3) return 'soon'; return ''; }
+
 function render(list){
   const groups=document.getElementById('groups');
   document.getElementById('leads-note').style.display='';
   const active = list.filter(isActive);
   if(!active.length){
-    groups.innerHTML=`<div class="card"><div style="padding:32px;text-align:center;color:var(--steel)">
+    groups.innerHTML=`<div class="grp"><div style="padding:32px;text-align:center;color:var(--steel)">
       No active leads. Click <strong>＋ New Lead</strong> to add one. Leads you're estimating are in the <a href="/proposals.html">Estimates</a> tab.</div></div>`;
     return;
   }
-  groups.innerHTML = ACTIVE_STAGES.map(g=>{
+  const head = `<div class="grp-head"><span>Lead</span><span>Status</span><span>Type of work</span><span class="num" style="text-align:right">Est. value</span><span>Source</span><span>Follow-up</span><span></span></div>`;
+  groups.innerHTML = `<div class="board">` + ACTIVE_STAGES.map(g=>{
     const rows = active.filter(l=>(l.stage||'new').toLowerCase()===g.key);
     if(!rows.length) return '';
-    return `<div class="stage-h">${g.label} <span class="stage-n">${rows.length}</span></div>
-      <div class="card" style="margin-bottom:16px"><table>
-        <thead><tr><th>Lead</th><th>Type of work</th><th class="num">Est. value</th><th>Source</th><th>Follow-up</th><th></th></tr></thead>
-        <tbody>${rows.map(l=>`
-          <tr class="rowlink" data-open="${l.id}">
-            <td>${escapeHtml(l.name)}</td>
-            <td class="muted">${escapeHtml(l.workType)||'—'}</td>
-            <td class="num">${l.value?money(l.value):'—'}</td>
-            <td class="muted">${escapeHtml(l.source)||'—'}</td>
-            <td class="muted">${fmtDate(l.followUp)}</td>
-            <td class="num"><button class="act" data-del="${l.id}" title="Delete">✕</button></td>
-          </tr>`).join('')}</tbody>
-      </table></div>`;
-  }).join('');
+    const meta = STAGE_META[g.key] || {label:g.label, color:'#8A94A6'};
+    const sum = rows.reduce((s,l)=>s+(Number(l.value)||0),0);
+    const body = rows.map(l=>{
+      const dc=dueClass(l.followUp);
+      return `<div class="brow" data-open="${l.id}">
+        <span class="cell name"><span class="avatar" style="background:${avatarColor(l.name)}">${escapeHtml(initials(l.name))}</span>${escapeHtml(l.name)||'Untitled'}</span>
+        <span class="cell"><span class="status">${escapeHtml(meta.label)}</span></span>
+        <span class="cell muted">${escapeHtml(l.workType)||'—'}</span>
+        <span class="cell num">${l.value?money(l.value):'—'}</span>
+        <span class="cell muted">${escapeHtml(l.source)||'—'}</span>
+        <span class="cell"><span class="due ${dc}">${fmtDate(l.followUp)}</span></span>
+        <span class="cell num"><button class="act" data-del="${l.id}" title="Delete lead">✕</button></span>
+      </div>`;
+    }).join('');
+    return `<div class="grp" data-grp="${g.key}" style="--gc:${meta.color};--gcbg:${rgba(meta.color,0.09)}">
+      <div class="grp-h"><span class="grp-caret">▾</span><span class="grp-title">${escapeHtml(meta.label)}</span><span class="grp-count">${rows.length}</span><span class="grp-sum">${money(sum)}</span></div>
+      <div class="grp-body">${head}${body}</div>
+    </div>`;
+  }).join('') + `</div>`;
 }
 document.getElementById('groups').addEventListener('click', async (e) => {
   const del = e.target.getAttribute && e.target.getAttribute('data-del');
@@ -151,6 +195,8 @@ document.getElementById('groups').addEventListener('click', async (e) => {
     catch(err){ toast(err.message, true); }
     return;
   }
+  const gh = e.target.closest && e.target.closest('.grp-h');
+  if(gh){ gh.parentElement.classList.toggle('collapsed'); return; }  // collapse/expand a stage group
   const row = e.target.closest && e.target.closest('[data-open]');
   if(row){ location.href='/lead.html?id='+encodeURIComponent(row.getAttribute('data-open')); }
 });

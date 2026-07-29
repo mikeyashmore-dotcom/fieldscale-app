@@ -224,7 +224,7 @@
     <div class="bottom">
       <div class="note-blocks">
         <div class="block">
-          <h3>Scope / Notes (shown on the proposal) <button class="btn ghost" id="ai-scope-btn" style="display:none;font-size:12px;padding:3px 9px;margin-left:6px" title="Turn your notes into a polished scope of work">✨ Write scope</button></h3>
+          <h3>Scope / Notes (shown on the proposal) <button class="btn ghost" id="ai-scope-btn" style="display:none;font-size:12px;padding:3px 9px;margin-left:6px" title="Turn your notes into a polished scope of work">✨ Write scope</button> <button class="btn ghost" id="ai-gaps-btn" style="display:none;font-size:12px;padding:3px 9px;margin-left:4px" title="AI reviews your estimate and flags line items you may have forgotten">🔎 Check for gaps</button></h3>
           <textarea id="notes" placeholder="Describe the work, inclusions, exclusions…"></textarea>
         </div>
         <div class="block">
@@ -1032,7 +1032,8 @@ async function init(){
 // Show the "Write scope" button only when AI is switched on; turn the notes into a polished scope.
 function setupAiScope(){
   const btn=document.getElementById('ai-scope-btn');
-  fsAI.status().then(s=>{ if(s.enabled) btn.style.display=''; });
+  const gbtn=document.getElementById('ai-gaps-btn');
+  fsAI.status().then(s=>{ if(s.enabled){ btn.style.display=''; if(gbtn) gbtn.style.display=''; } });
   btn.addEventListener('click', ()=>{
     const notes=document.getElementById('notes').value.trim();
     if(!notes){ toast('Type a few rough notes first, then let AI polish them.', true); return; }
@@ -1040,6 +1041,14 @@ function setupAiScope(){
       run:()=>fsAI.post('/api/ai/scope',{ notes, project: val('project') }),
       insertLabel:'Use this scope',
       onInsert:(text)=>{ document.getElementById('notes').value=text; doc.notes=text; toast('Scope added to notes.'); }
+    });
+  });
+  // "Did I miss anything?" — AI reviews the line items + scope and flags likely-missing items.
+  if(gbtn) gbtn.addEventListener('click', ()=>{
+    if(!doc.lines || !doc.lines.length){ toast('Add some line items first, then check for gaps.', true); return; }
+    const lines=doc.lines.map(l=>`${l.qty||''} ${l.unit||''} — ${l.name||'(unnamed)'}${l.code?' ['+l.code+']':''}`).join('\n');
+    fsAiRun({ title:'🔎 Estimate gap check', loading:'Reviewing your estimate for missing items…',
+      run:()=>fsAI.post('/api/ai/estimate-check',{ lines, scope:document.getElementById('notes').value, project: val('project'), trade: doc.estimateClass||'' })
     });
   });
 }

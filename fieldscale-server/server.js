@@ -1665,6 +1665,19 @@ const server = http.createServer(async (req, res) => {
         } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
       }
 
+      // ---- "Did I miss anything?" — second-set-of-eyes review of a draft estimate ----
+      if (pathname === '/api/ai/estimate-check' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { lines, scope, project, trade } = await readBody(req);
+        const list = String(lines || '').slice(0, 6000);
+        if (!list.trim()) return sendJSON(res, 400, { error: 'Add some line items first, then run the check.' });
+        const system = 'You are a senior construction estimator doing a second-set-of-eyes review of a DRAFT estimate to catch omissions. Given the scope and the current line items, list items commonly required for this kind of work that appear to be MISSING or easy to forget — materials, labor, prep, access/protection, permits/fees, disposal/dumpster, equipment/rental, cleanup, and typical exclusions worth stating. Be specific and practical. Do NOT invent prices or quantities. Do NOT repeat items already present. If it looks reasonably complete, say so briefly. Output a short list, one item per line each starting "- ", no preamble.';
+        const user = (project ? 'Project: ' + project + '\n' : '') + (trade ? 'Trade/type: ' + trade + '\n' : '') + (scope ? ('Scope:\n' + String(scope).slice(0, 3000) + '\n\n') : '') + 'Current line items:\n' + list;
+        try { const text = await aiText({ system, user, max_tokens: 900, mock: () => '- Dumpster / debris disposal\n- Surface prep and masking\n- Permit fee (verify with local authority)\n- Final cleanup' });
+          aiDone(); return sendJSON(res, 200, { text });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
       // ---- Extract form fields from spoken/typed free text (voice-to-form) ----
       if (pathname === '/api/ai/parse-fields' && req.method === 'POST') {
         if (aiBlocked()) return;

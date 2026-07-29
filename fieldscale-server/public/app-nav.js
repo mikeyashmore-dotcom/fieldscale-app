@@ -222,6 +222,17 @@
     });
     nav.innerHTML = html;
 
+    // Rebuilding the nav wiped the page's hardcoded "Owner" link (id="owner-nav"). Several pages do
+    // `document.getElementById('owner-nav').style.display=''` for admins — with the element gone that
+    // threw and left the page stuck on "Loading…". Re-add it (hidden); those pages reveal it by role.
+    if (!nav.querySelector('#owner-nav')) {
+      var on = document.createElement('a');
+      on.id = 'owner-nav'; on.className = 'navtop navdirect'; on.href = '/admin.html';
+      on.textContent = 'Owner'; on.style.display = 'none';
+      if (location.pathname === '/admin.html') on.classList.add('active');
+      nav.appendChild(on);
+    }
+
     // The brand/logo (top-left) is the home button — click it to reach the company dashboard.
     document.querySelectorAll('header .brand, .topbar .brand').forEach(function (b) {
       b.style.cursor = 'pointer';

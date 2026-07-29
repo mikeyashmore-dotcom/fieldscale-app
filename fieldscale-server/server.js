@@ -335,6 +335,32 @@ function validLeadStageIds(companyRec){
 // ---------- Floor Plans (a standalone sketch tool: walls + fixtures on a scaled grid) ----------
 // Its own store, walled off per company, mirroring leads. The full drawing (walls/fixtures/rooms)
 // lives in a per-plan doc on disk; db.json keeps only lightweight listing metadata.
+// ---------- AI training data (owner-only capture of takeoffs to teach the plan-reader) ----------
+// Gated to a single account so a customer's takeoffs are NEVER collected. Default = the instance
+// owner (the first-registered user); override with the TRAINING_ACCOUNT env var (username or email).
+const TRAINING_DIR = path.join(DATA_DIR, 'training');
+const TRAINING_IMG_DIR = path.join(TRAINING_DIR, 'images');
+const TRAINING_SAMPLE_DIR = path.join(TRAINING_DIR, 'samples');
+function ensureTrainingDirs(){ [TRAINING_DIR, TRAINING_IMG_DIR, TRAINING_SAMPLE_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); }); }
+function instanceOwnerId(){ const f = db.users.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0]; return f ? f.id : null; }
+function trainingEnabledFor(me){
+  if (!me) return false;
+  const env = process.env.TRAINING_ACCOUNT;
+  if (env) return me.username === env || me.email === env;
+  return me.id === instanceOwnerId();   // your account only, by default
+}
+function trainingAllMeta(){
+  if (!fs.existsSync(TRAINING_SAMPLE_DIR)) return [];
+  return fs.readdirSync(TRAINING_SAMPLE_DIR).filter(f => f.endsWith('.json')).map(f => {
+    try { return JSON.parse(fs.readFileSync(path.join(TRAINING_SAMPLE_DIR, f), 'utf8')); } catch (e) { return null; }
+  }).filter(Boolean);
+}
+function trainingSummary(){
+  const all = trainingAllMeta(); const byKind = { wall: 0, area: 0, count: 0, linear: 0 }; let labels = 0, lastAt = 0;
+  all.forEach(s => { (s.labels || []).forEach(l => { if (byKind[l.kind] != null) byKind[l.kind]++; labels++; }); if ((s.updatedAt || 0) > lastAt) lastAt = s.updatedAt; });
+  return { sheets: all.length, labels, byKind, lastAt };
+}
+
 const PLANS_DIR = path.join(DATA_DIR, 'plans');
 // NOTE: named floorPlanPath (NOT planPath) — the takeoff tool already has a planPath() for its
 // PDF plan sets. A duplicate planPath() here would win via hoisting and silently redirect the
@@ -3138,6 +3164,40 @@ const server = http.createServer(async (req, res) => {
       }
 
       // ---- Leads / CRM: list / create / get / put / delete / convert-to-estimate ----
+      // ---- AI training data capture (owner-only; a customer's takeoffs are never collected) ----
+      if (pathname === '/api/training/status' && req.method === 'GET') {
+        if (!trainingEnabledFor(me)) return sendJSON(res, 200, { enabled: false });
+        return sendJSON(res, 200, Object.assign({ enabled: true }, trainingSummary()));
+      }
+      if (pathname === '/api/training/samples' && req.method === 'POST') {
+        if (!trainingEnabledFor(me)) return sendJSON(res, 403, { error: 'Training capture is not enabled for this account.' });
+        const body = await readBody(req);
+        const m = String(body.image || '').match(/^data:image\/png;base64,(.+)$/);
+        if (!m) return sendJSON(res, 400, { error: 'Expected a PNG image.' });
+        const buf = Buffer.from(m[1], 'base64');
+        if (buf.length > 8 * 1024 * 1024) return sendJSON(res, 413, { error: 'Image too large.' });
+        const key = String(body.key || ('s_' + crypto.randomBytes(6).toString('hex'))).replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 120);
+        const id = 't_' + crypto.createHash('sha1').update(key).digest('hex').slice(0, 16);   // stable per (project,sheet) → upsert
+        ensureTrainingDirs();
+        fs.writeFileSync(path.join(TRAINING_IMG_DIR, id + '.png'), buf);
+        const labels = Array.isArray(body.labels) ? body.labels.slice(0, 8000).map(l => ({
+          kind: String(l.kind || '').slice(0, 16), type: String(l.type || '').slice(0, 80), trade: String(l.trade || '').slice(0, 80),
+          qty: Number(l.qty) || 0, unit: String(l.unit || '').slice(0, 12),
+          point: (l.point && typeof l.point === 'object') ? { x: Number(l.point.x) || 0, y: Number(l.point.y) || 0 } : undefined,
+          points: Array.isArray(l.points) ? l.points.slice(0, 4000).map(p => ({ x: Number(p.x) || 0, y: Number(p.y) || 0 })) : undefined
+        })) : [];
+        const meta = { id, key, source: String(body.source || '').slice(0, 200),
+          width: Number(body.width) || 0, height: Number(body.height) || 0,
+          scaleUnitsPerPx: Number(body.scaleUnitsPerPx) || 0, unitLabel: String(body.unitLabel || '').slice(0, 20),
+          labels, image: id + '.png', companyId: me.companyId, updatedAt: Date.now() };
+        writeJsonAtomic(path.join(TRAINING_SAMPLE_DIR, id + '.json'), meta);
+        return sendJSON(res, 200, Object.assign({ ok: true, id }, trainingSummary()));
+      }
+      if (pathname === '/api/training/export' && req.method === 'GET') {
+        if (!trainingEnabledFor(me)) return sendJSON(res, 403, { error: 'Not enabled.' });
+        return sendJSON(res, 200, { samples: trainingAllMeta() });
+      }
+
       // ---- Editable Leads-board columns (custom pipeline stages) ----
       if (pathname === '/api/lead-stages' && req.method === 'GET') {
         return sendJSON(res, 200, { stages: leadStagesFor(companyById(me.companyId)) });

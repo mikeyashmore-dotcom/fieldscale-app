@@ -2119,6 +2119,7 @@ function markDirty(){
   if(!state.pdfDoc && !state.items.length) return;  // nothing to lose yet
   isDirty = true;
   updateSaveStatus();
+  if(typeof scheduleTrainingCapture==='function') scheduleTrainingCapture();  // quietly collect this sheet as an AI training example (owner only)
   if(!autosaveEnabled) return;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(()=>{ saveProject(true); }, AUTOSAVE_IDLE_MS);
@@ -6250,6 +6251,131 @@ function updateRotUI(){
   fine.addEventListener('input', ()=>{ const v=document.getElementById('rot-fine-val'); if(v) v.textContent=(parseFloat(fine.value)||0).toFixed(1).replace(/\.0$/,'')+'°'; });
   fine.addEventListener('change', ()=>{ const base=Math.round(currentPageDeg()/90)*90; setPageRotation(base+(parseFloat(fine.value)||0)); });
 })();
+
+// ===================== AI training data capture (your account only) =====================
+// Quietly saves each measured sheet as a training example (the plan image + the marks you drew),
+// to teach the auto-takeoff model. Gated server-side to the instance owner; a customer never
+// sees this and their takeoffs are never collected.
+let trainingEnabled=false, trainingPaused=false, trainingBusy=false, trainingTimer=null;
+let trainingSummaryData={sheets:0,byKind:{wall:0,area:0,count:0,linear:0}};
+const lastCaptureSig={};
+let _trainSf=1;
+function trainFetch(p, opts){
+  const t=getToken();
+  return fetch(p, Object.assign({headers:Object.assign({'Content-Type':'application/json','Authorization':'Bearer '+t}, (opts&&opts.headers)||{})}, opts||{})).then(r=>r.json().catch(()=>({})));
+}
+async function initTraining(){
+  let s; try{ s=await trainFetch('/api/training/status'); }catch(e){ return; }
+  if(!s || !s.enabled) return;   // off for everyone but you
+  trainingEnabled=true;
+  trainingPaused = localStorage.getItem('fs_train_paused')==='1';
+  trainingSummaryData=s;
+  buildTrainingChip();
+  updateTrainingChip();
+}
+function trainToImg(p){
+  let x=p.x, y=p.y; const vr=state.viewRot;
+  if(vr){ const t=vr.deg*Math.PI/180, cos=Math.cos(t), sin=Math.sin(t); const dx=p.x-vr.w0/2, dy=p.y-vr.h0/2; x=vr.wr/2+(dx*cos-dy*sin); y=vr.hr/2+(dx*sin+dy*cos); }
+  return { x:Math.round(x*_trainSf), y:Math.round(y*_trainSf) };
+}
+function trainingGeomOnPage(){
+  const pg=state.pageNum, labels=[];
+  const nm=(cat,id)=>{ const t=(state.typeLibrary[cat]||[]).find(x=>x.id===id); return t?{name:t.name||t.defaultLabel||cat, trade:t.trade||''}:{name:cat,trade:''}; };
+  state.items.filter(it=>it.category==='count' && it.point && (it.pageNum||1)===pg).forEach(it=>{ const t=nm('count',it.typeId); labels.push({kind:'count', type:t.name, trade:t.trade, point:trainToImg(it.point)}); });
+  state.items.filter(it=>it.category==='linear' && Array.isArray(it.points) && it.points.length>=2 && (it.pageNum||1)===pg).forEach(it=>{ const t=nm('linear',it.typeId); labels.push({kind:'linear', type:t.name, trade:t.trade, points:it.points.map(trainToImg)}); });
+  (state.walls||[]).filter(w=>(w.pageNum||1)===pg).forEach(w=>{ const t=nm('wall',w.typeId); labels.push({kind:'wall', type:t.name, trade:t.trade, points:(w.points||[]).map(trainToImg)}); });
+  (state.areas||[]).filter(a=>(a.pageNum||1)===pg).forEach(a=>{ const t=nm('area',a.typeId); labels.push({kind:'area', type:t.name, trade:t.trade, points:(a.points||[]).map(trainToImg)}); });
+  return labels;
+}
+function trainingHasGeom(){
+  const pg=state.pageNum;
+  return state.items.some(it=>(it.pageNum||1)===pg && (it.category==='count'||it.category==='linear'))
+    || (state.walls||[]).some(w=>(w.pageNum||1)===pg) || (state.areas||[]).some(a=>(a.pageNum||1)===pg);
+}
+async function captureTrainingSheet(force){
+  if(!trainingEnabled || trainingBusy || !state.pdfDoc) return;
+  if(trainingPaused && !force) return;
+  if(!trainingHasGeom()){ if(force && typeof toast==='function') toast('Nothing measured on this sheet yet.'); return; }
+  const cw=els.pdfCanvas.width, ch=els.pdfCanvas.height; if(!cw||!ch) return;
+  const TARGET=1600; _trainSf=Math.min(1, TARGET/Math.max(cw,ch));
+  const iw=Math.max(1,Math.round(cw*_trainSf)), ih=Math.max(1,Math.round(ch*_trainSf));
+  const off=document.createElement('canvas'); off.width=iw; off.height=ih;
+  off.getContext('2d').drawImage(els.pdfCanvas,0,0,iw,ih);
+  let image; try{ image=off.toDataURL('image/png'); }catch(e){ return; }
+  const labels=trainingGeomOnPage();
+  const key=(currentProjectId||'noproj')+'::'+state.pageNum;
+  const sig=iw+'x'+ih+':'+labels.length+':'+JSON.stringify(labels).length;
+  if(!force && lastCaptureSig[key]===sig) return;   // unchanged since last save — skip
+  const cal=state.calibrations[state.pageNum];
+  trainingBusy=true;
+  try{
+    const r=await trainFetch('/api/training/samples',{method:'POST', body:JSON.stringify({
+      key, source:(state.projectMeta&&state.projectMeta.address)||'', image, width:iw, height:ih,
+      scaleUnitsPerPx: cal ? (cal.unitsPerNativePixel/_trainSf) : 0, unitLabel: cal?cal.unitLabel:'', labels
+    })});
+    if(r && r.ok){ lastCaptureSig[key]=sig; trainingSummaryData=r; updateTrainingChip(); if(force && typeof toast==='function') toast('Saved this sheet to training ('+r.sheets+' total).'); }
+  }catch(e){}
+  trainingBusy=false;
+}
+function scheduleTrainingCapture(){
+  if(!trainingEnabled || trainingPaused) return;
+  clearTimeout(trainingTimer);
+  trainingTimer=setTimeout(()=>captureTrainingSheet(false), 12000);   // ~12s after you stop drawing
+}
+function toggleTrainingPause(){ trainingPaused=!trainingPaused; localStorage.setItem('fs_train_paused', trainingPaused?'1':'0'); updateTrainingChip(); }
+function exportTraining(e){
+  if(e) e.preventDefault();
+  const t=getToken();
+  fetch('/api/training/export',{headers:{'Authorization':'Bearer '+t}}).then(r=>r.json()).then(d=>{
+    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='fieldscale-training.json'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  }).catch(()=>{});
+}
+function buildTrainingChip(){
+  if(document.getElementById('train-chip')) return;
+  const css=document.createElement('style'); css.id='train-css';
+  css.textContent = "#train-chip{position:fixed;left:12px;bottom:12px;z-index:9000;display:flex;align-items:center;gap:7px;"
+    +"background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);border-radius:20px;padding:6px 12px;font-size:12.5px;"
+    +"color:var(--ink,#1C1E22);box-shadow:0 4px 14px rgba(14,42,71,.16);cursor:pointer;user-select:none}"
+    +"#train-chip .tdot{width:8px;height:8px;border-radius:50%;background:#1E824C}#train-chip.paused .tdot{background:#B9C2CB}"
+    +"#train-panel{position:fixed;left:12px;bottom:52px;z-index:9001;width:252px;background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);"
+    +"border-radius:10px;box-shadow:0 12px 34px rgba(14,42,71,.24);padding:14px;font-size:13px;color:var(--ink,#1C1E22);display:none}"
+    +"#train-panel.open{display:block}#train-panel h4{margin:0 0 8px;font-family:'Oswald',sans-serif;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--heading,#15273A)}"
+    +"#train-panel .tp-row{display:flex;justify-content:space-between;margin:5px 0;color:var(--steel,#5A6B7B)}#train-panel .tp-row b{color:var(--ink,#1C1E22)}"
+    +"#train-panel .tp-ft{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}#train-panel .tp-note{font-size:11px;color:var(--steel,#7C8896);margin-top:10px;line-height:1.45}";
+  document.head.appendChild(css);
+  const chip=document.createElement('div'); chip.id='train-chip'; chip.title='AI training (your account only)';
+  chip.innerHTML='<span class="tdot"></span><span id="train-chip-txt">Training</span>';
+  document.body.appendChild(chip);
+  const panel=document.createElement('div'); panel.id='train-panel';
+  panel.innerHTML='<h4>🧠 AI Training <span style="font-weight:400;color:var(--steel);font-size:11px">· your account</span></h4>'
+    +'<div class="tp-row"><span>Sheets saved</span><b id="tp-sheets">0</b></div>'
+    +'<div class="tp-row"><span>Walls</span><b id="tp-wall">0</b></div>'
+    +'<div class="tp-row"><span>Areas</span><b id="tp-area">0</b></div>'
+    +'<div class="tp-row"><span>Counts</span><b id="tp-count">0</b></div>'
+    +'<div class="tp-row"><span>Lines</span><b id="tp-linear">0</b></div>'
+    +'<div class="tp-ft"><button class="btn" id="tp-capture" style="font-size:12px;padding:6px 10px">Capture this sheet</button>'
+    +'<button class="btn ghost" id="tp-pause" style="font-size:12px;padding:6px 10px">Pause</button></div>'
+    +'<div class="tp-ft"><a class="btn ghost" id="tp-export" href="#" style="font-size:12px;padding:6px 10px;text-decoration:none">Export data</a></div>'
+    +'<div class="tp-note">Each measured sheet is saved as an example to teach the auto-takeoff. Only you see this — customers’ takeoffs are never collected.</div>';
+  document.body.appendChild(panel);
+  chip.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.toggle('open'); });
+  document.addEventListener('click', (e)=>{ if(panel.classList.contains('open') && !panel.contains(e.target) && !chip.contains(e.target)) panel.classList.remove('open'); });
+  document.getElementById('tp-capture').addEventListener('click', ()=>captureTrainingSheet(true));
+  document.getElementById('tp-pause').addEventListener('click', toggleTrainingPause);
+  document.getElementById('tp-export').addEventListener('click', exportTraining);
+}
+function updateTrainingChip(){
+  if(!trainingEnabled) return;
+  const d=trainingSummaryData||{}, bk=d.byKind||{};
+  const txt=document.getElementById('train-chip-txt'); if(txt) txt.textContent = trainingPaused ? 'Training paused' : ('Training · '+(d.sheets||0)+' saved');
+  const chip=document.getElementById('train-chip'); if(chip) chip.classList.toggle('paused', trainingPaused);
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('tp-sheets', d.sheets||0); set('tp-wall', bk.wall||0); set('tp-area', bk.area||0); set('tp-count', bk.count||0); set('tp-linear', bk.linear||0);
+  const pb=document.getElementById('tp-pause'); if(pb) pb.textContent = trainingPaused ? 'Resume' : 'Pause';
+}
+initTraining();
 
 // Resolves an item's live display values (label/qty/unit/trade/color) from its
 // current type definition. This is what makes editing a type retroactively update

@@ -7039,7 +7039,17 @@ document.getElementById('summary-btn').addEventListener('click', ()=>{
 });
 
 // ---------- Overlay rendering ----------
+// Overlay redraws are coalesced to at most one per animation frame. On big/dense sheets many
+// callers fire redrawOverlay() several times in a single event (mousemove + snap + hover); without
+// this they each repaint the whole overlay, causing jank. The overlay is never read back
+// synchronously (verified), so deferring one frame is safe. Use redrawOverlayNow() to force it.
+let _redrawScheduled=false;
 function redrawOverlay(){
+  if(_redrawScheduled) return;
+  _redrawScheduled=true;
+  requestAnimationFrame(()=>{ _redrawScheduled=false; redrawOverlayNow(); });
+}
+function redrawOverlayNow(){
   octx.setTransform(1,0,0,1,0,0);
   octx.clearRect(0,0,els.overlay.width, els.overlay.height);
   octx.save();

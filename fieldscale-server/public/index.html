@@ -179,6 +179,13 @@
   .pages-resize:hover,.pages-resize.dragging{background:var(--cyan-dim);}
   body.pages-resizing{cursor:ew-resize;user-select:none;}
   @media (max-width:680px){ .pages-resize{display:none;} }
+  .pages-filter-wrap{position:relative;flex:none;padding:7px 8px 4px;border-bottom:1px solid var(--paper-line);background:var(--paper);}
+  .pages-filter-wrap input{width:100%;box-sizing:border-box;padding:6px 24px 6px 9px;font:13px inherit;
+    border:1px solid var(--paper-line);border-radius:6px;background:var(--surface);color:var(--ink);}
+  .pages-filter-wrap input:focus{outline:none;border-color:var(--cyan-dim);}
+  .pages-filter-wrap #pages-filter-clear{position:absolute;right:16px;top:50%;transform:translateY(-50%);
+    cursor:pointer;color:var(--steel);font-size:16px;line-height:1;display:none;padding:0 2px;}
+  .pages-filter-wrap.has-text #pages-filter-clear{display:block;}
   .pages-list{flex:1;overflow-y:auto;padding:6px;white-space:nowrap;}
   .page-list-row{
     display:flex;align-items:center;gap:8px;
@@ -1099,7 +1106,11 @@
     <div class="pages-panel-header">
       <h4>Sheets</h4>
     </div>
-    <!-- The simple sheet-search box was merged into the full Search (🔍 rail tool → search popover). -->
+    <!-- Quick filter of THIS list by sheet name/number. (The 🔍 rail tool searches the plan TEXT.) -->
+    <div class="pages-filter-wrap">
+      <input type="text" id="pages-filter" placeholder="Filter sheets by title…" autocomplete="off" />
+      <span id="pages-filter-clear" title="Clear">×</span>
+    </div>
     <div class="pages-list" id="pages-list"></div>
     <div class="pages-resize" id="pages-resize" title="Drag to resize the sheet list"></div>
   </div>
@@ -2892,6 +2903,21 @@ function pagesPanelOpen(){
 document.getElementById('pages-collapse-tab').addEventListener('click', collapsePagesPanel);
 document.getElementById('pages-reopen-tab').addEventListener('click', openPagesPanel);
 
+// Quick "filter this sheet list by title" box (separate from the plan-text 🔍 search).
+(function(){
+  const input = document.getElementById('pages-filter');
+  const wrap = input ? input.closest('.pages-filter-wrap') : null;
+  const clear = document.getElementById('pages-filter-clear');
+  if(!input) return;
+  input.addEventListener('input', ()=>{
+    pagesTitleFilter = input.value.trim().toLowerCase();
+    if(wrap) wrap.classList.toggle('has-text', !!input.value);
+    renderPagesList();
+  });
+  input.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ input.value=''; pagesTitleFilter=''; if(wrap) wrap.classList.remove('has-text'); renderPagesList(); input.blur(); } });
+  if(clear) clear.addEventListener('click', ()=>{ input.value=''; pagesTitleFilter=''; wrap.classList.remove('has-text'); renderPagesList(); input.focus(); });
+})();
+
 // Drag the right edge to widen/narrow the sheet list; the size is remembered.
 (function(){
   const handle = document.getElementById('pages-resize');
@@ -2935,6 +2961,7 @@ document.getElementById('pages-reopen-tab').addEventListener('click', openPagesP
 // with a per-sheet match count. It ALSO highlights the matches on the sheet you're viewing and
 // lets you step through them with ‹ / › (or Enter). Reuses the background text index.
 let sheetSearchActive=false, sheetSearchCounts={}, sheetSearchQuery='', sheetSearchMatchIdx=-1, sheetSearchZoomed=false, sheetSearchNamePages=new Set();
+let pagesTitleFilter='';  // quick "filter this sheet list by title" box in the Sheets panel
 function toggleSheetSearch(){
   // The 🔍 rail tool now opens the full search popover (sheets + reference documents).
   const pop=document.getElementById('search-popover'); if(!pop) return;
@@ -3096,6 +3123,8 @@ function renderPagesList(){
       label = `Page ${p}`; // AI ran successfully but found no name/number on this sheet
       tooltip = 'No sheet name/number detected on this page';
     }
+    // Quick title filter (Sheets-panel box): skip rows whose number/name don't contain the text.
+    if(pagesTitleFilter && !label.toLowerCase().includes(pagesTitleFilter)) continue;
     const active = p===state.pageNum ? 'active':'';
     const hidden = isHidden(p);
     const cal = state.calibrations[p];
@@ -3125,8 +3154,9 @@ function renderPagesList(){
     </div>`;
     shownRows++;
   }
-  if(sheetSearchActive && shownRows===0){
-    container.innerHTML = `<div style="padding:14px 10px;color:var(--steel);font-size:12px">No sheets match your search.</div>`;
+  if((sheetSearchActive || pagesTitleFilter) && shownRows===0){
+    const msg = pagesTitleFilter ? 'No sheets match that title.' : 'No sheets match your search.';
+    container.innerHTML = `<div style="padding:14px 10px;color:var(--steel);font-size:12px">${msg}</div>`;
     return;
   }
 

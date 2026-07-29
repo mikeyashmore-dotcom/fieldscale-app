@@ -1122,9 +1122,9 @@ const server = http.createServer(async (req, res) => {
           paid: Math.round(paid * 100) / 100, balance: Math.round((total - paid) * 100) / 100,
           status: invoiceStatus(total, paid), payLink: (idoc.payLink && /^https?:\/\//i.test(idoc.payLink)) ? idoc.payLink : '' };
       });
-      const changeOrders = (jd.changeOrders || []).map(c => ({ id: c.id,
-        title: c.title || c.description || '', description: c.description || '', date: c.date || '',
-        reason: c.reason || '', scope: c.scope || '',
+      const changeOrders = (jd.changeOrders || []).map(c => ({ id: String(c.id || '').slice(0, 60),
+        title: String(c.title || c.description || '').slice(0, 200), description: String(c.description || '').slice(0, 200), date: String(c.date || '').slice(0, 20),
+        reason: String(c.reason || '').slice(0, 1000), scope: String(c.scope || '').slice(0, 4000),
         lines: Array.isArray(c.lines) ? c.lines.map(l => ({ name: String(l.name || ''), qty: Number(l.qty) || 0,
           unit: String(l.unit || ''), unitPrice: Number(l.unitPrice) || 0 })).filter(l => l.name) : [],
         priceDelta: Number(c.priceDelta) || 0, status: c.status || 'pending',

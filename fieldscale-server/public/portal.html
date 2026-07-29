@@ -68,16 +68,18 @@ function coLinesHtml(c){
     + '</tbody></table>';
 }
 function coCard(c, pending, contractNow){
+  const cid = esc(c.id);   // c.id is contractor-controlled and this portal is public — escape it in attributes
+  const st = esc(c.status||'');
   const title = esc(c.title)||'Change order';
   const scope = c.scope ? `<div class="co-scope">${esc(c.scope)}</div>` : '';
   const reason = c.reason ? `<div class="co-reason"><b>Why:</b> ${esc(c.reason)}</div>` : '';
   const signed = (c.status==='approved'&&c.signedBy) ? `<div class="meta">✓ Approved by ${esc(c.signedBy)}${c.signedAt?(' on '+new Date(c.signedAt).toLocaleDateString()):''}</div>` : '';
   const actions = pending ? `<div class="row" style="margin-top:12px;gap:8px">
-      <input class="co-sig" data-sig="${c.id}" placeholder="Type your name to approve" style="flex:1;min-width:200px;border:1px solid var(--steel-light);border-radius:3px;padding:9px 11px;font-size:14px;font-family:inherit" />
-      <button class="btn green" data-approve="${c.id}">Approve</button> <button class="btn ghost" data-reject="${c.id}">Decline</button>
+      <input class="co-sig" data-sig="${cid}" placeholder="Type your name to approve" style="flex:1;min-width:200px;border:1px solid var(--steel-light);border-radius:3px;padding:9px 11px;font-size:14px;font-family:inherit" />
+      <button class="btn green" data-approve="${cid}">Approve</button> <button class="btn ghost" data-reject="${cid}">Decline</button>
     </div>` : '';
-  return `<div class="co-card" data-co="${c.id}">
-    <div class="row"><div><strong>${title}</strong>${c.date?` <span class="meta">· ${esc(fmtDate(c.date))}</span>`:''}</div><span class="pill ${pending?'pending':esc(c.status)}">${pending?'pending':esc(c.status)}</span></div>
+  return `<div class="co-card" data-co="${cid}">
+    <div class="row"><div><strong>${title}</strong>${c.date?` <span class="meta">· ${esc(fmtDate(c.date))}</span>`:''}</div><span class="pill ${pending?'pending':st}">${pending?'pending':st}</span></div>
     <div class="co-summary ${c.priceDelta>=0?'up':'down'}">${coSummaryLine(c, contractNow)}</div>
     ${scope}${reason}${coLinesHtml(c)}${signed}${actions}
   </div>`;

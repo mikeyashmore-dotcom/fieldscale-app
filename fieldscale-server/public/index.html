@@ -1083,6 +1083,7 @@
     <button class="tool" data-tool="arc" title="Arc / curve measure">⌒<span class="tip">Measure a curve — click 3 points: start, a point on the curve, then the end. Added to your takeoff as a curved linear run.</span></button>
     <div class="rail-divider"></div>
     <button class="tool" data-tool="highlight" title="Highlight">🖍️<span class="tip">Highlight a region of the sheet</span></button>
+    <button class="tool" data-tool="findsimilar" id="findsimilar-tool" title="Find similar — auto-count">⧉<span class="tip">Find similar — draw a box around ONE symbol (door, outlet, light) and it finds &amp; counts the matching ones on this sheet</span></button>
     <button class="tool" data-tool="sheetsearch" id="sheet-search-tool" title="Search sheets">🔍<span class="tip">Search all sheets — matching sheets show in the list with a count</span></button>
     <button class="tool" data-tool="markup" id="markup-tool" title="Markups (text, arrow, box…)">✎<span class="tip">Add markups — text, arrow, box, line, ellipse</span></button>
     <button class="tool" data-tool="askai" id="askai-tool" title="Ask AI about the plans">💬<span class="tip">Ask AI about these plans — opens the AI Assist panel</span></button>
@@ -1425,6 +1426,7 @@ const state = {
   clipboard:[],   // copied geometry, pasteable onto any sheet
   moveDrag:null,  // {last:{x,y}} while dragging the selection around
   vertexDrag:null, // {kind,id,index} while dragging one corner of a selected wall/area
+  findSimilar:null, // {rect,candidates,scale,tw,th,matches} while a Find-similar auto-count is being reviewed
   typeLibrary:{ wall:[], linear:[], area:[], count:[] }, // saved reusable presets per category
   activeType:{ wall:null, linear:null, area:null, count:null }, // currently selected type id per category
   pdfTextIndex:[], // [{pageNum, items:[{str,x,y,width,height}], fullText}] — built once per document
@@ -2840,6 +2842,7 @@ document.getElementById('reference-file-input').addEventListener('change', async
 });
 
 async function renderPage(){
+  if(typeof closeFindSim==='function') closeFindSim();  // matches are sheet-specific
   syncCalibrationForPage();  // measuring must always use the scale of the sheet on screen
   refreshLegendBtn();
   refreshDrawBar();
@@ -3719,6 +3722,8 @@ function activateTool(toolName){
   if(toolName==='count') showHint('Placing <b>'+activeTypeName('count')+'</b> — click each item to count.');
   if(toolName==='highlight') showHint('Drag a box to highlight part of this sheet. Click an existing highlight to remove it.');
   if(toolName==='ai-select') showHint('Drag a box around the region you want Claude to analyze.');
+  if(toolName==='findsimilar') showHint('Find similar — drag a <b>tight box around ONE symbol</b> (a door, outlet, light). I’ll find and count the matching ones on this sheet.');
+  if(toolName!=='findsimilar') closeFindSim();  // leaving the tool clears any in-progress search
   if(toolName==='select') showHint('Click something to select it. Drag <b>left→right</b> to grab only what\'s fully inside; drag <b>right→left</b> to grab anything you touch. Then move it, <b>Ctrl+C/Ctrl+V</b>, or <b>Delete</b>.');
   if((toolName==='wall'||toolName==='linear'||toolName==='area'||toolName==='arc') && !state.calibration){
     showHint('⚠ No scale set yet — open the <b>Scale</b> button (top right) first, or thickness/measurements won\'t calculate.');
@@ -4340,7 +4345,8 @@ els.overlay.addEventListener('mousedown',(e)=>{
   } else if(state.tool==='count'){
     setTypePanelCollapsed('count', true);
     addCountPoint(p);
-  } else if(state.tool==='ai-select' || state.tool==='highlight'){
+  } else if(state.tool==='ai-select' || state.tool==='highlight' || state.tool==='findsimilar'){
+    if(state.tool==='findsimilar') closeFindSim();  // starting a fresh box clears prior results
     isDown=true;
     state.drawing = {start:p, end:p};
   }
@@ -4417,7 +4423,7 @@ els.overlay.addEventListener('mousemove',(e)=>{
   if(state.tool==='pan'){
     els.overlay.style.cursor = pointInLegend(p) ? 'grab' : 'default';
   }
-  if((state.tool==='ai-select' || state.tool==='highlight') && isDown && state.drawing){
+  if((state.tool==='ai-select' || state.tool==='highlight' || state.tool==='findsimilar') && isDown && state.drawing){
     state.drawing.end = p;
     redrawOverlay();
     return;
@@ -4495,6 +4501,10 @@ els.overlay.addEventListener('mouseup',(e)=>{
   if(state.tool==='highlight' && isDown){
     isDown=false;
     finalizeHighlight();
+  }
+  if(state.tool==='findsimilar' && isDown){
+    isDown=false;
+    finalizeFindSimilar();
   }
   if(state.drawing && state.drawing.box && isDown){
     isDown=false;
@@ -5807,6 +5817,186 @@ function addCountPoint(p){
   addTakeoffItem({category:'count', typeId:state.activeType.count, raw:1, point:p});
 }
 
+// ===================== Find similar — auto-count matching symbols =====================
+// The contractor boxes ONE symbol; we template-match it across the rendered sheet, then let
+// them tune sensitivity and drop a count marker on every match. Pure client-side image work.
+const FS_MAXDIM = 1100;      // longest side we search at (keeps big sheets fast)
+const FS_TPL_TARGET = 40;    // template downscaled so its longest side is about this many px
+const FS_FLOOR = 0.42;       // keep candidates at/above this correlation; slider tightens from here
+
+function finalizeFindSimilar(){
+  const d = state.drawing; state.drawing = null;
+  if(!d || !d.start || !d.end){ redrawOverlay(); return; }
+  const x = Math.min(d.start.x, d.end.x), y = Math.min(d.start.y, d.end.y);
+  const w = Math.abs(d.end.x - d.start.x), h = Math.abs(d.end.y - d.start.y);
+  if(w < 6 || h < 6){ showHint('That box was too small — drag a box snug around <b>one</b> symbol.'); redrawOverlay(); return; }
+  showHint('Searching this sheet for matches…');
+  // Let the hint paint before the (brief) heavy loop runs.
+  setTimeout(()=>{
+    let ok=false;
+    try { ok = computeFindSimilar({x,y,w,h}); }
+    catch(e){ console.warn('find-similar failed', e); showHint('Couldn’t search this sheet. Try a different symbol.'); redrawOverlay(); return; }
+    if(!ok){ redrawOverlay(); return; }
+    showFindSimPanel();               // panel first so the count/label elements exist…
+    applyFindSimilarThreshold(0.62);  // …then fill them in and draw the match markers
+    hideHint();
+  }, 20);
+}
+
+// Build the candidate list (downscaled centers + scores). Returns false if it can't run.
+function computeFindSimilar(rect){
+  const canvas = els.pdfCanvas;
+  const pageW = canvas.width, pageH = canvas.height;
+  if(!pageW || !pageH) return false;
+  // clamp the sample box to the sheet
+  const rx = Math.max(0, Math.min(rect.x, pageW-2)), ry = Math.max(0, Math.min(rect.y, pageH-2));
+  const rw = Math.max(2, Math.min(rect.w, pageW-rx)), rh = Math.max(2, Math.min(rect.h, pageH-ry));
+  // pick a working scale: small enough for speed, and so the template long side ~ FS_TPL_TARGET
+  const pageScale = Math.min(1, FS_MAXDIM / Math.max(pageW, pageH));
+  const tplLongAtPage = Math.max(rw, rh) * pageScale;
+  const extra = Math.min(1, FS_TPL_TARGET / Math.max(8, tplLongAtPage));
+  const scale = Math.max(0.04, pageScale * extra);
+  const IW = Math.max(8, Math.round(pageW * scale)), IH = Math.max(8, Math.round(pageH * scale));
+
+  // downscale the rendered sheet to a grayscale buffer
+  const off = document.createElement('canvas'); off.width = IW; off.height = IH;
+  const octx2 = off.getContext('2d'); octx2.drawImage(canvas, 0, 0, IW, IH);
+  const px = octx2.getImageData(0, 0, IW, IH).data;
+  const img = new Float32Array(IW*IH);
+  for(let i=0, j=0; i<img.length; i++, j+=4){ img[i] = 0.299*px[j] + 0.587*px[j+1] + 0.114*px[j+2]; }
+
+  // template rectangle in the downscaled buffer
+  const tx = Math.round(rx*scale), ty = Math.round(ry*scale);
+  let tw = Math.max(3, Math.round(rw*scale)), th = Math.max(3, Math.round(rh*scale));
+  tw = Math.min(tw, IW-tx); th = Math.min(th, IH-ty);
+  if(tw < 3 || th < 3) return false;
+  const n = tw*th;
+  const T = new Float32Array(n);
+  let tSum=0;
+  for(let j=0;j<th;j++){ for(let i=0;i<tw;i++){ const v=img[(ty+j)*IW+(tx+i)]; T[j*tw+i]=v; tSum+=v; } }
+  const tMean = tSum/n;
+  let tNorm2=0; const Tz=new Float32Array(n);
+  for(let k=0;k<n;k++){ const z=T[k]-tMean; Tz[k]=z; tNorm2+=z*z; }
+  const tNorm = Math.sqrt(tNorm2);
+  if(tNorm < 1e-3){ showHint('That box looks blank — draw it around a symbol with visible lines.'); return false; }
+
+  // integral images for fast window sum / sum-of-squares
+  const W1=IW+1;
+  const S = new Float64Array(W1*(IH+1)), S2 = new Float64Array(W1*(IH+1));
+  for(let y=0;y<IH;y++){
+    let rowSum=0, rowSum2=0;
+    for(let x=0;x<IW;x++){
+      const v=img[y*IW+x]; rowSum+=v; rowSum2+=v*v;
+      S[(y+1)*W1+(x+1)] = S[y*W1+(x+1)] + rowSum;
+      S2[(y+1)*W1+(x+1)] = S2[y*W1+(x+1)] + rowSum2;
+    }
+  }
+  const box = (A,x,y)=> A[(y+th)*W1+(x+tw)] - A[y*W1+(x+tw)] - A[(y+th)*W1+x] + A[y*W1+x];
+
+  const candidates = [];
+  const loBright = tSum*0.55, hiBright = tSum*1.30;   // skip windows far brighter/darker than the sample
+  const maxX = IW-tw, maxY = IH-th;
+  for(let y=0;y<=maxY;y++){
+    for(let x=0;x<=maxX;x++){
+      const wSum = box(S,x,y);
+      if(wSum > hiBright || wSum < loBright) continue;         // mostly-blank or too-dark: skip
+      const wSum2 = box(S2,x,y);
+      const varr = wSum2 - wSum*wSum/n;
+      if(varr < 1) continue;                                    // flat patch, no structure
+      let num=0;
+      for(let j=0;j<th;j++){ const ib=(y+j)*IW+x, tb=j*tw; for(let i=0;i<tw;i++){ num += img[ib+i]*Tz[tb+i]; } }
+      const ncc = num/(Math.sqrt(varr)*tNorm);
+      if(ncc >= FS_FLOOR) candidates.push({x:x+tw/2, y:y+th/2, score:ncc});
+    }
+  }
+  state.findSimilar = { rect:{x:rx,y:ry,w:rw,h:rh}, candidates, scale, tw, th, matches:[] };
+  return true;
+}
+
+// Filter candidates by correlation, suppress near-duplicates, convert to native-pixel centers.
+function applyFindSimilarThreshold(thr){
+  const fs = state.findSimilar; if(!fs) return;
+  const hits = fs.candidates.filter(c=>c.score>=thr).sort((a,b)=>b.score-a.score);
+  const rad = Math.max(fs.tw, fs.th)*0.55, rad2 = rad*rad;
+  const kept=[];
+  for(const c of hits){
+    let ok=true;
+    for(const k of kept){ const dx=c.x-k.x, dy=c.y-k.y; if(dx*dx+dy*dy < rad2){ ok=false; break; } }
+    if(ok){ kept.push(c); if(kept.length>=3000) break; }
+  }
+  fs.matches = kept.map(c=>({ x:c.x/fs.scale, y:c.y/fs.scale }));
+  const cEl=document.getElementById('fsp-count'), aEl=document.getElementById('fsp-add');
+  if(cEl) cEl.textContent = fs.matches.length;
+  if(aEl) aEl.textContent = 'Add '+fs.matches.length+' count'+(fs.matches.length===1?'':'s');
+  redrawOverlay();
+}
+
+function fsCountTypeOptions(){
+  const lib = state.typeLibrary.count || [];
+  const sel = state.activeType.count;
+  return lib.map(t=>'<option value="'+t.id+'"'+(t.id===sel?' selected':'')+'>'+escapeHtml(t.name)+'</option>').join('')
+    + '<option value="__new__">＋ New count type…</option>';
+}
+
+function showFindSimPanel(){
+  closeFindSimPanel();
+  if(!document.getElementById('findsim-css')){
+    const st=document.createElement('style'); st.id='findsim-css';
+    st.textContent = '#findsim-panel{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9500;'
+      +'background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);border-radius:8px;'
+      +'box-shadow:0 10px 30px rgba(14,42,71,.22);padding:12px 14px;min-width:280px;font-size:13px;color:var(--ink,#1C1E22)}'
+      +'#findsim-panel .fsp-hd{font-weight:600;margin-bottom:8px}'
+      +'#findsim-panel .fsp-row{display:flex;align-items:center;gap:8px;margin:7px 0}'
+      +'#findsim-panel input[type=range]{flex:1}'
+      +'#findsim-panel select{flex:1;padding:5px 7px;border:1px solid var(--paper-line,#B9C2CB);border-radius:5px;background:var(--surface,#fff);color:inherit;font:inherit}'
+      +'#findsim-panel .fsp-hint{font-size:11px;color:var(--steel,#7C8896);white-space:nowrap}'
+      +'#findsim-panel .fsp-ft{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}';
+    document.head.appendChild(st);
+  }
+  const p=document.createElement('div'); p.id='findsim-panel';
+  p.innerHTML = '<div class="fsp-hd">Found <b id="fsp-count">0</b> similar on this sheet</div>'
+    + '<div class="fsp-row"><span>Sensitivity</span><input type="range" id="fsp-thr" min="42" max="90" value="62"><span class="fsp-hint">looser · stricter</span></div>'
+    + '<div class="fsp-row"><span>Count as</span><select id="fsp-type">'+fsCountTypeOptions()+'</select></div>'
+    + '<div class="fsp-ft"><button class="btn ghost" id="fsp-cancel" style="font-size:12px;padding:6px 12px">Cancel</button>'
+    + '<button class="btn primary" id="fsp-add" style="font-size:12px;padding:6px 12px">Add 0 counts</button></div>';
+  document.body.appendChild(p);
+  const thr=document.getElementById('fsp-thr');
+  thr.addEventListener('input', ()=> applyFindSimilarThreshold(parseInt(thr.value,10)/100));
+  const typeSel=document.getElementById('fsp-type');
+  typeSel.addEventListener('change', ()=>{
+    if(typeSel.value==='__new__'){
+      const name=(prompt('Name this count type (e.g. Duplex outlet, 3-0 door):')||'').trim();
+      if(!name){ typeSel.value=state.activeType.count; return; }
+      const id='count_'+Math.random().toString(36).slice(2,9);
+      state.typeLibrary.count.push({id, name, color:'#4A9B6E', trade:'General', defaultLabel:name});
+      state.activeType.count=id;
+      if(typeof populateTypeDropdown==='function') populateTypeDropdown('count');
+      typeSel.innerHTML=fsCountTypeOptions(); typeSel.value=id;
+    } else {
+      state.activeType.count = typeSel.value;
+    }
+  });
+  document.getElementById('fsp-cancel').addEventListener('click', ()=>{ closeFindSim(); showHint('Find similar — drag a box around one symbol to try again.'); });
+  document.getElementById('fsp-add').addEventListener('click', addFindSimilarCounts);
+}
+
+function closeFindSimPanel(){ const p=document.getElementById('findsim-panel'); if(p) p.remove(); }
+function closeFindSim(){ closeFindSimPanel(); state.findSimilar=null; if(typeof redrawOverlay==='function') redrawOverlay(); }
+
+function addFindSimilarCounts(){
+  const fs = state.findSimilar; if(!fs || !fs.matches.length){ closeFindSim(); return; }
+  if(state.locked){ flashLocked(); return; }
+  const typeId = (document.getElementById('fsp-type')||{}).value || state.activeType.count;
+  const useType = (typeId && typeId!=='__new__') ? typeId : state.activeType.count;
+  const nBefore = state.items.length;
+  fs.matches.forEach(m=>{ addTakeoffItem({category:'count', typeId:useType, raw:1, point:{x:m.x, y:m.y}}); });
+  const added = state.items.length - nBefore;
+  closeFindSim();
+  activateTool('select');
+  showHint('Added <b>'+added+'</b> counts. Switch to Select to nudge or delete any that don’t belong.');
+  if(typeof saveProject==='function') saveProject(true);
+}
+
 // Resolves an item's live display values (label/qty/unit/trade/color) from its
 // current type definition. This is what makes editing a type retroactively update
 // every wall/line/area/count that was drawn with it.
@@ -6506,13 +6696,31 @@ function redrawOverlay(){
       octx.fillStyle = state.highlightColor;
       octx.fillRect(Math.min(start.x,end.x), Math.min(start.y,end.y), Math.abs(end.x-start.x), Math.abs(end.y-start.y));
       octx.restore();
-    } else if(state.tool==='ai-select' && state.drawing.start){
+    } else if((state.tool==='ai-select' || state.tool==='findsimilar') && state.drawing.start){
       const {start,end} = state.drawing;
       octx.strokeStyle='#E8722C'; octx.lineWidth=1.5;
       octx.setLineDash([5,4]);
       octx.strokeRect(Math.min(start.x,end.x), Math.min(start.y,end.y), Math.abs(end.x-start.x), Math.abs(end.y-start.y));
       octx.setLineDash([]);
     }
+  }
+
+  // Find-similar: outline the sample symbol + a ring on every match found (preview before adding).
+  if(state.findSimilar && state.tool==='findsimilar'){
+    const fs = state.findSimilar, r = fs.rect;
+    if(r){
+      octx.save();
+      octx.strokeStyle='#E8722C'; octx.lineWidth=1.5/state.zoom; octx.setLineDash([5/state.zoom,4/state.zoom]);
+      octx.strokeRect(r.x, r.y, r.w, r.h);
+      octx.restore();
+    }
+    const rad = Math.max(6, Math.min(r?r.w:14, r?r.h:14)/2) ;
+    octx.save();
+    octx.strokeStyle='#1E824C'; octx.lineWidth=2/state.zoom;
+    (fs.matches||[]).forEach(m=>{
+      octx.beginPath(); octx.arc(m.x, m.y, rad, 0, Math.PI*2); octx.stroke();
+    });
+    octx.restore();
   }
 
   // persistent AI selection box

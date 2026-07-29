@@ -1122,10 +1122,19 @@ const server = http.createServer(async (req, res) => {
           paid: Math.round(paid * 100) / 100, balance: Math.round((total - paid) * 100) / 100,
           status: invoiceStatus(total, paid), payLink: (idoc.payLink && /^https?:\/\//i.test(idoc.payLink)) ? idoc.payLink : '' };
       });
-      const changeOrders = (jd.changeOrders || []).map(c => ({ id: c.id, description: c.description || '',
+      const changeOrders = (jd.changeOrders || []).map(c => ({ id: c.id,
+        title: c.title || c.description || '', description: c.description || '', date: c.date || '',
+        reason: c.reason || '', scope: c.scope || '',
+        lines: Array.isArray(c.lines) ? c.lines.map(l => ({ name: String(l.name || ''), qty: Number(l.qty) || 0,
+          unit: String(l.unit || ''), unitPrice: Number(l.unitPrice) || 0 })).filter(l => l.name) : [],
         priceDelta: Number(c.priceDelta) || 0, status: c.status || 'pending',
         signedBy: (c.signature && c.signature.name) ? c.signature.name : '', signedAt: (c.signature && c.signature.at) || 0 }));
+      // Contract as it stands (base + already-approved changes) so the customer sees the new total in context.
+      const baseContract = Number(jd.costing && jd.costing.contract) || (estimates[0] && estimates[0].total) || 0;
+      const approvedCO = (jd.changeOrders || []).filter(c => c.status === 'approved').reduce((s, c) => s + (Number(c.priceDelta) || 0), 0);
+      const contractNow = Math.round((baseContract + approvedCO) * 100) / 100;
       return sendJSON(res, 200, {
+        contractNow,
         company: { name: comp.name || (companyRec && companyRec.name) || '', logo: comp.logo || '', phone: comp.phone || '',
           email: comp.email || '', website: comp.website || '', license: comp.license || '', address: comp.address || '' },
         job: { name: job.name, client: (jd.client && jd.client.name) || job.client || '', project: jd.project || '',

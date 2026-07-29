@@ -29,8 +29,16 @@
   .btn.green{background:var(--good);color:#fff} .btn.orange{background:var(--accent);color:#fff}
   .btn.ghost{background:var(--surface);color:var(--heading);border:1px solid var(--steel-light)}
   .btn:disabled{opacity:.5;cursor:default}
-  .co-card{border:1px solid var(--paper-line);border-radius:4px;padding:12px 14px;margin-bottom:10px}
+  .co-card{border:1px solid var(--paper-line);border-radius:6px;padding:14px 16px;margin-bottom:12px}
   .co-card .row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .co-summary{margin:8px 0;font-size:14px;font-weight:600}
+  .co-summary.up{color:var(--accent-dim)} .co-summary.down{color:var(--good)}
+  .co-scope{font-size:13px;color:#333;margin:6px 0;line-height:1.5}
+  .co-reason{font-size:12.5px;color:var(--steel);margin:6px 0}
+  table.co-lines{width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0}
+  table.co-lines th,table.co-lines td{padding:5px 6px;border-bottom:1px solid var(--paper-line);text-align:left}
+  table.co-lines th{font-size:10px;text-transform:uppercase;color:var(--steel)}
+  table.co-lines .num{text-align:right;font-variant-numeric:tabular-nums}
   .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
   .pill.pending{background:rgba(232,114,44,.15);color:var(--accent-dim)}.pill.approved{background:rgba(74,155,110,.15);color:var(--good)}.pill.rejected{background:rgba(192,57,43,.12);color:var(--danger)}
   .msgline{padding:60px 20px;text-align:center;color:var(--steel)}
@@ -45,6 +53,35 @@ const token=new URLSearchParams(location.search).get('token');
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(v){ if(!v) return ''; const s=String(v).trim(); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[2]+'-'+m[3]+'-'+m[1]; return s; }
+// Plain-language change-order card: what's changing, why, the itemized work, and the price in
+// context of the running project total — so a customer isn't staring at a bare "+$X".
+function coSummaryLine(c, contractNow){
+  const verb = c.priceDelta>=0 ? 'adds' : 'reduces your project by';
+  const amt = money(Math.abs(c.priceDelta));
+  const nt = (contractNow!=null) ? (' — new project total '+money((Number(contractNow)||0)+c.priceDelta)) : '';
+  return (c.priceDelta>=0 ? ('This change '+verb+' '+amt) : ('This change '+verb+' '+amt))+nt+'.';
+}
+function coLinesHtml(c){
+  if(!c.lines || !c.lines.length) return '';
+  return '<table class="co-lines"><thead><tr><th>What’s included</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead><tbody>'
+    + c.lines.map(l=>`<tr><td>${esc(l.name)}${l.unit?' <span class="meta">('+esc(l.unit)+')</span>':''}</td><td class="num">${l.qty}</td><td class="num">${money(l.unitPrice)}</td><td class="num">${money((Number(l.qty)||0)*(Number(l.unitPrice)||0))}</td></tr>`).join('')
+    + '</tbody></table>';
+}
+function coCard(c, pending, contractNow){
+  const title = esc(c.title)||'Change order';
+  const scope = c.scope ? `<div class="co-scope">${esc(c.scope)}</div>` : '';
+  const reason = c.reason ? `<div class="co-reason"><b>Why:</b> ${esc(c.reason)}</div>` : '';
+  const signed = (c.status==='approved'&&c.signedBy) ? `<div class="meta">✓ Approved by ${esc(c.signedBy)}${c.signedAt?(' on '+new Date(c.signedAt).toLocaleDateString()):''}</div>` : '';
+  const actions = pending ? `<div class="row" style="margin-top:12px;gap:8px">
+      <input class="co-sig" data-sig="${c.id}" placeholder="Type your name to approve" style="flex:1;min-width:200px;border:1px solid var(--steel-light);border-radius:3px;padding:9px 11px;font-size:14px;font-family:inherit" />
+      <button class="btn green" data-approve="${c.id}">Approve</button> <button class="btn ghost" data-reject="${c.id}">Decline</button>
+    </div>` : '';
+  return `<div class="co-card" data-co="${c.id}">
+    <div class="row"><div><strong>${title}</strong>${c.date?` <span class="meta">· ${esc(fmtDate(c.date))}</span>`:''}</div><span class="pill ${pending?'pending':esc(c.status)}">${pending?'pending':esc(c.status)}</span></div>
+    <div class="co-summary ${c.priceDelta>=0?'up':'down'}">${coSummaryLine(c, contractNow)}</div>
+    ${scope}${reason}${coLinesHtml(c)}${signed}${actions}
+  </div>`;
+}
 async function api(path, opts={}){
   const res=await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
   const data=await res.json().catch(()=>({}));
@@ -67,17 +104,9 @@ function render(d){
     <td style="text-align:right">${(i.payLink&&i.balance>0.005)?`<a class="btn green" href="${esc(i.payLink)}" target="_blank" rel="noopener">Pay ${money(i.balance)}</a>`:''}</td></tr>`).join('');
   const pendingCOs=(d.changeOrders||[]).filter(c=>c.status==='pending');
   const decidedCOs=(d.changeOrders||[]).filter(c=>c.status!=='pending');
-  const coHtml = (d.changeOrders||[]).length ? `<h2>Change orders</h2>`+
-    pendingCOs.map(c=>`<div class="co-card" data-co="${c.id}"><div class="row">
-        <div><strong>${esc(c.description)||'Change order'}</strong><div class="meta">Price change: ${c.priceDelta>=0?'+':''}${money(c.priceDelta)}</div></div>
-        <span class="pill pending">pending</span></div>
-      <div class="row" style="margin-top:10px;gap:8px">
-        <input class="co-sig" data-sig="${c.id}" placeholder="Type your name to approve" style="flex:1;min-width:200px;border:1px solid var(--steel-light);border-radius:3px;padding:9px 11px;font-size:14px;font-family:inherit" />
-        <button class="btn green" data-approve="${c.id}">Approve</button> <button class="btn ghost" data-reject="${c.id}">Decline</button>
-      </div></div>`).join('')+
-    decidedCOs.map(c=>`<div class="co-card"><div class="row">
-        <div><strong>${esc(c.description)||'Change order'}</strong><div class="meta">Price change: ${c.priceDelta>=0?'+':''}${money(c.priceDelta)}</div>${(c.status==='approved'&&c.signedBy)?`<div class="meta">✓ Signed by ${esc(c.signedBy)}${c.signedAt?(' on '+new Date(c.signedAt).toLocaleDateString()):''}</div>`:''}</div>
-        <span class="pill ${c.status}">${esc(c.status)}</span></div></div>`).join('') : '';
+  const coHtml = (d.changeOrders||[]).length ? `<h2>Change orders</h2>`
+    + pendingCOs.map(c=>coCard(c, true, d.contractNow)).join('')
+    + decidedCOs.map(c=>coCard(c, false, d.contractNow)).join('') : '';
   document.getElementById('root').innerHTML=`<div class="sheet">
     <div class="head">
       <div class="co">${co.logo?`<img src="${esc(co.logo)}" style="max-height:52px;max-width:200px;display:block;margin-bottom:8px">`:''}<h1>${esc(co.name||'Project Portal')}</h1><div class="sub">${coLines}</div></div>

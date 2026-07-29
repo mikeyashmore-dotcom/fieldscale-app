@@ -1211,6 +1211,7 @@
         </div>
         <div class="takeoff-footer">
           <button class="btn" id="summary-btn" title="Totals rolled up by trade / CSI division, with a printable report">📋 Summary</button>
+          <button class="btn" id="materials-btn" title="Turn your measurements into a material order list — bags, sheets, squares, yards, studs — with waste built in">📦 Materials</button>
           <button class="btn" id="export-csv">Export CSV</button>
           <button class="btn" id="save-sheet-btn" title="Save this sheet as an image, with your measurements, highlights and markups">🖼 Save Sheet</button>
           <button class="btn" id="export-set-btn" title="Export every sheet as one PDF, with your measurements drawn on each">📄 Export Plan Set</button>
@@ -1496,6 +1497,7 @@ const state = {
   verifyCurrentId:null, // the count marker currently being reviewed in Verify-counts mode
   layers:[],        // team takeoff: [{id,name,geom}] — separate takeoff layers on the SAME plan set
   activeLayerId:null, // which layer's geometry is live in state.items/walls/areas/... right now
+  materialMap:{},   // { takeoffRowKey: {presetId, waste} } — how each takeoff line converts to a material order
   typeLibrary:{ wall:[], linear:[], area:[], count:[] }, // saved reusable presets per category
   activeType:{ wall:null, linear:null, area:null, count:null }, // currently selected type id per category
   pdfTextIndex:[], // [{pageNum, items:[{str,x,y,width,height}], fullText}] — built once per document
@@ -2278,6 +2280,8 @@ async function serializeProjectState(){
     takeoffSummary: computeTakeoffSummary(),   // flat rollup so estimates can pull items in
     layers: state.layers,              // team takeoff layers (each with its own geometry)
     activeLayerId: state.activeLayerId,
+    materialMap: state.materialMap || {},   // takeoff line → material order mapping
+
     items: state.items,
     stickyRows: state.stickyRows,
     walls: state.walls,
@@ -2325,6 +2329,7 @@ async function restoreProjectState(data){
   state.legendPos = data.legendPos || null;
   state.legendHidden = data.legendHidden || {};
   state.locked = !!data.locked;
+  state.materialMap = (data.materialMap && typeof data.materialMap==='object') ? data.materialMap : {};
   state.folders = Array.isArray(data.folders) ? data.folders : [];
   state.collapsedFolders = (data.collapsedFolders && typeof data.collapsedFolders==='object') ? data.collapsedFolders : {};
   // Remember the Quantities panel view (By trade / By folder, This sheet / All sheets) so folders
@@ -6686,6 +6691,136 @@ function openCombineDialog(){
   document.getElementById('layer-new-btn').addEventListener('click',()=>{ const nm=(prompt('Name this takeoff layer (e.g. Mike, Framing crew):','Takeoff '+((state.layers||[]).length+1))||'').trim(); if(nm){ addLayer(nm); pop.classList.remove('open'); } });
   document.getElementById('layer-combine-btn').addEventListener('click',()=>{ openCombineDialog(); });
 })();
+
+// ===================== Materials — trade-math finisher + order list =====================
+// Turn a measured takeoff quantity into a waste-adjusted MATERIAL order (bags, sheets, squares,
+// yards, studs). `base` = the takeoff unit it applies to; `perUnit` = base units one material unit
+// covers; `waste` = editable default %; `coats` multiplies consumption (paint). Insulation first.
+const MATERIAL_PRESETS = [
+  {id:'cell_r30', group:'Insulation', label:'Blown cellulose — R-30', base:'SF', unit:'bags', perUnit:66, waste:8},
+  {id:'cell_r38', group:'Insulation', label:'Blown cellulose — R-38', base:'SF', unit:'bags', perUnit:52, waste:8},
+  {id:'cell_r49', group:'Insulation', label:'Blown cellulose — R-49', base:'SF', unit:'bags', perUnit:41, waste:8},
+  {id:'cell_r60', group:'Insulation', label:'Blown cellulose — R-60', base:'SF', unit:'bags', perUnit:33, waste:8},
+  {id:'fg_r30',   group:'Insulation', label:'Blown fiberglass — R-30', base:'SF', unit:'bags', perUnit:60, waste:8},
+  {id:'fg_r38',   group:'Insulation', label:'Blown fiberglass — R-38', base:'SF', unit:'bags', perUnit:48, waste:8},
+  {id:'fg_r49',   group:'Insulation', label:'Blown fiberglass — R-49', base:'SF', unit:'bags', perUnit:38, waste:8},
+  {id:'sf_oc35',  group:'Insulation', label:'Open-cell spray foam 3.5" (600 bf kit)', base:'SF', unit:'kits', perUnit:171, waste:12},
+  {id:'sf_cc2',   group:'Insulation', label:'Closed-cell spray foam 2" (600 bf kit)', base:'SF', unit:'kits', perUnit:300, waste:12},
+  {id:'batt_sf',  group:'Insulation', label:'Batt insulation (by coverage SF)', base:'SF', unit:'SF', perUnit:1, waste:10},
+  {id:'dw_48',    group:'Drywall & Paint', label:'Drywall 4×8 sheet (32 SF)', base:'SF', unit:'sheets', perUnit:32, waste:12},
+  {id:'dw_412',   group:'Drywall & Paint', label:'Drywall 4×12 sheet (48 SF)', base:'SF', unit:'sheets', perUnit:48, waste:12},
+  {id:'paint1',   group:'Drywall & Paint', label:'Paint — 1 coat (350 SF/gal)', base:'SF', unit:'gal', perUnit:350, waste:5},
+  {id:'paint2',   group:'Drywall & Paint', label:'Paint — 2 coats (350 SF/gal)', base:'SF', unit:'gal', perUnit:350, waste:5, coats:2},
+  {id:'roof_sq',  group:'Roofing', label:'Roofing — squares (100 SF)', base:'SF', unit:'squares', perUnit:100, waste:12},
+  {id:'roof_arch',group:'Roofing', label:'Architectural shingles — bundles (4/sq)', base:'SF', unit:'bundles', perUnit:25, waste:12},
+  {id:'roof_3tab',group:'Roofing', label:'3-tab shingles — bundles (3/sq)', base:'SF', unit:'bundles', perUnit:33.3, waste:12},
+  {id:'conc_4',   group:'Concrete', label:'Concrete slab 4" (cu yd)', base:'SF', unit:'cu yd', perUnit:81, waste:8},
+  {id:'conc_6',   group:'Concrete', label:'Concrete slab 6" (cu yd)', base:'SF', unit:'cu yd', perUnit:54, waste:8},
+  {id:'stud16',   group:'Framing', label:'Studs @ 16" OC (per LF of wall)', base:'LF', unit:'studs', perUnit:1.333, waste:15},
+  {id:'stud24',   group:'Framing', label:'Studs @ 24" OC (per LF of wall)', base:'LF', unit:'studs', perUnit:2, waste:15},
+  {id:'plate',    group:'Framing', label:'Plates (3× wall length, per LF)', base:'LF', unit:'LF', perUnit:0.333, waste:10},
+  {id:'lf_1',     group:'Linear', label:'Linear material — 1 piece per LF', base:'LF', unit:'pcs', perUnit:1, waste:10},
+  {id:'ea_1',     group:'Count', label:'Each (1 per count)', base:'EA', unit:'ea', perUnit:1, waste:0}
+];
+// Rough labor hours per MATERIAL unit (editable defaults — an estimate, not a quote). This is what
+// turns a preset into a "smart assembly": pick a material and get both the order and the hours.
+const MATERIAL_LABOR = { cell_r30:0.1, cell_r38:0.1, cell_r49:0.1, cell_r60:0.1, fg_r30:0.1, fg_r38:0.1, fg_r49:0.1,
+  sf_oc35:1.5, sf_cc2:1.5, batt_sf:0.01, dw_48:0.5, dw_412:0.6, paint1:1, paint2:1.6,
+  roof_sq:2, roof_arch:0.5, roof_3tab:0.5, conc_4:1.5, conc_6:1.5, stud16:0.05, stud24:0.05, plate:0, lf_1:0, ea_1:0 };
+function presetLabor(id){ return MATERIAL_LABOR[id]||0; }
+function materialPresetsFor(unit){ return MATERIAL_PRESETS.filter(p=>p.base===unit); }
+function materialRowKey(r){ return (r.trade||'General')+'|'+r.label+'|'+r.unit; }
+function computeMaterialLine(r){
+  const key=materialRowKey(r); const m=state.materialMap[key]; if(!m||!m.presetId) return null;
+  const p=MATERIAL_PRESETS.find(x=>x.id===m.presetId); if(!p||p.base!==r.unit) return null;
+  const waste=(m.waste!=null && m.waste!=='') ? Number(m.waste) : p.waste;
+  const factor=(1+(Number(waste)||0)/100)*(p.coats||1);
+  const count=Math.ceil((Number(r.qty)||0)*factor/p.perUnit);
+  return { key, from:r.label, fromQty:Number(r.qty)||0, fromUnit:r.unit, trade:r.trade, presetId:p.id, material:p.label, matUnit:p.unit, waste:Number(waste)||0, count, laborHrs: Math.round(count*presetLabor(p.id)*10)/10 };
+}
+function computeMaterials(){
+  const rows=computeTakeoffSummary(); const lines=[]; const summary={}; let totalLabor=0;
+  rows.forEach(r=>{ const l=computeMaterialLine(r); if(l){ lines.push(l); const sk=l.material+'|'+l.matUnit; summary[sk]=(summary[sk]||0)+l.count; totalLabor+=l.laborHrs||0; } });
+  return { rows, lines, summary, totalLabor: Math.round(totalLabor*10)/10 };
+}
+function _matCsv(s){ s=String(s==null?'':s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+function _matDownload(text,name){ const b=new Blob([text],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500); }
+function exportMaterialsCsv(){
+  const {lines,summary}=computeMaterials();
+  let csv='Shopping list\nMaterial,Order,Unit\n';
+  Object.keys(summary).forEach(k=>{ const i=k.lastIndexOf('|'); csv+=[_matCsv(k.slice(0,i)), summary[k], _matCsv(k.slice(i+1))].join(',')+'\n'; });
+  const tl=computeMaterials().totalLabor; if(tl>0) csv+=['Estimated labor (rough)', tl, 'hrs'].join(',')+'\n';
+  csv+='\nBy measured line\nMaterial,Order,Unit,From,Measured,MeasUnit,Waste%\n';
+  lines.forEach(l=>{ csv+=[_matCsv(l.material), l.count, _matCsv(l.matUnit), _matCsv(l.from), Math.round(l.fromQty*100)/100, _matCsv(l.fromUnit), l.waste].join(',')+'\n'; });
+  _matDownload(csv,'fieldscale-materials.csv');
+}
+function printMaterials(){
+  const {lines,summary}=computeMaterials();
+  const proj=(document.getElementById('proj-name')||{}).value||'Takeoff';
+  const keys=Object.keys(summary);
+  if(!keys.length){ alert('Assign at least one material first.'); return; }
+  let h='<html><head><title>Material order — '+escapeHtml(proj)+'</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:18px}h2{font-size:13px;margin-top:20px;text-transform:uppercase;color:#333}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #ccc;padding:6px;text-align:left}.r{text-align:right}</style></head><body>';
+  h+='<h1>Material order — '+escapeHtml(proj)+'</h1><h2>Shopping list</h2><table><tr><th>Material</th><th class="r">Order</th></tr>';
+  keys.forEach(k=>{ const i=k.lastIndexOf('|'); h+='<tr><td>'+escapeHtml(k.slice(0,i))+'</td><td class="r"><b>'+summary[k]+'</b> '+escapeHtml(k.slice(i+1))+'</td></tr>'; });
+  const _tl=computeMaterials().totalLabor; if(_tl>0) h+='<tr><td>Estimated labor</td><td class="r">≈ <b>'+_tl+'</b> hrs</td></tr>';
+  h+='</table><h2>By measured line</h2><table><tr><th>Measured</th><th>Material</th><th class="r">Order</th></tr>';
+  lines.forEach(l=>{ h+='<tr><td>'+escapeHtml(l.from)+' ('+(Math.round(l.fromQty*100)/100)+' '+escapeHtml(l.fromUnit)+')</td><td>'+escapeHtml(l.material)+'</td><td class="r">'+l.count+' '+escapeHtml(l.matUnit)+' <span style="color:#888">('+l.waste+'% waste)</span></td></tr>'; });
+  h+='</table><p style="color:#888;font-size:11px;margin-top:18px">Quantities include waste. Verify against approved drawings and supplier specs.</p></body></html>';
+  const w=window.open('','_blank'); if(!w){ alert('Allow pop-ups to print the order list.'); return; }
+  w.document.write(h); w.document.close(); w.focus(); setTimeout(()=>{ try{ w.print(); }catch(e){} },300);
+}
+function renderMaterialSummary(container){
+  const {summary,totalLabor}=computeMaterials(); const el=container.querySelector('#mat-summary'); if(!el) return;
+  const keys=Object.keys(summary);
+  if(!keys.length){ el.innerHTML='<p style="margin:0;color:var(--steel,#7C8896);font-size:12.5px">Assign materials above and your order list builds here.</p>'; return; }
+  el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13px">'+keys.map(k=>{ const i=k.lastIndexOf('|'); return '<tr style="border-top:1px solid var(--paper-line,#E4E8EE)"><td style="padding:6px 4px"><b>'+escapeHtml(k.slice(0,i))+'</b></td><td style="padding:6px 4px;text-align:right;font-family:monospace;font-weight:700">'+summary[k]+' '+escapeHtml(k.slice(i+1))+'</td></tr>'; }).join('')+'</table>'
+    + (totalLabor>0 ? '<div style="margin-top:8px;font-size:12.5px;color:var(--steel,#5A6B7B)">≈ <b>'+totalLabor+' labor hours</b> (rough estimate — edit rates in your price book)</div>' : '');
+}
+function renderMaterials(container){
+  const rows=computeTakeoffSummary();
+  if(!rows.length){ container.innerHTML='<p style="margin:0;color:var(--steel,#5A6B7B)">No measured quantities yet. Take off some walls/areas/counts, then come back.</p>'; return; }
+  const optFor=(unit,sel)=>'<option value="">— raw quantity —</option>'+materialPresetsFor(unit).map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${escapeHtml(p.label)}</option>`).join('');
+  let html='<p style="margin:0 0 10px;color:var(--steel,#5A6B7B);font-size:12.5px">Pick a material for each measured line — it converts the measurement into a waste-adjusted order. Waste % is editable, and it saves with the project.</p>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--steel,#7C8896);font-size:10px;text-transform:uppercase"><th style="text-align:left;padding:4px">Measured</th><th style="text-align:left;padding:4px">Material</th><th style="padding:4px">Waste%</th><th style="text-align:right;padding:4px">Order</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const key=materialRowKey(r); const m=state.materialMap[key]||{}; const line=computeMaterialLine(r);
+    const presets=materialPresetsFor(r.unit);
+    const wasteVal = m.presetId ? (m.waste!=null&&m.waste!==''?m.waste:((MATERIAL_PRESETS.find(p=>p.id===m.presetId)||{}).waste)) : '';
+    html+=`<tr data-key="${escapeHtml(key)}" data-unit="${escapeHtml(r.unit)}" style="border-top:1px solid var(--paper-line,#E4E8EE)">
+      <td style="padding:5px 4px"><b>${escapeHtml(r.label)}</b><br><span style="color:var(--steel,#7C8896);font-family:monospace">${(Math.round(r.qty*100)/100).toLocaleString()} ${escapeHtml(r.unit)}</span></td>
+      <td style="padding:5px 4px">${presets.length?`<select class="mat-sel" style="max-width:190px;font:12px inherit;padding:3px">${optFor(r.unit,m.presetId||'')}</select>`:'<span style="color:#B9C2CB">— n/a —</span>'}</td>
+      <td style="padding:5px 4px;text-align:center"><input class="mat-waste" type="number" min="0" max="60" step="1" value="${wasteVal}" style="width:44px;font:12px inherit;padding:3px;${m.presetId?'':'display:none'}"></td>
+      <td class="mat-order" style="padding:5px 4px;text-align:right;font-family:monospace;font-weight:600">${line?line.count+' '+escapeHtml(line.matUnit):'—'}</td>
+    </tr>`;
+  });
+  html+='</tbody></table><h4 style="margin:16px 0 6px;font-family:Oswald,sans-serif;font-size:13px;text-transform:uppercase;color:var(--heading,#15273A)">🛒 Shopping list</h4><div id="mat-summary"></div>';
+  container.innerHTML=html;
+  renderMaterialSummary(container);
+  container.querySelectorAll('tr[data-key]').forEach(tr=>{
+    const key=tr.dataset.key; const sel=tr.querySelector('.mat-sel'), waste=tr.querySelector('.mat-waste'), order=tr.querySelector('.mat-order');
+    function upd(){
+      const pid=sel?sel.value:'';
+      if(!pid){ delete state.materialMap[key]; if(waste){ waste.style.display='none'; waste.value=''; } }
+      else { const def=(MATERIAL_PRESETS.find(p=>p.id===pid)||{}).waste; if(waste){ waste.style.display=''; if(waste.value==='') waste.value=def; } state.materialMap[key]={presetId:pid, waste:(waste&&waste.value!==''?Number(waste.value):def)}; }
+      markDirty(); if(typeof saveProject==='function') saveProject(true);
+      const r=computeTakeoffSummary().find(x=>materialRowKey(x)===key);
+      const line=r?computeMaterialLine(r):null;
+      order.textContent = line ? (line.count+' '+line.matUnit) : '—';
+      renderMaterialSummary(container);
+    }
+    if(sel) sel.addEventListener('change', upd);
+    if(waste) waste.addEventListener('input', upd);
+  });
+}
+function openMaterialsModal(){
+  if(!window.fsModal){ alert('Materials list needs the app menu loaded.'); return; }
+  window.fsModal({ title:'Materials — order list', bodyHTML:'<div id="mat-body"></div>', buttons:[
+    { label:'⬇ CSV', onClick:()=>{ exportMaterialsCsv(); return false; } },
+    { label:'🖨 Print', onClick:()=>{ printMaterials(); return false; } },
+    { label:'Close', primary:true }
+  ], onOpen:(card)=>{ renderMaterials(card.querySelector('#mat-body')); } });
+}
+document.getElementById('materials-btn').addEventListener('click', openMaterialsModal);
 
 // Compute the takeoff rollup for ANOTHER project's data (e.g. a previous revision) by briefly
 // swapping in its items + type library. resolveItemDisplay only reads those two, so this is safe.

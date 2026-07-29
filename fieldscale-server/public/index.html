@@ -1077,6 +1077,28 @@
         </div>
       </div>
     </div>
+    <div class="scale-btn-wrap">
+      <button class="btn" id="rotate-toggle-btn" disabled title="Rotate or straighten a crooked scan">⟳ Straighten ▾</button>
+      <div class="scale-popover" id="rotate-popover">
+        <h4 style="margin-top:0">Rotate / straighten</h4>
+        <div class="sp-note" style="margin-top:0;margin-bottom:10px">Turn a sideways scan upright, or nudge a crooked one level. Your measurements rotate right along with the sheet — best done before you measure.</div>
+        <div class="sp-row" style="justify-content:space-between">
+          <button class="btn" id="rot-left" style="flex:1">⟲ 90° left</button>
+          <button class="btn" id="rot-right" style="flex:1">⟳ 90° right</button>
+        </div>
+        <div class="sp-divider">
+          <h4 style="margin-top:0">Fine straighten</h4>
+          <div class="sp-row" style="align-items:center;gap:10px;margin-bottom:4px">
+            <input type="range" id="rot-fine" min="-10" max="10" step="0.5" value="0" style="flex:1">
+            <span id="rot-fine-val" style="font-family:'IBM Plex Mono',monospace;font-size:12px;min-width:46px;text-align:right">0°</span>
+          </div>
+        </div>
+        <div class="sp-row" style="justify-content:space-between;align-items:center;margin-top:4px">
+          <span class="sp-note" id="rot-current" style="margin:0"></span>
+          <button class="btn" id="rot-reset">Reset</button>
+        </div>
+      </div>
+    </div>
     <label class="btn primary" for="file-input">Upload Plan</label>
     <input type="file" id="file-input" accept="application/pdf" />
   </div>
@@ -1449,6 +1471,8 @@ const state = {
   searchResults:[],
   searchResultIndex:-1,
   pageNames:{}, // {pageNum: {name, number}} — derived automatically via AI vision per sheet
+  pageRotations:{}, // {pageNum: degrees} — straighten/rotate a sheet (view-only; geometry is stored unrotated)
+  viewRot:null,   // {deg,w0,h0,wr,hr} for the sheet on screen — set each render, drives the overlay transform
   searchHighlights:[],
   colorCycle:['#2E86AB','#E8722C','#4A9B6E','#8E44AD','#C0392B','#D4A017','#16697A'],
   colorIndex:0
@@ -1504,6 +1528,7 @@ els.fileInput.addEventListener('change', async (e)=>{
   state.searchHighlightPage = null;
   state.searchHighlights = [];
   state.pageNames = {};
+  state.pageRotations = {};
   state.calibrations = {};   // a new plan set means new sheets, and new scales
   state.calibration = null;
   state.hiddenPages = [];    // hidden sheets referred to the old set
@@ -2223,6 +2248,7 @@ async function serializeProjectState(){
     refLinks: state.refLinks,           // detail-callout links between sheets
     calibrations: state.calibrations,   // per-sheet scales
     pageNames: state.pageNames,
+    pageRotations: state.pageRotations, // per-sheet straighten/rotate angles
     projectMeta: state.projectMeta,     // address, client, dates
     hiddenPages: state.hiddenPages,
     showLegend: state.showLegend,
@@ -2251,6 +2277,7 @@ async function restoreProjectState(data){
   state.highlights = data.highlights || [];
   state.refLinks = data.refLinks || [];
   state.pageNames = data.pageNames || {};
+  state.pageRotations = data.pageRotations || {};
   state.projectMeta = Object.assign({address:'', client:'', planDate:'', bidDue:''}, data.projectMeta || {});
   state.hiddenPages = data.hiddenPages || [];
   state.showLegend = data.showLegend !== false;
@@ -2568,7 +2595,7 @@ function npResetToBlank(name){
   document.getElementById('proj-name').value = name;
   state.projectMeta = {address:'', client:'', planDate:'', bidDue:''};
   state.items=[]; state.stickyRows={}; state.walls=[]; state.areas=[]; state.quickMeasurements=[]; state.highlights=[]; state.annotations=[]; state.refLinks=[];
-  state.calibration=null; state.calibrations={}; state.pageNames={}; state.pdfDoc=null;
+  state.calibration=null; state.calibrations={}; state.pageNames={}; state.pageRotations={}; state.viewRot=null; state.pdfDoc=null;
   state.hiddenPages=[]; state.legendPos=null; state.legendHidden={};
   state.locked=false; updateLockUI(); state.folders=[]; state.collapsedFolders={};
   takeoffGroupMode='trade'; takeoffPageMode='thispage'; syncQuantitiesModeButtons();
@@ -2576,6 +2603,7 @@ function npResetToBlank(name){
   els.emptyState.style.display='flex'; els.canvasStack.style.display='none';
   els.pageNav.style.display='none';
   document.getElementById('scale-toggle-btn').disabled = true;
+  { const rtb=document.getElementById('rotate-toggle-btn'); if(rtb) rtb.disabled = true; }
   document.getElementById('autotag-btn').disabled = true;
   refreshCalibrationUI();
   refreshLegendBtn();
@@ -2861,15 +2889,31 @@ async function renderPage(){
   refreshDrawBar();
   const page = await state.pdfDoc.getPage(state.pageNum);
   const viewport = page.getViewport({scale: state.renderScale});
-  els.pdfCanvas.width = viewport.width;
-  els.pdfCanvas.height = viewport.height;
-  els.overlay.width = viewport.width;
-  els.overlay.height = viewport.height;
-  await page.render({canvasContext: pctx, viewport}).promise;
+  const w0 = viewport.width, h0 = viewport.height;
+  const deg = state.pageRotations[state.pageNum] || 0;
+  const rad = deg*Math.PI/180, ac=Math.abs(Math.cos(rad)), as=Math.abs(Math.sin(rad));
+  const wr = Math.max(1, Math.round(w0*ac + h0*as)), hr = Math.max(1, Math.round(w0*as + h0*ac));
+  state.viewRot = deg ? { deg, w0, h0, wr, hr } : null;   // null == no rotation (fast path)
+  els.pdfCanvas.width = wr; els.pdfCanvas.height = hr;
+  els.overlay.width = wr; els.overlay.height = hr;
+  pctx.setTransform(1,0,0,1,0,0);
+  if(deg){
+    // Render the page straight to an offscreen buffer, then paint it rotated so the sheet sits
+    // upright/level. Geometry stays in the un-rotated frame; the overlay applies the same spin.
+    const off = document.createElement('canvas'); off.width = w0; off.height = h0;
+    await page.render({canvasContext: off.getContext('2d'), viewport}).promise;
+    pctx.save();
+    pctx.translate(wr/2, hr/2); pctx.rotate(rad); pctx.drawImage(off, -w0/2, -h0/2);
+    pctx.restore();
+  } else {
+    await page.render({canvasContext: pctx, viewport}).promise;
+  }
   state.zoom = fitPageZoom();   // opening a sheet always zooms out to show the whole page
   applyZoomToDom();
   els.stageWrap.scrollLeft = 0; els.stageWrap.scrollTop = 0;
   els.pageLabel.textContent = `${state.pageNum} / ${state.numPages}`;
+  const _rtb=document.getElementById('rotate-toggle-btn'); if(_rtb) _rtb.disabled=false;
+  if(typeof updateRotUI==='function') updateRotUI();
   redrawOverlay();
   renderPagesList();
   renderTakeoffList();   // per-sheet quantities update when you change sheets
@@ -4267,9 +4311,14 @@ function selectionSummary(){
 // ---------- Coordinate helpers ----------
 function getNativePoint(evt){
   const rect = els.overlay.getBoundingClientRect();
-  const xCss = evt.clientX - rect.left;
-  const yCss = evt.clientY - rect.top;
-  return { x: xCss/state.zoom, y: yCss/state.zoom };
+  const cx = (evt.clientX - rect.left)/state.zoom;   // point in rotated-canvas pixels
+  const cy = (evt.clientY - rect.top)/state.zoom;
+  const vr = state.viewRot;
+  if(!vr) return { x: cx, y: cy };
+  // Map back into the un-rotated frame so tools/hit-tests use the same coordinates as stored geometry.
+  const dx = cx - vr.wr/2, dy = cy - vr.hr/2;
+  const t = -vr.deg*Math.PI/180, cos=Math.cos(t), sin=Math.sin(t);
+  return { x: vr.w0/2 + (dx*cos - dy*sin), y: vr.h0/2 + (dx*sin + dy*cos) };
 }
 function nativeToCss(p){ return {x:p.x*state.zoom, y:p.y*state.zoom}; }
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
@@ -6166,6 +6215,42 @@ document.addEventListener('keydown', (e)=>{
   else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteVerifyCurrent(); }
 });
 
+// ===================== Rotate / straighten a sheet =====================
+// A per-sheet view rotation. Geometry is stored un-rotated, so this never moves a measurement —
+// it just spins how the sheet (and everything on it) is shown. Fully reversible.
+function currentPageDeg(){ return state.pdfDoc ? (state.pageRotations[state.pageNum]||0) : 0; }
+function bumpRotation(delta){ setPageRotation(currentPageDeg()+delta); }
+async function setPageRotation(deg){
+  if(!state.pdfDoc) return;
+  let d = ((deg % 360) + 360) % 360; if(d>180) d-=360;   // normalize to (-180, 180]
+  const pg = state.pageNum;
+  if(Math.abs(d)<0.001) delete state.pageRotations[pg]; else state.pageRotations[pg]=d;
+  markDirty(); if(typeof saveProject==='function') saveProject(true);
+  await renderPage();
+  updateRotUI();
+}
+function updateRotUI(){
+  const fine=document.getElementById('rot-fine'), val=document.getElementById('rot-fine-val'), cur=document.getElementById('rot-current');
+  if(!fine) return;
+  const deg=currentPageDeg();
+  const residual=deg-Math.round(deg/90)*90;   // the fine (non-90°) part
+  fine.value = Math.max(-10, Math.min(10, residual));
+  if(val) val.textContent = (parseFloat(fine.value)||0).toFixed(1).replace(/\.0$/,'')+'°';
+  if(cur) cur.textContent = deg ? ('Now '+(deg>0?'+':'')+(Math.round(deg*10)/10)+'° — measurements move with it') : 'Straight (0°)';
+}
+(function(){
+  const btn=document.getElementById('rotate-toggle-btn'), pop=document.getElementById('rotate-popover');
+  if(!btn||!pop) return;
+  btn.addEventListener('click', (e)=>{ e.stopPropagation(); if(btn.disabled) return; pop.classList.toggle('open'); updateRotUI(); });
+  document.addEventListener('click', (e)=>{ if(pop.classList.contains('open') && !pop.contains(e.target) && e.target!==btn) pop.classList.remove('open'); });
+  document.getElementById('rot-left').addEventListener('click', ()=>bumpRotation(-90));
+  document.getElementById('rot-right').addEventListener('click', ()=>bumpRotation(90));
+  document.getElementById('rot-reset').addEventListener('click', ()=>setPageRotation(0));
+  const fine=document.getElementById('rot-fine');
+  fine.addEventListener('input', ()=>{ const v=document.getElementById('rot-fine-val'); if(v) v.textContent=(parseFloat(fine.value)||0).toFixed(1).replace(/\.0$/,'')+'°'; });
+  fine.addEventListener('change', ()=>{ const base=Math.round(currentPageDeg()/90)*90; setPageRotation(base+(parseFloat(fine.value)||0)); });
+})();
+
 // Resolves an item's live display values (label/qty/unit/trade/color) from its
 // current type definition. This is what makes editing a type retroactively update
 // every wall/line/area/count that was drawn with it.
@@ -6679,9 +6764,13 @@ document.getElementById('summary-btn').addEventListener('click', ()=>{
 
 // ---------- Overlay rendering ----------
 function redrawOverlay(){
+  octx.setTransform(1,0,0,1,0,0);
   octx.clearRect(0,0,els.overlay.width, els.overlay.height);
   octx.save();
-  octx.scale(1,1);
+  // If the sheet is straightened/rotated, spin the whole overlay to match — geometry is stored
+  // in the un-rotated frame, so this keeps every mark sitting exactly where it was drawn.
+  const vr = state.viewRot;
+  if(vr){ octx.translate(vr.wr/2, vr.hr/2); octx.rotate(vr.deg*Math.PI/180); octx.translate(-vr.w0/2, -vr.h0/2); }
 
   // Faint overlay of the plan's own detected lines while line-snap is on (visual confirmation).
   if(lineSnapOn) drawVectorSegsOverlay();

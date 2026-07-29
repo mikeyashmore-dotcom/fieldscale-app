@@ -1091,6 +1091,7 @@
     <div class="rail-divider"></div>
     <button class="tool" data-tool="highlight" title="Highlight">🖍️<span class="tip">Highlight a region of the sheet</span></button>
     <button class="tool" data-tool="findsimilar" id="findsimilar-tool" title="Find similar — auto-count">⧉<span class="tip">Find similar — draw a box around ONE symbol (door, outlet, light) and it finds &amp; counts the matching ones on this sheet</span></button>
+    <button class="tool" data-tool="verify" id="verify-tool" title="Verify counts">✓<span class="tip">Verify counts — step through every count on this sheet, check off the good ones, delete the strays</span></button>
     <button class="tool" data-tool="sheetsearch" id="sheet-search-tool" title="Search sheets">🔍<span class="tip">Search all sheets — matching sheets show in the list with a count</span></button>
     <button class="tool" data-tool="markup" id="markup-tool" title="Markups (text, arrow, box…)">✎<span class="tip">Add markups — text, arrow, box, line, ellipse</span></button>
     <button class="tool" data-tool="askai" id="askai-tool" title="Ask AI about the plans">💬<span class="tip">Ask AI about these plans — opens the AI Assist panel</span></button>
@@ -1438,6 +1439,7 @@ const state = {
   moveDrag:null,  // {last:{x,y}} while dragging the selection around
   vertexDrag:null, // {kind,id,index} while dragging one corner of a selected wall/area
   findSimilar:null, // {rect,candidates,scale,tw,th,matches} while a Find-similar auto-count is being reviewed
+  verifyCurrentId:null, // the count marker currently being reviewed in Verify-counts mode
   typeLibrary:{ wall:[], linear:[], area:[], count:[] }, // saved reusable presets per category
   activeType:{ wall:null, linear:null, area:null, count:null }, // currently selected type id per category
   pdfTextIndex:[], // [{pageNum, items:[{str,x,y,width,height}], fullText}] — built once per document
@@ -2871,6 +2873,7 @@ async function renderPage(){
   redrawOverlay();
   renderPagesList();
   renderTakeoffList();   // per-sheet quantities update when you change sheets
+  if(state.tool==='verify') startVerify();  // re-point the review to the new sheet's counts
 }
 // Zoom that fits the whole sheet inside the viewport.
 function fitPageZoom(){
@@ -3754,6 +3757,8 @@ function activateTool(toolName){
   if(toolName==='ai-select') showHint('Drag a box around the region you want Claude to analyze.');
   if(toolName==='findsimilar') showHint('Find similar — drag a <b>tight box around ONE symbol</b> (a door, outlet, light). I’ll find and count the matching ones on this sheet.');
   if(toolName!=='findsimilar') closeFindSim();  // leaving the tool clears any in-progress search
+  if(toolName==='verify') showHint('Verify counts — check off each count as you confirm it. Click a marker to check/uncheck; use the panel to step through.');
+  if(toolName==='verify') startVerify(); else closeVerify();
   if(toolName==='select') showHint('Click something to select it. Drag <b>left→right</b> to grab only what\'s fully inside; drag <b>right→left</b> to grab anything you touch. Then move it, <b>Ctrl+C/Ctrl+V</b>, or <b>Delete</b>.');
   if((toolName==='wall'||toolName==='linear'||toolName==='area'||toolName==='arc') && !state.calibration){
     showHint('⚠ No scale set yet — open the <b>Scale</b> button (top right) first, or thickness/measurements won\'t calculate.');
@@ -4375,6 +4380,8 @@ els.overlay.addEventListener('mousedown',(e)=>{
   } else if(state.tool==='count'){
     setTypePanelCollapsed('count', true);
     addCountPoint(p);
+  } else if(state.tool==='verify'){
+    toggleVerifyAt(p);
   } else if(state.tool==='ai-select' || state.tool==='highlight' || state.tool==='findsimilar'){
     if(state.tool==='findsimilar') closeFindSim();  // starting a fresh box clears prior results
     isDown=true;
@@ -6027,6 +6034,138 @@ function addFindSimilarCounts(){
   if(typeof saveProject==='function') saveProject(true);
 }
 
+// ===================== Verify counts — step through and check off =====================
+// Fast review pass: confirm each count, delete strays, and watch a "verified vs. to-go"
+// tally. Counts carry a .verified flag (saved with the project like any other field).
+function verifyCountsOnSheet(){ return state.items.filter(it=>it.category==='count' && it.point && (it.pageNum||1)===state.pageNum); }
+function verifyTally(){ const c=verifyCountsOnSheet(); const v=c.filter(it=>it.verified).length; return {total:c.length, verified:v, remaining:c.length-v}; }
+function centerOnNative(p){
+  const wrap=els.stageWrap; if(!wrap||!p) return;
+  wrap.scrollLeft = Math.max(0, p.x*state.zoom - wrap.clientWidth/2);
+  wrap.scrollTop  = Math.max(0, p.y*state.zoom - wrap.clientHeight/2);
+}
+// Next unverified count after a given id (wraps around); null when none are left.
+function verifyNextId(afterId){
+  const c=verifyCountsOnSheet(); if(!c.length) return null;
+  let start=0; if(afterId){ const i=c.findIndex(x=>x.id===afterId); start=(i<0?0:i+1); }
+  for(let k=0;k<c.length;k++){ const it=c[(start+k)%c.length]; if(!it.verified) return it.id; }
+  return null;
+}
+function setVerifyCurrent(id){
+  state.verifyCurrentId = id || null;
+  const it = id ? state.items.find(x=>x.id===id) : null;
+  if(it && it.point) centerOnNative(it.point);
+  redrawOverlay(); updateVerifyPanel();
+}
+function startVerify(){
+  if(!state.pdfDoc) return;
+  showVerifyPanel();
+  setVerifyCurrent(verifyNextId(null));
+}
+function persistVerify(){ markDirty(); if(typeof renderTakeoffList==='function') renderTakeoffList(); if(typeof saveProject==='function') saveProject(true); }
+function verifyCurrentAndAdvance(){
+  const it = state.verifyCurrentId ? state.items.find(x=>x.id===state.verifyCurrentId) : null;
+  if(it){ it.verified=true; persistVerify(); }
+  setVerifyCurrent(verifyNextId(state.verifyCurrentId));
+}
+function skipVerifyCurrent(){ setVerifyCurrent(verifyNextId(state.verifyCurrentId)); }
+function deleteVerifyCurrent(){
+  const id=state.verifyCurrentId; if(!id) return;
+  if(state.locked){ flashLocked(); return; }
+  state.items = state.items.filter(x=>x.id!==id);
+  persistVerify();
+  setVerifyCurrent(verifyNextId(null));
+}
+function verifyAllRemaining(){
+  verifyCountsOnSheet().forEach(it=>{ it.verified=true; });
+  persistVerify(); setVerifyCurrent(null);
+}
+function resetVerify(){
+  verifyCountsOnSheet().forEach(it=>{ it.verified=false; });
+  persistVerify(); setVerifyCurrent(verifyNextId(null));
+}
+function toggleVerifyAt(p){
+  const hit = pickAt(p);
+  if(hit && hit.kind==='count'){
+    const it = state.items.find(x=>x.id===hit.id); if(!it) return true;
+    it.verified = !it.verified; persistVerify();
+    setVerifyCurrent(it.verified ? verifyNextId(it.id) : it.id);   // verified → move on; un-checked → focus it
+    return true;
+  }
+  return false;
+}
+
+function showVerifyPanel(){
+  closeVerifyPanel();
+  if(!document.getElementById('verify-css')){
+    const st=document.createElement('style'); st.id='verify-css';
+    st.textContent = '#verify-panel{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9500;'
+      +'background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);border-radius:8px;'
+      +'box-shadow:0 10px 30px rgba(14,42,71,.22);padding:12px 14px;min-width:300px;font-size:13px;color:var(--ink,#1C1E22)}'
+      +'#verify-panel .vp-hd{font-weight:600;margin-bottom:6px}'
+      +'#verify-panel .vp-tally{font-size:12.5px;color:var(--steel,#7C8896);margin-bottom:7px}'
+      +'#verify-panel .vp-tally b{color:#1E824C}'
+      +'#verify-panel .vp-bar{height:7px;border-radius:4px;background:var(--surface-2,#EEF1F5);overflow:hidden;margin-bottom:9px}'
+      +'#verify-panel .vp-fill{height:100%;background:#1E824C;width:0;transition:width .15s}'
+      +'#verify-panel .vp-current{font-size:12.5px;margin-bottom:10px;color:var(--ink,#1C1E22)}'
+      +'#verify-panel .vp-ft,#verify-panel .vp-ft2{display:flex;gap:8px;flex-wrap:wrap}'
+      +'#verify-panel .vp-ft{margin-bottom:6px}'
+      +'#verify-panel .btn{font-size:12px;padding:6px 11px}'
+      +'#verify-panel .vp-hint{font-size:11px;color:var(--steel,#7C8896);margin-top:8px}';
+    document.head.appendChild(st);
+  }
+  const p=document.createElement('div'); p.id='verify-panel';
+  p.innerHTML = '<div class="vp-hd">Verify counts — this sheet</div>'
+    + '<div class="vp-tally"><span id="vp-total">0</span> counts · <b id="vp-ver">0</b> verified · <span id="vp-left">0</span> to go</div>'
+    + '<div class="vp-bar"><div class="vp-fill" id="vp-fill"></div></div>'
+    + '<div class="vp-current" id="vp-current"></div>'
+    + '<div class="vp-ft"><button class="btn primary" id="vp-verify">✓ Verify (V)</button>'
+    + '<button class="btn ghost" id="vp-skip">Skip →</button>'
+    + '<button class="btn ghost" id="vp-del">🗑 Delete</button></div>'
+    + '<div class="vp-ft2"><button class="btn ghost" id="vp-verall">Verify all remaining</button>'
+    + '<button class="btn ghost" id="vp-reset">Reset checks</button>'
+    + '<button class="btn ghost" id="vp-close">Done</button></div>'
+    + '<div class="vp-hint">Tip: click any marker to check / uncheck it. Green ✓ = verified.</div>';
+  document.body.appendChild(p);
+  document.getElementById('vp-verify').addEventListener('click', verifyCurrentAndAdvance);
+  document.getElementById('vp-skip').addEventListener('click', skipVerifyCurrent);
+  document.getElementById('vp-del').addEventListener('click', deleteVerifyCurrent);
+  document.getElementById('vp-verall').addEventListener('click', verifyAllRemaining);
+  document.getElementById('vp-reset').addEventListener('click', resetVerify);
+  document.getElementById('vp-close').addEventListener('click', ()=>activateTool('select'));
+  updateVerifyPanel();
+}
+function updateVerifyPanel(){
+  const panel=document.getElementById('verify-panel'); if(!panel) return;
+  const t=verifyTally();
+  panel.querySelector('#vp-total').textContent=t.total;
+  panel.querySelector('#vp-ver').textContent=t.verified;
+  panel.querySelector('#vp-left').textContent=t.remaining;
+  panel.querySelector('#vp-fill').style.width = (t.total? Math.round(t.verified/t.total*100):0)+'%';
+  const cur = state.verifyCurrentId ? state.items.find(x=>x.id===state.verifyCurrentId) : null;
+  const curEl=panel.querySelector('#vp-current');
+  const has = !!cur;
+  ['vp-verify','vp-skip','vp-del'].forEach(id=>{ const b=panel.querySelector('#'+id); if(b) b.disabled=!has; });
+  if(!t.total){ curEl.textContent='No counts on this sheet yet.'; }
+  else if(!cur){ curEl.innerHTML='<b style="color:#1E824C">All counts verified ✓</b>'; }
+  else {
+    const type = state.typeLibrary.count.find(x=>x.id===cur.typeId);
+    const c=verifyCountsOnSheet(); const pos=c.findIndex(x=>x.id===cur.id)+1;
+    curEl.innerHTML='Reviewing <b>'+escapeHtml(type?type.name:'Count')+'</b> — #'+pos+' of '+c.length+' (orange ring on the sheet).';
+  }
+}
+function closeVerifyPanel(){ const p=document.getElementById('verify-panel'); if(p) p.remove(); }
+function closeVerify(){ closeVerifyPanel(); state.verifyCurrentId=null; if(typeof redrawOverlay==='function') redrawOverlay(); }
+
+// Keyboard shortcuts while the Verify tool is active (ignored when typing in a field).
+document.addEventListener('keydown', (e)=>{
+  if(state.tool!=='verify') return;
+  const tag=(e.target && e.target.tagName)||''; if(/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+  if(e.key==='v'||e.key==='V'||e.key==='Enter'){ e.preventDefault(); verifyCurrentAndAdvance(); }
+  else if(e.key==='ArrowRight'||e.key===' '){ e.preventDefault(); skipVerifyCurrent(); }
+  else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteVerifyCurrent(); }
+});
+
 // Resolves an item's live display values (label/qty/unit/trade/color) from its
 // current type definition. This is what makes editing a type retroactively update
 // every wall/line/area/count that was drawn with it.
@@ -6615,7 +6754,7 @@ function redrawOverlay(){
   // draw completed count markers (color resolved live from the count type)
   state.items.filter(it=>it.category==='count' && it.point && onThisPage(it)).forEach(it=>{
     const t = state.typeLibrary.count.find(x=>x.id===it.typeId);
-    drawCountMarker(it.point, t?t.color:'#999999');
+    drawCountMarker(it.point, t?t.color:'#999999', !!it.verified, state.tool==='verify' && it.id===state.verifyCurrentId);
   });
 
   // draw search-result highlights, if the current page has an active search match
@@ -6766,10 +6905,19 @@ function drawDot(p,color){
   octx.fillStyle=color;
   octx.beginPath(); octx.arc(p.x,p.y,3.5,0,7); octx.fill();
 }
-function drawCountMarker(p,color){
+function drawCountMarker(p,color,verified,current){
+  if(current){   // orange halo marks the count you're reviewing right now
+    octx.save(); octx.strokeStyle='#E8722C'; octx.lineWidth=3;
+    octx.beginPath(); octx.arc(p.x,p.y,12,0,7); octx.stroke(); octx.restore();
+  }
   octx.fillStyle=color;
-  octx.strokeStyle='#fff'; octx.lineWidth=1.5;
+  octx.strokeStyle = verified ? '#1E824C' : '#fff';   // verified gets a green ring…
+  octx.lineWidth = verified ? 2.5 : 1.5;
   octx.beginPath(); octx.arc(p.x,p.y,7,0,7); octx.fill(); octx.stroke();
+  if(verified){   // …and a white check mark
+    octx.save(); octx.strokeStyle='#fff'; octx.lineWidth=1.7; octx.lineCap='round'; octx.lineJoin='round';
+    octx.beginPath(); octx.moveTo(p.x-3.2,p.y+0.2); octx.lineTo(p.x-1,p.y+2.6); octx.lineTo(p.x+3.4,p.y-2.6); octx.stroke(); octx.restore();
+  }
 }
 
 // Quick Measure rendering — dashed teal line, optional label chip at the endpoint.

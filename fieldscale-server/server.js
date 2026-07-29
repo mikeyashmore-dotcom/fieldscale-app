@@ -361,6 +361,8 @@ function trainingSummary(){
   return { sheets: all.length, labels, byKind, lastAt };
 }
 
+const weatherCache = {};   // companyId -> { ts, data } — Open-Meteo forecast, refreshed ~every 2h
+
 const PLANS_DIR = path.join(DATA_DIR, 'plans');
 // NOTE: named floorPlanPath (NOT planPath) — the takeoff tool already has a planPath() for its
 // PDF plan sets. A duplicate planPath() here would win via hoisting and silently redirect the
@@ -3229,6 +3231,34 @@ const server = http.createServer(async (req, res) => {
         if (!fp.startsWith(TRAINING_IMG_DIR) || !fs.existsSync(fp)) return sendJSON(res, 404, { error: 'Not found.' });
         res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=60' });
         return fs.createReadStream(fp).pipe(res);
+      }
+
+      // ---- Weather on the schedule (free, no-key Open-Meteo, proxied so the CSP stays tight) ----
+      if (pathname === '/api/weather' && req.method === 'GET') {
+        const co = readCompany(me.companyId) || {};
+        const ap = co.addressParts || {};
+        const city = ap.city || '';
+        if (!city) return sendJSON(res, 200, { enabled: false, reason: 'no-location' });
+        const cached = weatherCache[me.companyId];
+        if (cached && Date.now() - cached.ts < 2 * 3600 * 1000) return sendJSON(res, 200, cached.data);
+        try {
+          const geo = await (await fetch('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=' + encodeURIComponent(city))).json();
+          const g = geo && geo.results && geo.results[0];
+          if (!g) return sendJSON(res, 200, { enabled: false, reason: 'geocode-failed' });
+          const fc = await (await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + g.latitude + '&longitude=' + g.longitude
+            + '&daily=precipitation_probability_max,precipitation_sum,weathercode,temperature_2m_max,temperature_2m_min'
+            + '&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&forecast_days=16')).json();
+          const days = {}; const t = (fc.daily && fc.daily.time) || [];
+          t.forEach((date, i) => { days[date] = {
+            precipProb: fc.daily.precipitation_probability_max[i],
+            precipIn: fc.daily.precipitation_sum[i],
+            code: fc.daily.weathercode[i],
+            tMax: Math.round(fc.daily.temperature_2m_max[i]),
+            tMin: Math.round(fc.daily.temperature_2m_min[i]) }; });
+          const data = { enabled: true, location: g.name + (g.admin1 ? ', ' + g.admin1 : ''), days };
+          weatherCache[me.companyId] = { ts: Date.now(), data };
+          return sendJSON(res, 200, data);
+        } catch (e) { return sendJSON(res, 200, { enabled: false, reason: 'fetch-failed' }); }
       }
 
       // ---- Editable Leads-board columns (custom pipeline stages) ----

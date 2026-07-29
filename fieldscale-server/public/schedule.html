@@ -22,6 +22,10 @@
   .cal .dow{background:var(--paper);font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);padding:7px 8px;text-align:center}
   .cell{background:var(--surface);min-height:96px;padding:5px 6px;position:relative}
   .cell.out{background:#FaF8F2}
+  .cell.rain-day{background:linear-gradient(180deg,rgba(74,144,217,.10),transparent 60%)}
+  .cell.out.rain-day{background:linear-gradient(180deg,rgba(74,144,217,.12),#FaF8F2 60%)}
+  .cell .wx{position:absolute;top:4px;right:6px;font-size:10px;line-height:1;font-family:'IBM Plex Mono',monospace;color:var(--steel);white-space:nowrap}
+  .cell .wx.rain{color:#2A6FB0;font-weight:600}
   .cell .dnum{font-size:12px;color:var(--steel);font-family:'IBM Plex Mono',monospace}
   .cell.today .dnum{background:var(--orange);color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
   .chip{display:block;margin-top:3px;padding:2px 6px;border-radius:3px;font-size:11px;color:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -87,6 +91,7 @@
       <span><i class="dot hold"></i>On hold</span>
       <span><i class="dot complete"></i>Complete</span>
     </div>
+    <div id="wx-note" style="display:none;font-size:12px;color:var(--steel);margin:0 0 8px"></div>
     <div class="cal" id="cal"></div>
 
     <div class="agenda">
@@ -119,6 +124,12 @@ function fmtWhen(j){ const s=pd(j.start), d=pd(j.due); const o={month:'short',da
   if(s) return 'Starts '+s.toLocaleDateString(undefined,o); if(d) return 'Due '+d.toLocaleDateString(undefined,o); return ''; }
 
 let jobs=[], view=new Date();
+let weatherByDate={}, weatherLoc='';
+async function loadWeather(){
+  try{ const w=await apiFetch('/api/weather'); if(w && w.enabled){ weatherByDate=w.days||{}; weatherLoc=w.location||''; renderCal();
+    const el=document.getElementById('wx-note'); if(el && weatherLoc){ el.style.display=''; el.innerHTML='🌧 Rain-likely days are flagged from the '+esc(weatherLoc)+' forecast (next ~16 days) so you can plan outdoor work around them.'; }
+  } }catch(e){}
+}
 const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 function renderCal(){
@@ -138,7 +149,10 @@ function renderCal(){
     }).map(j=>{ const isStart = j.start && ymd(pd(j.start))===dStr;
       return `<span class="chip ${scls(j.status)}${isStart?' start':''}" title="${esc(j.name)} — ${esc(j.status)}" onclick="location.href='/job.html?id=${esc(j.id)}'">${esc(j.name)}</span>`;
     }).join('');
-    html+=`<div class="cell${inMonth?'':' out'}${dStr===todayStr?' today':''}"><span class="dnum">${day.getDate()}</span>${chips}</div>`;
+    const wx=weatherByDate[dStr];
+    const rainy = wx && ((wx.precipProb!=null && wx.precipProb>=50) || (wx.precipIn!=null && wx.precipIn>=0.05));
+    const wxBadge = rainy ? `<span class="wx rain" title="Rain likely — ${wx.precipProb||0}% chance, ${(wx.precipIn||0).toFixed(2)}&quot; · ${wx.tMin}–${wx.tMax}°F">🌧 ${wx.precipProb||0}%</span>` : '';
+    html+=`<div class="cell${inMonth?'':' out'}${dStr===todayStr?' today':''}${rainy?' rain-day':''}"><span class="dnum">${day.getDate()}</span>${wxBadge}${chips}</div>`;
   }
   document.getElementById('cal').innerHTML=html;
 }
@@ -189,6 +203,7 @@ async function init(){
     renderCal(); renderAgenda(); renderConflicts();
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
+    loadWeather();   // non-blocking — flags rain days once the forecast arrives
   }catch(err){ document.getElementById('loading').textContent='Could not load the schedule: '+err.message; }
 }
 init();

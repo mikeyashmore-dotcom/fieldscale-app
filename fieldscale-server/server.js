@@ -1595,6 +1595,24 @@ const server = http.createServer(async (req, res) => {
         } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
       }
 
+      // ---- Extract form fields from spoken/typed free text (voice-to-form) ----
+      if (pathname === '/api/ai/parse-fields' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { transcript, fields } = await readBody(req);
+        if (!transcript || !String(transcript).trim()) return sendJSON(res, 400, { error: 'Nothing to read — say or type some details first.' });
+        const list = Array.isArray(fields) ? fields : [];
+        if (!list.length) return sendJSON(res, 400, { error: 'No fields to fill.' });
+        const fieldLines = list.map(f => '- ' + f.key + ' (' + (f.label || f.key) + ')' + (f.hint ? ': ' + f.hint : '')).join('\n');
+        const system = 'You pull structured fields out of a contractor talking out loud (their words were transcribed, so expect run-on text and small errors). You are given a list of fields (key, label, optional hint) and the transcript. Return ONLY JSON of the form {"values":{"<key>":"<value>"}}. Rules: include a key ONLY when the transcript clearly states that value; leave a field out if it is not mentioned. Never invent or guess data. For a money/number field return digits only (no $ or commas). For an address return one line "street, city, state ZIP". Keep every value concise and clean. No prose, no markdown — JSON only.';
+        const user = 'Fields:\n' + fieldLines + '\n\nTranscript:\n' + String(transcript).slice(0, 4000);
+        try { const text = await aiText({ system, user, max_tokens: 700, mock: () => '{"values":{}}' });
+          const parsed = parseJSONLoose(text) || {};
+          const values = (parsed && typeof parsed.values === 'object' && parsed.values) ? parsed.values : {};
+          const allowed = {}; for (const f of list) { if (values[f.key] != null && String(values[f.key]).trim() !== '') allowed[f.key] = String(values[f.key]).trim(); }
+          aiDone(); return sendJSON(res, 200, { values: allowed });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
       // ---- Draft a change order from a plain-language request ----
       if (pathname === '/api/ai/changeorder' && req.method === 'POST') {
         if (aiBlocked()) return;

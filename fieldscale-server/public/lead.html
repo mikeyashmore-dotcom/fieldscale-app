@@ -77,7 +77,7 @@
 
     <div class="grid2">
       <div class="block" style="margin-bottom:0">
-        <h3>Contact</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">Contact</h3><button type="button" class="btn ghost" id="dictate-contact" style="font-size:12px;padding:5px 11px;white-space:nowrap">🎤 Dictate</button></div>
         <div class="field"><label>Contact name</label><input id="lead-name" placeholder="Customer / company name" /></div>
         <div class="row2">
           <div class="field"><label>Phone</label><input id="phone" placeholder="000-000-0000" /></div>
@@ -103,7 +103,7 @@
     </div>
 
     <div class="block">
-      <h3>Site visit</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><h3 style="margin:0">Site visit</h3><button type="button" class="btn ghost" id="dictate-sv" style="font-size:12px;padding:5px 11px;white-space:nowrap">🎤 Dictate</button></div>
       <p style="font-size:12px;color:var(--steel);margin:0 0 10px">Capture what you saw on site so it seeds the estimate scope.</p>
       <div class="row2">
         <div class="field"><label>Visit date</label><input id="sv-date" type="date" /></div>
@@ -180,6 +180,50 @@ async function save(){
 // Keep the page heading in sync with the contact name (name now lives in the Contact box).
 function syncTitle(){ const n=(val('lead-name')||'').trim(); document.getElementById('lead-title').textContent = n || 'Lead'; }
 document.getElementById('lead-name').addEventListener('input', syncTitle);
+
+// ---- Voice-to-form: speak the details, AI fills the fields ----
+function applyValues(map, values){ let n=0; for(const key in map){ const v=values[key]; if(v==null||String(v).trim()==='') continue; map[key](String(v).trim()); n++; } return n; }
+function dictateDone(n){ toast(n ? ('Filled '+n+' field'+(n>1?'s':'')+' — check and edit as needed.') : 'Couldn’t pick out any details — try again with a bit more.'); }
+const _dc=document.getElementById('dictate-contact');
+if(_dc) _dc.addEventListener('click', function(){ window.fsDictate({
+  title:'Dictate contact details',
+  fields:[
+    {key:'name',label:'Contact name',hint:'person or company'},
+    {key:'phone',label:'Phone'},
+    {key:'email',label:'Email'},
+    {key:'address',label:'Project address',hint:'street, city, state ZIP'},
+    {key:'workType',label:'Type of work',hint:'e.g. kitchen remodel, roof replacement'},
+    {key:'value',label:'Estimated value',hint:'dollars, number only'},
+    {key:'source',label:'Lead source',hint:'referral, website, etc.'},
+    {key:'notes',label:'Notes',hint:'anything else worth writing down'}
+  ],
+  onValues:function(v){ applyValues({
+    name:x=>{ set('lead-name',x); syncTitle(); },
+    phone:x=>set('phone',x), email:x=>set('email',x),
+    address:x=>fsAddr.set('lead-addr',x),
+    workType:x=>set('work-type',x),
+    value:x=>set('value', String(x).replace(/[^0-9.]/g,'')),
+    source:x=>set('source',x),
+    notes:x=>{ const cur=val('notes'); set('notes', cur? (cur+'\n'+x): x); }
+  }, v); },
+  onDone:dictateDone
+}); });
+const _ds=document.getElementById('dictate-sv');
+if(_ds) _ds.addEventListener('click', function(){ window.fsDictate({
+  title:'Dictate site visit',
+  fields:[
+    {key:'present',label:'Who was present',hint:'names'},
+    {key:'access',label:'Access instructions',hint:'gate code, parking, dog on site'},
+    {key:'scope',label:'Scope / observations',hint:'what the job involves, conditions, measurements, materials'},
+    {key:'risks',label:'Risks / concerns',hint:'access, hazards, unknowns'}
+  ],
+  onValues:function(v){ applyValues({
+    present:x=>set('sv-present',x), access:x=>set('sv-access',x),
+    scope:x=>{ const cur=val('sv-scope'); set('sv-scope', cur? (cur+'\n'+x): x); },
+    risks:x=>set('sv-risks',x)
+  }, v); },
+  onDone:dictateDone
+}); });
 
 // ---- Site-visit files ----
 function renderLeadFiles(){

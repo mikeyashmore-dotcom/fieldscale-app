@@ -469,7 +469,14 @@
     + '.fsai-btn{border:1px solid #B9C2CB;background:#fff;border-radius:5px;padding:8px 14px;font:600 13px inherit;cursor:pointer;color:#1C1E22}'
     + '.fsai-btn.primary{background:#E8722C;border-color:#E8722C;color:#fff}.fsai-btn:disabled{opacity:.5;cursor:default}'
     + '.fsai-spin{display:inline-block;width:15px;height:15px;border:2px solid #E4DFCF;border-top-color:#E8722C;border-radius:50%;animation:fsaispin .7s linear infinite;vertical-align:-2px}'
-    + '@keyframes fsaispin{to{transform:rotate(360deg)}} .fsai-err{color:#C0392B}';
+    + '@keyframes fsaispin{to{transform:rotate(360deg)}} .fsai-err{color:#C0392B}'
+    + '.fsd-hint{margin:0 0 12px;color:#4A5763;font-size:13px;line-height:1.5}'
+    + '.fsd-microw{display:flex;align-items:center;gap:10px;margin-bottom:10px}'
+    + '.fsd-mic{border:1px solid #B9C2CB;background:#fff;border-radius:22px;padding:9px 16px;font:600 14px inherit;cursor:pointer;color:#1C1E22}'
+    + '.fsd-mic.on{background:#C0392B;border-color:#C0392B;color:#fff;animation:fsdpulse 1.1s ease-in-out infinite}'
+    + '@keyframes fsdpulse{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.45)}50%{box-shadow:0 0 0 7px rgba(192,57,43,0)}}'
+    + '.fsd-status{font-size:12px;color:#7C8896}'
+    + '.fsd-text{width:100%;box-sizing:border-box;min-height:120px;border:1px solid #B9C2CB;border-radius:5px;padding:10px 12px;font:14px inherit;resize:vertical}';
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
 
   window.fsAI = {
@@ -588,5 +595,69 @@
       var n = [a.street, a.city, a.state, a.zip].filter(Boolean).length;
       return (n === 0 || n === 4) ? '' : 'Please complete the full address — street, city, state and ZIP.';
     }
+  };
+
+  // Voice-to-form: a mic + free-text box that sends what was said/typed to the AI, which pulls
+  // out the requested fields and hands them back for the page to fill in.
+  // opts: { title, fields:[{key,label,hint}], onValues(values), onDone(count) }
+  window.fsDictate = function (opts) {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    var supported = !!SR;
+    var body = '<p class="fsd-hint">' + (supported
+        ? 'Tap the mic and say the details out loud (name, phone, email, address, type of work, budget…). Edit if needed, then tap <b>Fill form</b>.'
+        : 'Voice isn\'t available on this device. Type the details below (or use your keyboard\'s own mic), then tap <b>Fill form</b>.') + '</p>'
+      + (supported ? '<div class="fsd-microw"><button type="button" class="fsd-mic" id="fsd-mic">🎤 Start talking</button><span class="fsd-status" id="fsd-status"></span></div>' : '')
+      + '<textarea class="fsd-text" id="fsd-text" placeholder="What you say shows up here — you can also type or edit it."></textarea>';
+    fsModal({
+      title: opts.title || 'Dictate',
+      bodyHTML: body,
+      buttons: [
+        { label: 'Cancel' },
+        { label: 'Fill form', primary: true, onClick: function (close, card) {
+            var ta = card.querySelector('#fsd-text');
+            var transcript = (ta.value || '').trim();
+            var status = card.querySelector('#fsd-status');
+            if (!transcript) { if (status) status.textContent = 'Say or type something first.'; ta.focus(); return false; }
+            var btn = card.querySelector('.fsai-btn.primary');
+            btn.disabled = true; btn.textContent = 'Reading…';
+            window.fsAI.post('/api/ai/parse-fields', { transcript: transcript, fields: opts.fields })
+              .then(function (d) {
+                var values = (d && d.values) || {};
+                var n = 0; for (var k in values) { if (values[k] != null && String(values[k]).trim() !== '') n++; }
+                try { if (opts.onValues) opts.onValues(values); } catch (e) {}
+                close();
+                if (opts.onDone) opts.onDone(n);
+              })
+              .catch(function (err) {
+                btn.disabled = false; btn.textContent = 'Fill form';
+                if (status) status.textContent = err.message || 'Something went wrong.';
+              });
+            return false; // keep the modal open until the request resolves
+          } }
+      ],
+      onOpen: function (card) {
+        if (!supported) { var ta0 = card.querySelector('#fsd-text'); if (ta0) ta0.focus(); return; }
+        var ta = card.querySelector('#fsd-text'), mic = card.querySelector('#fsd-mic'), status = card.querySelector('#fsd-status');
+        var rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
+        var listening = false, base = '';
+        rec.onresult = function (e) {
+          var interim = '', finalT = '';
+          for (var i = e.resultIndex; i < e.results.length; i++) {
+            var r = e.results[i]; if (r.isFinal) finalT += r[0].transcript; else interim += r[0].transcript;
+          }
+          if (finalT) base = (base ? base + ' ' : '') + finalT.trim();
+          ta.value = (base + (interim ? ' ' + interim : '')).trim();
+        };
+        rec.onerror = function (e) { status.textContent = (e.error === 'not-allowed' || e.error === 'service-not-allowed') ? 'Microphone blocked — allow it in your browser settings.' : ('Mic error: ' + e.error); stop(); };
+        rec.onend = function () { if (listening) { try { rec.start(); } catch (e) {} } };
+        function start() { base = (ta.value || '').trim(); listening = true; try { rec.start(); } catch (e) {} mic.textContent = '⏹ Stop'; mic.classList.add('on'); status.textContent = 'Listening…'; }
+        function stop() { listening = false; try { rec.stop(); } catch (e) {} mic.textContent = '🎤 Start talking'; mic.classList.remove('on'); if (status.textContent === 'Listening…') status.textContent = ''; }
+        mic.onclick = function () { listening ? stop() : start(); };
+        // Make sure the mic is released no matter how the modal is closed (X, overlay click, button).
+        var ov = card.parentNode;
+        var mo = new MutationObserver(function () { if (!document.body.contains(ov)) { stop(); mo.disconnect(); } });
+        if (ov) mo.observe(document.body, { childList: true });
+      }
+    });
   };
 })();

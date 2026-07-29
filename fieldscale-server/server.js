@@ -3320,7 +3320,9 @@ const server = http.createServer(async (req, res) => {
           let id = String((s && s.id) || '').slice(0, 40).trim();
           if (!id || seen.has(id) || RESERVED_LEAD_STAGES.includes(id)) id = 'st_' + crypto.randomBytes(5).toString('hex');
           seen.add(id);
-          return { id, label: String((s && s.label) || 'Section').slice(0, 60), color: String((s && s.color) || '#8A94A6').slice(0, 20) };
+          const rawColor = String((s && s.color) || '');
+          const color = /^#[0-9a-fA-F]{3,8}$/.test(rawColor) ? rawColor : '#8A94A6';   // hex only — it goes into an inline style on the board
+          return { id, label: String((s && s.label) || 'Section').slice(0, 60), color };
         }).filter(s => s.label);
         if (!stages.length) return sendJSON(res, 400, { error: 'Keep at least one column.' });
         const co = companyById(me.companyId);

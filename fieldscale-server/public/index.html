@@ -1934,9 +1934,9 @@ async function refreshUserList(){
               <button class="btn" data-act="toggle">${u.disabled ? 'Enable' : 'Disable'}</button>
               <button class="btn danger" data-act="delete">Delete</button>`;
       return `
-        <tr data-id="${u.id}" data-name="${u.username}" data-role="${u.role}" data-disabled="${u.disabled}">
+        <tr data-id="${u.id}" data-name="${escapeHtml(u.username)}" data-role="${u.role}" data-disabled="${u.disabled}">
           <td>
-            <div class="u-name">${u.username} ${tags}</div>
+            <div class="u-name">${escapeHtml(u.username)} ${tags}</div>
             <div class="u-meta">Joined ${fmtDate(u.createdAt)} · Last in ${fmtDate(u.lastLoginAt)}</div>
           </td>
           <td class="u-meta">${u.projectCount} project${u.projectCount === 1 ? '' : 's'}</td>
@@ -3942,7 +3942,7 @@ function renderAddStep2(cat){
   const label = (ADD_CATS.find(c=>c[0]===cat)||[])[2] || '';
   const lib = state.typeLibrary[cat] || [];
   const rows = lib.length
-    ? lib.map(t=>`<button data-type="${t.id}"><span class="am-swatch" style="background:${t.color||'#888'}"></span> ${escapeHtml(t.name)}</button>`).join('')
+    ? lib.map(t=>`<button data-type="${t.id}"><span class="am-swatch" style="background:${safeColor(t.color)}"></span> ${escapeHtml(t.name)}</button>`).join('')
     : '<div class="am-empty">No saved types yet — make one below.</div>';
   addMenu.innerHTML = '<div class="am-back" data-back="1">‹ Back</div>' +
     '<div class="am-title">'+escapeHtml(label)+' — pick a type</div>' + rows +
@@ -5805,7 +5805,7 @@ function updateTypeChip(category){
   const chip = document.getElementById(category+'-type-chip');
   if(!chip) return;
   const t = getActiveType(category);
-  chip.innerHTML = t ? `<span class="tp-swatch" style="background:${t.color}"></span>${escapeHtml(t.name)}` : '';
+  chip.innerHTML = t ? `<span class="tp-swatch" style="background:${safeColor(t.color)}"></span>${escapeHtml(t.name)}` : '';
 }
 
 function populateTypeDropdown(category){
@@ -5829,17 +5829,17 @@ function updateTypeSummary(category){
     const measureLabels = {length:'Length (LF)', face_area:'Face Area (SF)', volume:'Volume (CY)', stud_count:'Stud Count (EA)'};
     const kinds = t.measureKinds || (t.measureKind?[t.measureKind]:['length']);
     const measureText = kinds.map(k=>measureLabels[k]).join(' + ');
-    el.innerHTML = `<span class="tp-swatch" style="background:${t.color}"></span>Measuring: ${measureText}<br>${t.thicknessIn}" thick · ${formatFeetInches(t.heightFt)} high${kinds.includes('stud_count')?` · ${t.studSpacingIn}" O.C.`:''}${kinds.includes('face_area')&&t.bothFaces?' · both faces':''}`;
+    el.innerHTML = `<span class="tp-swatch" style="background:${safeColor(t.color)}"></span>Measuring: ${measureText}<br>${t.thicknessIn}" thick · ${formatFeetInches(t.heightFt)} high${kinds.includes('stud_count')?` · ${t.studSpacingIn}" O.C.`:''}${kinds.includes('face_area')&&t.bothFaces?' · both faces':''}`;
   } else if(category==='count'){
-    el.innerHTML = `<span class="tp-swatch" style="background:${t.color}"></span>${t.trade} · default "${t.defaultLabel}"`;
+    el.innerHTML = `<span class="tp-swatch" style="background:${safeColor(t.color)}"></span>${escapeHtml(t.trade)} · default "${escapeHtml(t.defaultLabel)}"`;
   } else if(category==='area'){
     const p = pitchLabel(t.pitchRise);
-    const bits = [t.trade];
+    const bits = [escapeHtml(t.trade)];
     if(p) bits.push(`pitch ${p} · ×${slopeFactor(t.pitchRise).toFixed(3)}`);
     if(t.reportSquares) bits.push('squares (SQ)');
-    el.innerHTML = `<span class="tp-swatch" style="background:${t.color}"></span>${bits.join(' · ')}`;
+    el.innerHTML = `<span class="tp-swatch" style="background:${safeColor(t.color)}"></span>${bits.join(' · ')}`;
   } else {
-    el.innerHTML = `<span class="tp-swatch" style="background:${t.color}"></span>${t.trade}`;
+    el.innerHTML = `<span class="tp-swatch" style="background:${safeColor(t.color)}"></span>${escapeHtml(t.trade)}`;
   }
 }
 
@@ -7095,7 +7095,7 @@ function renderTakeoffList(){
         return `<span class="qty-col${(v===0)?' zero':''}">${disp}</span>`; };
       const canReactivate = cat && typeId;
       html += `<div class="item-row${zero?' zero-row':''}" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" ${canReactivate?`draggable="true" data-drag="row" data-cat="${cat}" data-typeid="${typeId}"`:''} title="${canReactivate?'Drag into a folder · Double-click to draw again · Right-click for options':''}">
-        <span class="swatch" style="background:${color}"></span>
+        <span class="swatch" style="background:${safeColor(color)}"></span>
         <span class="name" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
         ${UNIT_COLS.map(cellFor).join('')}
         <span class="del" data-ids="${ids.join(',')}" data-sticky="${escapeHtml(skKey)}" title="${zero?'Remove this row from the panel':'Delete these measurements (the row stays at 0)'}">✕</span>
@@ -8086,6 +8086,9 @@ function createTypeFromLabel(label, category){
   return id;
 }
 function escapeHtml(s){ return (s+'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// A color value is safe to drop into a style="" attribute only if it's a plain hex color; anything
+// else (crafted via a saved-project payload) is replaced so it can't break out of the attribute.
+function safeColor(c){ c=String(c==null?'':c); return /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : '#999999'; }
 
 // ---------- Panel tabs ----------
 document.querySelectorAll('.panel-tab').forEach(tab=>{

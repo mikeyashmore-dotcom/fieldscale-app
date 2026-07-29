@@ -149,6 +149,21 @@ async function apiFetch(path, options={}){
 let toastTimer; function toast(m,e){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'+(e?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
 function val(id){ return document.getElementById(id).value; }
 function set(id,v){ document.getElementById(id).value=(v==null?'':v); }
+// Rebuild the stage dropdown from the company's Leads-board columns, plus the reserved
+// Estimating / Won / Lost stages. Keeps this page in sync with columns added on the board,
+// so opening & saving a lead never resets a custom stage.
+async function populateStageOptions(current){
+  let stages=[];
+  try{ const r=await apiFetch('/api/lead-stages'); stages=r.stages||[]; }catch(e){}
+  const sel=document.getElementById('stage'); if(!sel) return;
+  let opts = stages.map(s=>`<option value="${escapeHtml(s.id)}">${escapeHtml(s.label)}</option>`);
+  opts = opts.concat('<option value="estimating">Estimating</option>','<option value="won">Won</option>','<option value="lost">Lost</option>');
+  // Make sure the lead's current stage is always selectable even if that column was removed.
+  if(current && !stages.some(s=>s.id===current) && !['estimating','won','lost'].includes(current)){
+    opts.unshift(`<option value="${escapeHtml(current)}">${escapeHtml(current)}</option>`);
+  }
+  sel.innerHTML = opts.join('');
+}
 
 let doc={};
 // ---- Signature pad ----
@@ -277,6 +292,7 @@ async function init(){
   try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
   try{
     const l=await apiFetch('/api/leads/'+leadId);
+    await populateStageOptions(l.stage);   // stage dropdown mirrors the Leads-board columns (+ Estimating/Won/Lost)
     set('lead-name', l.name); document.getElementById('stage').value=l.stage||'new';
     set('work-type', l.workType); set('value', l.value||''); set('source', l.source); set('follow-up', l.followUp);
     doc=l.doc||{};

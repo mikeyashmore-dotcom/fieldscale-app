@@ -314,6 +314,23 @@ function writeLeadDoc(id, doc){
   writeJsonAtomic(leadPath(id), doc || {});
 }
 const LEAD_STAGES = ['new', 'contacted', 'estimating', 'won', 'lost', 'on hold'];
+// Reserved stages the app routes on (an estimating lead moves to the Estimates tab; won/lost are closed).
+// These are never user-editable columns.
+const RESERVED_LEAD_STAGES = ['estimating', 'won', 'lost'];
+// The editable pipeline columns shown on the Leads board. Companies can rename/add/remove/reorder these.
+const DEFAULT_LEAD_STAGES = [
+  { id: 'new',       label: 'New',       color: '#4A90D9' },
+  { id: 'contacted', label: 'Contacted', color: '#E8964A' },
+  { id: 'on hold',   label: 'On hold',   color: '#8A94A6' }
+];
+function leadStagesFor(companyRec){
+  const s = companyRec && Array.isArray(companyRec.leadStages) ? companyRec.leadStages : null;
+  return s && s.length ? s : DEFAULT_LEAD_STAGES;
+}
+// All stage ids a lead is allowed to hold = reserved + the company's editable columns.
+function validLeadStageIds(companyRec){
+  return new Set([...RESERVED_LEAD_STAGES, 'new', 'contacted', 'on hold', ...leadStagesFor(companyRec).map(s => s.id)]);
+}
 
 // ---------- Floor Plans (a standalone sketch tool: walls + fixtures on a scaled grid) ----------
 // Its own store, walled off per company, mirroring leads. The full drawing (walls/fixtures/rooms)
@@ -3121,6 +3138,26 @@ const server = http.createServer(async (req, res) => {
       }
 
       // ---- Leads / CRM: list / create / get / put / delete / convert-to-estimate ----
+      // ---- Editable Leads-board columns (custom pipeline stages) ----
+      if (pathname === '/api/lead-stages' && req.method === 'GET') {
+        return sendJSON(res, 200, { stages: leadStagesFor(companyById(me.companyId)) });
+      }
+      if (pathname === '/api/lead-stages' && req.method === 'PUT') {
+        const body = await readBody(req);
+        const raw = Array.isArray(body.stages) ? body.stages : [];
+        const seen = new Set();
+        const stages = raw.slice(0, 40).map(s => {
+          let id = String((s && s.id) || '').slice(0, 40).trim();
+          if (!id || seen.has(id) || RESERVED_LEAD_STAGES.includes(id)) id = 'st_' + crypto.randomBytes(5).toString('hex');
+          seen.add(id);
+          return { id, label: String((s && s.label) || 'Section').slice(0, 60), color: String((s && s.color) || '#8A94A6').slice(0, 20) };
+        }).filter(s => s.label);
+        if (!stages.length) return sendJSON(res, 400, { error: 'Keep at least one column.' });
+        const co = companyById(me.companyId);
+        co.leadStages = stages;
+        saveDB(db);
+        return sendJSON(res, 200, { stages });
+      }
       if (pathname === '/api/leads' && req.method === 'GET') {
         const list = db.leads.filter(l => l.companyId === me.companyId)
           .map(l => ({ id: l.id, name: l.name, workType: l.workType || '', value: Number(l.value) || 0,
@@ -3176,7 +3213,7 @@ const server = http.createServer(async (req, res) => {
           if (name !== undefined) lead.name = String(name).slice(0, 200);
           if (workType !== undefined) lead.workType = String(workType).slice(0, 120);
           if (value !== undefined) lead.value = Number(value) || 0;
-          if (stage !== undefined && LEAD_STAGES.includes(stage)) lead.stage = stage;
+          if (stage !== undefined && validLeadStageIds(companyById(me.companyId)).has(stage)) lead.stage = stage;
           if (source !== undefined) lead.source = String(source).slice(0, 120);
           if (followUp !== undefined) lead.followUp = String(followUp).slice(0, 20);
           if (doc !== undefined) {

@@ -10,52 +10,60 @@
 <meta name="fs-module" content="crm">
 <script src="/app-nav.js"></script>
 <style>
-  .toolbar{display:flex;gap:8px;align-items:center;margin:0 0 18px}
-  td.num,th.num{font-family:'IBM Plex Mono',monospace}
-  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
-  .pill.new{background:rgba(111,195,228,.2);color:var(--cyan-dim)}
-  .pill.contacted{background:rgba(27,75,122,.14);color:var(--blueprint-2)}
-  .pill.estimating{background:rgba(232,114,44,.15);color:var(--orange-dim)}
-  .pill.won{background:rgba(74,155,110,.15);color:var(--good)}
-  .pill.lost{background:rgba(192,57,43,.12);color:var(--danger)}
-  .pill.hold{background:var(--paper);color:var(--steel)}
-  .rowlink{cursor:pointer}
-  .rowlink:hover td{background:var(--surface-2)}
-  .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
-  .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  .toolbar{display:flex;gap:8px;align-items:center;margin:0 0 18px;flex-wrap:wrap}
   .tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
   .tile{background:var(--surface);border:1px solid var(--paper-line);border-radius:var(--radius);padding:10px 14px;min-width:110px}
   .tile .n{font-family:'Oswald',sans-serif;font-size:20px;font-weight:600;color:var(--heading)}
   .tile .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--steel);margin-top:2px}
   a.tile{text-decoration:none;display:block} a.tile:hover{border-color:var(--cyan-dim)}
+
   /* ---- Monday-style pipeline board ---- */
   .board{display:flex;flex-direction:column;gap:16px}
   .grp{background:var(--surface);border:1px solid var(--paper-line);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(16,42,67,.06)}
-  .grp-h{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;border-left:5px solid var(--gc);background:var(--gcbg);user-select:none}
-  .grp-caret{color:var(--gc);font-size:11px;transition:transform .15s;width:12px;text-align:center}
+  .grp.drop-hot{outline:2px dashed var(--gc);outline-offset:-3px}
+  .grp-h{display:flex;align-items:center;gap:10px;padding:11px 14px;border-left:5px solid var(--gc);background:var(--gcbg);user-select:none}
+  .grp-caret{color:var(--gc);font-size:11px;cursor:pointer;width:12px;text-align:center;transition:transform .15s}
   .grp.collapsed .grp-caret{transform:rotate(-90deg)}
-  .grp-title{font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;color:var(--gc);text-transform:uppercase;letter-spacing:.04em}
+  .grp-title{font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;color:var(--gc);text-transform:uppercase;letter-spacing:.04em;cursor:text}
   .grp-count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--steel);background:var(--surface-2);border-radius:20px;padding:1px 9px}
-  .grp-sum{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--steel)}
+  .grp-tools{margin-left:auto;display:flex;align-items:center;gap:4px}
+  .grp-sum{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--steel);margin-right:6px}
+  .gt{border:none;background:transparent;color:var(--steel);cursor:pointer;font-size:13px;line-height:1;padding:3px 5px;border-radius:5px;opacity:.55}
+  .gt:hover{opacity:1;background:var(--surface-2)}
+  .gt:disabled{opacity:.2;cursor:default}
   .grp-body{overflow-x:auto}
   .grp.collapsed .grp-body{display:none}
-  .brow,.grp-head{display:grid;grid-template-columns:minmax(170px,1.7fr) 116px minmax(120px,1.2fr) 110px minmax(100px,1fr) 132px 40px;align-items:center;gap:8px;min-width:720px}
+  .brow,.grp-head{display:grid;grid-template-columns:26px minmax(160px,1.7fr) minmax(120px,1.2fr) 110px minmax(100px,1fr) 132px 40px;align-items:center;gap:8px;min-width:720px}
   .grp-head{padding:7px 14px;border-top:1px solid var(--paper-line);border-bottom:1px solid var(--paper-line);background:var(--paper)}
   .grp-head span{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);font-weight:600}
   .brow{padding:9px 14px;border-bottom:1px solid var(--paper-line);border-left:5px solid var(--gc);cursor:pointer;background:var(--surface);transition:background .1s}
   .brow:last-child{border-bottom:none}
   .brow:hover{background:var(--surface-2)}
+  .brow.dragging{opacity:.4}
+  .drag-h{cursor:grab;color:var(--steel);opacity:.5;font-size:14px;text-align:center;line-height:1}
+  .brow:hover .drag-h{opacity:.9}
   .cell{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cell.num{font-family:'IBM Plex Mono',monospace;text-align:right}
   .cell.muted{color:var(--steel)}
   .name{display:flex;align-items:center;gap:9px;font-weight:600}
   .avatar{flex:none;width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Sans',sans-serif}
-  .status{display:inline-block;padding:4px 12px;border-radius:5px;background:var(--gc);color:#fff;font-size:11.5px;font-weight:600;text-transform:capitalize;white-space:nowrap}
   .due{display:inline-block;padding:3px 9px;border-radius:5px;font-size:12px;background:var(--surface-2);color:var(--steel)}
   .due.soon{background:rgba(232,150,74,.16);color:#C77A2E}
   .due.over{background:rgba(192,57,43,.15);color:var(--danger)}
   .act{background:transparent;border:none;color:var(--steel);cursor:pointer;font-size:13px;padding:4px 8px;border-radius:var(--radius)}
   .act:hover{color:var(--danger);background:rgba(192,57,43,.08)}
+  .empty-drop{padding:16px 14px;color:var(--steel);font-size:12px;font-style:italic}
+  .add-sec{border:1.5px dashed var(--paper-line);background:transparent;border-radius:10px;padding:12px;color:var(--steel);
+    font-size:13px;font-weight:600;cursor:pointer;width:100%;text-align:center}
+  .add-sec:hover{border-color:var(--cyan-dim);color:var(--cyan-dim)}
+  /* tap-to-move menu */
+  .movemenu{position:fixed;z-index:200;background:var(--surface);border:1px solid var(--paper-line);border-radius:8px;
+    box-shadow:0 10px 30px rgba(14,42,71,.22);padding:6px;min-width:180px}
+  .movemenu .mm-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--steel);padding:5px 9px 3px}
+  .movemenu button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:transparent;
+    padding:7px 9px;font:13px inherit;color:var(--ink);cursor:pointer;border-radius:5px}
+  .movemenu button:hover{background:var(--surface-2)}
+  .movemenu .dot{width:10px;height:10px;border-radius:50%;flex:none}
   @media (max-width:680px){ .grp-body{overflow-x:auto} }
 </style>
 </head>
@@ -85,16 +93,17 @@
 
 <div class="wrap">
   <h1>Leads</h1>
-  <p class="sub">Your sales pipeline — every opportunity from first call to won. Turn a lead into an estimate from the lead screen.</p>
+  <p class="sub">Your sales pipeline. Drag a lead between columns (or tap the ⋮⋮ handle) to move it, and add your own columns to organize how you work.</p>
 
   <div class="toolbar">
     <button class="btn primary" id="new-btn">＋ New Lead</button>
+    <button class="btn" id="add-sec-btn">＋ Add column</button>
   </div>
 
   <div id="loading" class="loading">Loading…</div>
   <div id="pipeline" class="tiles" style="display:none"></div>
   <div id="groups" style="display:none"></div>
-  <p id="leads-note" class="sub" style="display:none;font-size:12.5px;margin-top:10px">Leads move through <strong>New</strong> → <strong>Contacted</strong>. Once you start an estimate, the lead moves to the <a href="/proposals.html">Estimates</a> tab.</p>
+  <p id="leads-note" class="sub" style="display:none;font-size:12.5px;margin-top:10px">Once you start an estimate, a lead moves to the <a href="/proposals.html">Estimates</a> tab. Won / lost leads drop off this board.</p>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -116,96 +125,193 @@ async function apiFetch(path, options={}){
 function money(n){ return '$'+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fmtDate(v){ if(!v) return '—'; const d=new Date(v.length<=10?v+'T00:00:00':v); return isNaN(d)?'—':d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function pillClass(st){ st=(st||'').toLowerCase(); if(st==='on hold')return 'hold'; return st; }
 let toastTimer; function toast(msg,isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2200); }
+
+function rgba(hex,a){ hex=String(hex||'#8A94A6').replace('#',''); if(hex.length===3) hex=hex.split('').map(c=>c+c).join(''); const r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16); return `rgba(${r},${g},${b},${a})`; }
+const AV_COLORS=['#4A90D9','#E8964A','#4A9B6E','#A25DDC','#5FA8D3','#D9686B','#3E9E9E','#C58B3B'];
+function avatarColor(name){ let h=0; const s=String(name||'?'); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return AV_COLORS[h%AV_COLORS.length]; }
+function initials(name){ const p=String(name||'').trim().split(/\s+/).filter(Boolean); if(!p.length) return '?'; return (p[0][0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase(); }
+function dueClass(v){ if(!v) return ''; const d=new Date(v.length<=10?v+'T00:00:00':v); if(isNaN(d)) return ''; const t=new Date(); t.setHours(0,0,0,0); const diff=(d-t)/86400000; if(diff<0) return 'over'; if(diff<=3) return 'soon'; return ''; }
+
+// Stages closed/handled elsewhere — these never appear as board columns.
+const TERMINAL = ['estimating','won','lost'];
+const isActive = l => !TERMINAL.includes((l.stage||'new').toLowerCase());
+
+let STAGES = [];   // editable columns [{id,label,color}]
+let LEADS = [];
 
 document.getElementById('new-btn').addEventListener('click', async () => {
   try{ const r = await apiFetch('/api/leads', { method:'POST', body: JSON.stringify({ name:'New Lead' }) });
     location.href = '/lead.html?id=' + encodeURIComponent(r.id);
   }catch(err){ toast(err.message, true); }
 });
+document.getElementById('add-sec-btn').addEventListener('click', addSection);
 
-// Active pipeline stages shown on this page, in order. "estimating" leads live in the Estimates
-// tab; won/lost are closed and drop off the active list.
-const ACTIVE_STAGES=[{key:'new',label:'New'},{key:'contacted',label:'Contacted'},{key:'on hold',label:'On hold'}];
-const isActive = l => ['new','contacted','on hold'].includes((l.stage||'new').toLowerCase());
-function renderPipeline(list){
-  const active = list.filter(isActive);
-  const cnt = k => active.filter(l=>(l.stage||'new').toLowerCase()===k).length;
+function renderPipeline(){
+  const active = LEADS.filter(isActive);
   const openVal = active.reduce((s,l)=>s+(Number(l.value)||0),0);
-  const estimating = list.filter(l=>l.stage==='estimating').length;
+  const estimating = LEADS.filter(l=>(l.stage||'').toLowerCase()==='estimating').length;
   const el=document.getElementById('pipeline'); el.style.display='flex';
   el.innerHTML =
     `<div class="tile"><div class="n">${active.length}</div><div class="l">Active leads</div></div>`+
-    `<div class="tile"><div class="n">${cnt('new')}</div><div class="l">New</div></div>`+
-    `<div class="tile"><div class="n">${cnt('contacted')}</div><div class="l">Contacted</div></div>`+
+    `<div class="tile"><div class="n">${STAGES.length}</div><div class="l">Columns</div></div>`+
     `<div class="tile"><div class="n">${money(openVal)}</div><div class="l">Pipeline value</div></div>`+
     `<a class="tile" href="/proposals.html"><div class="n">${estimating}</div><div class="l">Estimating →</div></a>`;
 }
-// Each pipeline stage gets its own board color (Monday-style group).
-const STAGE_META = {
-  'new':      { label:'New',       color:'#4A90D9' },
-  'contacted':{ label:'Contacted', color:'#E8964A' },
-  'on hold':  { label:'On hold',   color:'#8A94A6' }
-};
-function rgba(hex,a){ hex=hex.replace('#',''); const r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16); return `rgba(${r},${g},${b},${a})`; }
-const AV_COLORS=['#4A90D9','#E8964A','#4A9B6E','#A25DDC','#5FA8D3','#D9686B','#3E9E9E','#C58B3B'];
-function avatarColor(name){ let h=0; const s=String(name||'?'); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return AV_COLORS[h%AV_COLORS.length]; }
-function initials(name){ const p=String(name||'').trim().split(/\s+/).filter(Boolean); if(!p.length) return '?'; return (p[0][0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase(); }
-function dueClass(v){ if(!v) return ''; const d=new Date(v.length<=10?v+'T00:00:00':v); if(isNaN(d)) return ''; const t=new Date(); t.setHours(0,0,0,0); const diff=(d-t)/86400000; if(diff<0) return 'over'; if(diff<=3) return 'soon'; return ''; }
 
-function render(list){
+function columnsForRender(){
+  // Editable columns, plus a fallback column for any active lead whose stage isn't a known column.
+  const cols = STAGES.map(s=>({id:s.id,label:s.label,color:s.color,custom:true}));
+  const known = new Set(cols.map(c=>c.id));
+  LEADS.filter(isActive).forEach(l=>{ const st=(l.stage||'new').toLowerCase(); if(!known.has(st)){ known.add(st); cols.push({id:st,label:st,color:'#8A94A6',custom:false}); } });
+  return cols;
+}
+
+function render(){
   const groups=document.getElementById('groups');
   document.getElementById('leads-note').style.display='';
-  const active = list.filter(isActive);
-  if(!active.length){
-    groups.innerHTML=`<div class="grp"><div style="padding:32px;text-align:center;color:var(--steel)">
-      No active leads. Click <strong>＋ New Lead</strong> to add one. Leads you're estimating are in the <a href="/proposals.html">Estimates</a> tab.</div></div>`;
-    return;
-  }
-  const head = `<div class="grp-head"><span>Lead</span><span>Status</span><span>Type of work</span><span class="num" style="text-align:right">Est. value</span><span>Source</span><span>Follow-up</span><span></span></div>`;
-  groups.innerHTML = `<div class="board">` + ACTIVE_STAGES.map(g=>{
-    const rows = active.filter(l=>(l.stage||'new').toLowerCase()===g.key);
-    if(!rows.length) return '';
-    const meta = STAGE_META[g.key] || {label:g.label, color:'#8A94A6'};
+  const cols = columnsForRender();
+  const head = `<div class="grp-head"><span></span><span>Lead</span><span>Type of work</span><span class="num" style="text-align:right">Est. value</span><span>Source</span><span>Follow-up</span><span></span></div>`;
+  groups.innerHTML = `<div class="board">` + cols.map((col,ci)=>{
+    const rows = LEADS.filter(l=>isActive(l) && (l.stage||'new').toLowerCase()===col.id);
     const sum = rows.reduce((s,l)=>s+(Number(l.value)||0),0);
-    const body = rows.map(l=>{
+    const body = rows.length ? rows.map(l=>{
       const dc=dueClass(l.followUp);
-      return `<div class="brow" data-open="${l.id}">
+      return `<div class="brow" draggable="true" data-open="${l.id}" data-id="${l.id}">
+        <span class="drag-h" data-move="${l.id}" title="Move to another column">⠿</span>
         <span class="cell name"><span class="avatar" style="background:${avatarColor(l.name)}">${escapeHtml(initials(l.name))}</span>${escapeHtml(l.name)||'Untitled'}</span>
-        <span class="cell"><span class="status">${escapeHtml(meta.label)}</span></span>
         <span class="cell muted">${escapeHtml(l.workType)||'—'}</span>
         <span class="cell num">${l.value?money(l.value):'—'}</span>
         <span class="cell muted">${escapeHtml(l.source)||'—'}</span>
         <span class="cell"><span class="due ${dc}">${fmtDate(l.followUp)}</span></span>
         <span class="cell num"><button class="act" data-del="${l.id}" title="Delete lead">✕</button></span>
       </div>`;
-    }).join('');
-    return `<div class="grp" data-grp="${g.key}" style="--gc:${meta.color};--gcbg:${rgba(meta.color,0.09)}">
-      <div class="grp-h"><span class="grp-caret">▾</span><span class="grp-title">${escapeHtml(meta.label)}</span><span class="grp-count">${rows.length}</span><span class="grp-sum">${money(sum)}</span></div>
-      <div class="grp-body">${head}${body}</div>
+    }).join('') : `<div class="empty-drop">Drop leads here</div>`;
+    const canDel = col.custom;
+    return `<div class="grp" data-col="${col.id}" style="--gc:${col.color};--gcbg:${rgba(col.color,0.09)}">
+      <div class="grp-h">
+        <span class="grp-caret" data-caret="1">▾</span>
+        <span class="grp-title" data-rename="${col.id}" title="Click to rename">${escapeHtml(col.label)}</span>
+        <span class="grp-count">${rows.length}</span>
+        <span class="grp-tools">
+          <span class="grp-sum">${money(sum)}</span>
+          <button class="gt" data-up="${col.id}" title="Move column up" ${ci===0?'disabled':''}>▲</button>
+          <button class="gt" data-down="${col.id}" title="Move column down" ${ci===cols.length-1?'disabled':''}>▼</button>
+          <button class="gt" data-rename="${col.id}" title="Rename column">✎</button>
+          <button class="gt" data-delcol="${col.id}" title="Delete column" ${canDel?'':'disabled'}>🗑</button>
+        </span>
+      </div>
+      <div class="grp-body" data-drop="${col.id}">${head}${body}</div>
     </div>`;
   }).join('') + `</div>`;
+  wireDnd();
 }
+
+// ---- Drag & drop + tap-to-move ----
+let dragId=null;
+function wireDnd(){
+  document.querySelectorAll('.brow').forEach(row=>{
+    row.addEventListener('dragstart', e=>{ dragId=row.dataset.id; row.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',dragId);}catch(_){} });
+    row.addEventListener('dragend', ()=>{ dragId=null; row.classList.remove('dragging'); document.querySelectorAll('.drop-hot').forEach(g=>g.classList.remove('drop-hot')); });
+  });
+  document.querySelectorAll('.grp-body').forEach(body=>{
+    const grp=body.closest('.grp');
+    body.addEventListener('dragover', e=>{ if(dragId){ e.preventDefault(); e.dataTransfer.dropEffect='move'; grp.classList.add('drop-hot'); } });
+    body.addEventListener('dragleave', ()=>grp.classList.remove('drop-hot'));
+    body.addEventListener('drop', e=>{ e.preventDefault(); grp.classList.remove('drop-hot'); const id=dragId||(e.dataTransfer&&e.dataTransfer.getData('text/plain')); if(id) moveLead(id, body.dataset.drop); });
+  });
+}
+async function moveLead(id, colId){
+  const lead=LEADS.find(l=>l.id===id); if(!lead || (lead.stage||'new').toLowerCase()===colId) return;
+  const prev=lead.stage; lead.stage=colId; render();   // optimistic
+  try{ await apiFetch('/api/leads/'+id, { method:'PUT', body: JSON.stringify({ stage: colId }) }); renderPipeline(); }
+  catch(err){ lead.stage=prev; render(); toast(err.message, true); }
+}
+
+// tap-to-move menu (touch-friendly)
+let openMenu=null;
+function closeMenu(){ if(openMenu){ openMenu.remove(); openMenu=null; document.removeEventListener('click', onDocClickMenu, true); } }
+function onDocClickMenu(e){ if(openMenu && !openMenu.contains(e.target)) closeMenu(); }
+function openMoveMenu(id, anchor){
+  closeMenu();
+  const lead=LEADS.find(l=>l.id===id); if(!lead) return;
+  const cur=(lead.stage||'new').toLowerCase();
+  const cols=columnsForRender();
+  const m=document.createElement('div'); m.className='movemenu';
+  m.innerHTML='<div class="mm-h">Move to</div>'+cols.map(c=>
+    `<button data-to="${c.id}" ${c.id===cur?'disabled style="opacity:.4"':''}><span class="dot" style="background:${c.color}"></span>${escapeHtml(c.label)}${c.id===cur?' (here)':''}</button>`).join('');
+  document.body.appendChild(m);
+  const r=anchor.getBoundingClientRect();
+  m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, r.bottom+4)+'px';
+  m.style.left=Math.min(window.innerWidth-m.offsetWidth-8, r.left)+'px';
+  m.addEventListener('click', e=>{ const b=e.target.closest('button[data-to]'); if(b){ closeMenu(); moveLead(id, b.dataset.to); } });
+  openMenu=m;
+  setTimeout(()=>document.addEventListener('click', onDocClickMenu, true), 0);
+}
+
+// ---- Column (stage) management ----
+async function saveStages(){ const r=await apiFetch('/api/lead-stages', { method:'PUT', body: JSON.stringify({ stages: STAGES }) }); STAGES=r.stages; }
+const SEC_COLORS=['#4A90D9','#E8964A','#4A9B6E','#A25DDC','#5FA8D3','#D9686B','#3E9E9E','#C58B3B','#C0567A','#5B7C99'];
+async function addSection(){
+  const name=(prompt('Name this column (e.g. Site visit scheduled, Waiting on customer):')||'').trim();
+  if(!name) return;
+  STAGES.push({ id:'st_'+Math.random().toString(36).slice(2,9), label:name, color:SEC_COLORS[STAGES.length%SEC_COLORS.length] });
+  try{ await saveStages(); render(); renderPipeline(); toast('Column added.'); }catch(err){ toast(err.message,true); }
+}
+async function renameColumn(id){
+  const col=STAGES.find(s=>s.id===id);
+  const isBuiltin=!col;   // fallback columns (unknown stages) aren't editable
+  if(isBuiltin){ toast('That column can’t be renamed.'); return; }
+  const name=(prompt('Rename column:', col.label)||'').trim(); if(!name||name===col.label) return;
+  col.label=name;
+  try{ await saveStages(); render(); }catch(err){ toast(err.message,true); }
+}
+async function deleteColumn(id){
+  const idx=STAGES.findIndex(s=>s.id===id); if(idx<0) return;
+  if(STAGES.length<=1){ toast('Keep at least one column.'); return; }
+  const rows=LEADS.filter(l=>isActive(l) && (l.stage||'new').toLowerCase()===id);
+  const target=STAGES[idx===0?1:idx-1];
+  if(rows.length && !confirm(`Delete "${STAGES[idx].label}"? Its ${rows.length} lead${rows.length===1?'':'s'} will move to "${target.label}".`)) return;
+  try{
+    for(const l of rows){ l.stage=target.id; await apiFetch('/api/leads/'+l.id,{method:'PUT',body:JSON.stringify({stage:target.id})}); }
+    STAGES.splice(idx,1);
+    await saveStages(); render(); renderPipeline(); toast('Column deleted.');
+  }catch(err){ toast(err.message,true); }
+}
+async function moveColumn(id, dir){
+  const i=STAGES.findIndex(s=>s.id===id); if(i<0) return; const j=i+dir;
+  if(j<0||j>=STAGES.length) return;
+  const t=STAGES[i]; STAGES[i]=STAGES[j]; STAGES[j]=t;
+  try{ await saveStages(); render(); }catch(err){ toast(err.message,true); }
+}
+
 document.getElementById('groups').addEventListener('click', async (e) => {
-  const del = e.target.getAttribute && e.target.getAttribute('data-del');
+  const t=e.target;
+  const del = t.getAttribute && t.getAttribute('data-del');
   if(del){ e.stopPropagation();
     if(!confirm('Delete this lead permanently?')) return;
-    try{ await apiFetch('/api/leads/'+del, { method:'DELETE' }); load(); toast('Lead deleted.'); }
+    try{ await apiFetch('/api/leads/'+del, { method:'DELETE' }); LEADS=LEADS.filter(l=>l.id!==del); render(); renderPipeline(); toast('Lead deleted.'); }
     catch(err){ toast(err.message, true); }
     return;
   }
-  const gh = e.target.closest && e.target.closest('.grp-h');
-  if(gh){ gh.parentElement.classList.toggle('collapsed'); return; }  // collapse/expand a stage group
-  const row = e.target.closest && e.target.closest('[data-open]');
+  const mv = t.getAttribute && t.getAttribute('data-move');
+  if(mv){ e.stopPropagation(); openMoveMenu(mv, t); return; }
+  if(t.dataset && t.dataset.caret!==undefined){ t.closest('.grp').classList.toggle('collapsed'); return; }
+  const up = t.getAttribute && t.getAttribute('data-up'); if(up){ e.stopPropagation(); moveColumn(up,-1); return; }
+  const down = t.getAttribute && t.getAttribute('data-down'); if(down){ e.stopPropagation(); moveColumn(down,1); return; }
+  const delc = t.getAttribute && t.getAttribute('data-delcol'); if(delc){ e.stopPropagation(); deleteColumn(delc); return; }
+  const rn = t.getAttribute && t.getAttribute('data-rename'); if(rn){ e.stopPropagation(); renameColumn(rn); return; }
+  const row = t.closest && t.closest('[data-open]');
   if(row){ location.href='/lead.html?id='+encodeURIComponent(row.getAttribute('data-open')); }
 });
 
 async function load(){
-  const list = await apiFetch('/api/leads');
+  const [stagesRes, list] = await Promise.all([ apiFetch('/api/lead-stages'), apiFetch('/api/leads') ]);
+  STAGES = stagesRes.stages || [];
+  LEADS = list;
   document.getElementById('loading').style.display='none';
   document.getElementById('groups').style.display='block';
-  renderPipeline(list); render(list);
+  renderPipeline(); render();
 }
 async function init(){
   try{ const me = await apiFetch('/api/me'); document.getElementById('who').textContent = me.username; }catch(err){ return; }

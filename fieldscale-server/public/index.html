@@ -769,6 +769,14 @@
   .rev-banner .btn{font-size:12px;padding:4px 11px;background:#fff;border:1px solid currentColor;border-radius:5px;cursor:pointer;color:inherit;}
   .rev-banner .rev-x{margin-left:auto;cursor:pointer;font-size:15px;opacity:.7;padding:0 4px;}
   .rev-banner .rev-x:hover{opacity:1;}
+  .layer-row{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:5px;cursor:pointer;}
+  .layer-row:hover{background:var(--surface-2);}
+  .layer-row.active{background:var(--surface-2);}
+  .layer-row .lr-radio{color:var(--cyan-dim);width:12px;text-align:center;}
+  .layer-row .lr-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--charcoal);font-size:13px;}
+  .layer-row .lr-count{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--steel);background:var(--surface);border:1px solid var(--paper-line);border-radius:8px;padding:0 6px;}
+  .layer-row .lr-rename,.layer-row .lr-del{color:var(--steel);font-size:11px;padding:0 3px;opacity:.6;}
+  .layer-row .lr-rename:hover{opacity:1;color:var(--cyan-dim);} .layer-row .lr-del:hover{opacity:1;color:var(--danger);}
 
   /* Draw bar — small, low, and only there while you're drawing.
      position:fixed, not absolute: an absolutely-positioned child of the scrolling
@@ -1027,6 +1035,16 @@
           <h4>Open a saved project</h4>
           <div id="project-list" style="max-height:220px;overflow-y:auto;"></div>
         </div>
+      </div>
+    </div>
+    <div class="scale-btn-wrap" id="layer-btn-wrap" style="display:none">
+      <button class="btn" id="layer-toggle-btn" title="Team takeoff layers — switch whose takeoff you're viewing, or combine them">👥 <span id="layer-current">Takeoff 1</span> ▾</button>
+      <div class="scale-popover" id="layer-popover" style="width:270px;">
+        <h4>Takeoff layers</h4>
+        <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Two people can take off the same plans as separate layers. Switch whose view you’re seeing, then Combine them when you’re done.</div>
+        <div id="layer-list" style="margin-bottom:8px;"></div>
+        <button class="btn" id="layer-new-btn" style="width:100%;margin-bottom:6px;">＋ New layer</button>
+        <button class="btn" id="layer-combine-btn" style="width:100%;">⧉ Combine layers…</button>
       </div>
     </div>
     <div class="scale-btn-wrap" id="account-wrap" style="display:none">
@@ -1476,6 +1494,8 @@ const state = {
   vertexDrag:null, // {kind,id,index} while dragging one corner of a selected wall/area
   findSimilar:null, // {rect,candidates,scale,tw,th,matches} while a Find-similar auto-count is being reviewed
   verifyCurrentId:null, // the count marker currently being reviewed in Verify-counts mode
+  layers:[],        // team takeoff: [{id,name,geom}] — separate takeoff layers on the SAME plan set
+  activeLayerId:null, // which layer's geometry is live in state.items/walls/areas/... right now
   typeLibrary:{ wall:[], linear:[], area:[], count:[] }, // saved reusable presets per category
   activeType:{ wall:null, linear:null, area:null, count:null }, // currently selected type id per category
   pdfTextIndex:[], // [{pageNum, items:[{str,x,y,width,height}], fullText}] — built once per document
@@ -1550,6 +1570,8 @@ els.fileInput.addEventListener('change', async (e)=>{
   state.legendPos = null;
   state.legendHidden = {};
   openPagesPanel();
+  ensureLayers({});        // a fresh plan starts with a single takeoff layer
+  renderLayerToggle();
   await renderPage();
   indexDocument(); // runs in the background; doesn't block viewing/measuring
   namePagesWithAI(); // reads each sheet's title/number in the background
@@ -2248,11 +2270,14 @@ async function uploadPdfIfNeeded(projectId){
 function invalidatePdfCache(){ pdfUploadedFor = null; }
 
 async function serializeProjectState(){
+  syncActiveLayerFromState();   // fold the live geometry back into the active layer before saving
   return {
     projectName: document.getElementById('proj-name').value,
     typeLibrary: state.typeLibrary,
     activeType: state.activeType,
     takeoffSummary: computeTakeoffSummary(),   // flat rollup so estimates can pull items in
+    layers: state.layers,              // team takeoff layers (each with its own geometry)
+    activeLayerId: state.activeLayerId,
     items: state.items,
     stickyRows: state.stickyRows,
     walls: state.walls,
@@ -2329,6 +2354,10 @@ async function restoreProjectState(data){
   [state.walls, state.areas, state.quickMeasurements, state.items].forEach(list=>{
     list.forEach(o=>{ if(!o.pageNum) o.pageNum = 1; });
   });
+
+  // Team takeoff layers: load saved layers, or wrap the flat geometry as the first layer.
+  ensureLayers(data);
+  renderLayerToggle();
 
   ['wall','linear','area','count'].forEach(cat=> populateTypeDropdown(cat));
   updateLockUI();
@@ -6534,6 +6563,124 @@ function computeTakeoffSummary(){
     return {label:x.label, qty, unit:x.unit, trade:x.trade, cost, unitCost: qty? Math.round((cost/qty)*100)/100 : 0, description:x.description||'', code:x.code||''};
   }).sort((a,b)=> a.trade<b.trade?-1:a.trade>b.trade?1:(a.label<b.label?-1:1));
 }
+
+// ===================== Team takeoff layers =====================
+// Several people can take off the SAME plan set as separate layers, toggle whose view they're
+// seeing, and Combine layers into one. Shared across layers: the PDF, scales, type library,
+// sheet names/rotations. Per-layer: the measured geometry below. The live state arrays ARE the
+// active layer's geometry (kept flat too, so estimates/exports read the active layer unchanged).
+const GEOM_KEYS = ['items','walls','areas','annotations','highlights','quickMeasurements'];
+function captureLiveGeom(){ const g={}; GEOM_KEYS.forEach(k=> g[k]=state[k]||[]); return g; }
+function applyGeomToState(geom){ GEOM_KEYS.forEach(k=> state[k]= Array.isArray(geom&&geom[k]) ? geom[k] : []); }
+function activeLayer(){ return (state.layers||[]).find(l=>l.id===state.activeLayerId) || (state.layers&&state.layers[0]) || null; }
+function syncActiveLayerFromState(){ const l=activeLayer(); if(l) l.geom=captureLiveGeom(); }   // call before switching/saving
+function newLayerId(){ return 'ly_'+Math.random().toString(36).slice(2,9); }
+// Set up layers on load: use saved layers, or wrap the flat geometry as the first layer (old projects).
+function ensureLayers(data){
+  if(data && Array.isArray(data.layers) && data.layers.length){
+    state.layers = data.layers.map(l=>({id:l.id||newLayerId(), name:l.name||'Takeoff', geom:l.geom||{}}));
+    state.activeLayerId = (data.activeLayerId && state.layers.some(l=>l.id===data.activeLayerId)) ? data.activeLayerId : state.layers[0].id;
+    applyGeomToState(activeLayer().geom);
+    (GEOM_KEYS.includes('items')) && (state.items||[]).forEach(o=>{ if(!o.pageNum) o.pageNum=1; });
+  } else {
+    state.layers = [{ id:newLayerId(), name:'Takeoff 1', geom:captureLiveGeom() }];
+    state.activeLayerId = state.layers[0].id;
+  }
+}
+function switchLayer(id){
+  if(!id || id===state.activeLayerId) return;
+  const target=(state.layers||[]).find(l=>l.id===id); if(!target) return;
+  syncActiveLayerFromState();                 // stash current work into the current layer
+  state.activeLayerId=id;
+  applyGeomToState(target.geom);
+  if(typeof clearSelection==='function') clearSelection();
+  markDirty();
+  renderTakeoffList(); redrawOverlay(); if(typeof renderPagesList==='function') renderPagesList();
+  renderLayerToggle();
+  if(typeof saveProject==='function') saveProject(true);
+}
+function addLayer(name){
+  syncActiveLayerFromState();
+  const l={ id:newLayerId(), name:(name||('Takeoff '+((state.layers||[]).length+1))), geom:{} };
+  state.layers.push(l);
+  switchLayer(l.id);
+  return l;
+}
+function renameLayer(id, name){
+  const l=(state.layers||[]).find(x=>x.id===id); if(!l||!name) return;
+  l.name=name; markDirty(); renderLayerToggle(); if(typeof saveProject==='function') saveProject(true);
+}
+function deleteLayer(id){
+  if((state.layers||[]).length<=1){ alert('Keep at least one layer.'); return; }
+  const idx=state.layers.findIndex(l=>l.id===id); if(idx<0) return;
+  const wasActive = state.activeLayerId===id;
+  state.layers.splice(idx,1);
+  if(wasActive){ state.activeLayerId=state.layers[Math.max(0,idx-1)].id; applyGeomToState(activeLayer().geom); renderTakeoffList(); redrawOverlay(); if(typeof renderPagesList==='function') renderPagesList(); }
+  markDirty(); renderLayerToggle(); if(typeof saveProject==='function') saveProject(true);
+}
+// Merge selected layers into a new one. IDs are globally-unique random, so a plain concat keeps
+// every internal reference (a wall-item's wallId still points at its wall) intact; dedupe guards
+// against selecting a layer twice.
+function combineLayers(ids, name){
+  syncActiveLayerFromState();
+  const merged={}, seen={}; GEOM_KEYS.forEach(k=>{ merged[k]=[]; seen[k]=new Set(); });
+  ids.forEach(id=>{ const l=(state.layers||[]).find(x=>x.id===id); if(!l||!l.geom) return;
+    GEOM_KEYS.forEach(k=>{ (l.geom[k]||[]).forEach(o=>{ if(o&&o.id){ if(seen[k].has(o.id)) return; seen[k].add(o.id); } merged[k].push(o); }); });
+  });
+  const l={ id:newLayerId(), name:(name||'Combined'), geom:merged };
+  state.layers.push(l);
+  switchLayer(l.id);
+  return l;
+}
+function layerMarkCount(l){ const g=(l&&l.geom)||{}; return (g.items||[]).length+(g.walls||[]).length+(g.areas||[]).length; }
+function renderLayerToggle(){
+  const wrap=document.getElementById('layer-btn-wrap'); if(!wrap) return;
+  wrap.style.display = state.pdfDoc ? '' : 'none';
+  syncActiveLayerFromState();   // keep the active layer's counts fresh
+  const cur=activeLayer();
+  const curEl=document.getElementById('layer-current'); if(curEl) curEl.textContent = cur?cur.name:'Takeoff';
+  const list=document.getElementById('layer-list'); if(!list) return;
+  list.innerHTML=(state.layers||[]).map(l=>`<div class="layer-row${l.id===state.activeLayerId?' active':''}" data-layer="${l.id}">
+      <span class="lr-radio">${l.id===state.activeLayerId?'●':'○'}</span>
+      <span class="lr-name">${escapeHtml(l.name)}</span>
+      <span class="lr-count" title="marks on this layer">${layerMarkCount(l)}</span>
+      <span class="lr-rename" data-rn="${l.id}" title="Rename">✎</span>
+      <span class="lr-del" data-del="${l.id}" title="Delete layer">✕</span>
+    </div>`).join('');
+  list.querySelectorAll('.layer-row').forEach(row=>{
+    row.addEventListener('click',(e)=>{
+      const rn=e.target.getAttribute&&e.target.getAttribute('data-rn');
+      if(rn){ e.stopPropagation(); const l=(state.layers||[]).find(x=>x.id===rn); const nm=(prompt('Rename layer:', l?l.name:'')||'').trim(); if(nm) renameLayer(rn, nm); return; }
+      const del=e.target.getAttribute&&e.target.getAttribute('data-del');
+      if(del){ e.stopPropagation(); if(confirm('Delete this layer and its measurements? (Other layers are untouched.)')) deleteLayer(del); return; }
+      switchLayer(row.dataset.layer);
+      const pop=document.getElementById('layer-popover'); if(pop) pop.classList.remove('open');
+    });
+  });
+}
+function openCombineDialog(){
+  if(!window.fsModal) return;
+  const rows=(state.layers||[]).map(l=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px"><input type="checkbox" class="cmb" value="${l.id}" checked> ${escapeHtml(l.name)} <span style="color:#7C8896;font-size:12px">(${layerMarkCount(l)} marks)</span></label>`).join('');
+  const body='<p style="margin:0 0 8px;color:#5A6B7B;font-size:12.5px">Merge the checked layers into a new combined layer. The originals are kept, so nothing is lost.</p>'+rows
+    +'<div style="margin-top:10px"><input id="cmb-name" placeholder="New layer name" value="Combined" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #B9C2CB;border-radius:5px;font:14px inherit"></div>';
+  window.fsModal({ title:'Combine takeoff layers', bodyHTML:body, buttons:[
+    { label:'Cancel' },
+    { label:'Combine', primary:true, onClick:(close,card)=>{
+        const ids=[...card.querySelectorAll('.cmb:checked')].map(c=>c.value);
+        if(!ids.length) return false;
+        combineLayers(ids, (card.querySelector('#cmb-name').value||'Combined').trim());
+        close(); const pop=document.getElementById('layer-popover'); if(pop) pop.classList.remove('open');
+      } }
+  ]});
+}
+(function(){
+  const btn=document.getElementById('layer-toggle-btn'), pop=document.getElementById('layer-popover');
+  if(!btn||!pop) return;
+  btn.addEventListener('click',(e)=>{ e.stopPropagation(); renderLayerToggle(); pop.classList.toggle('open'); });
+  document.addEventListener('click',(e)=>{ if(pop.classList.contains('open') && !pop.contains(e.target) && e.target!==btn && !btn.contains(e.target)) pop.classList.remove('open'); });
+  document.getElementById('layer-new-btn').addEventListener('click',()=>{ const nm=(prompt('Name this takeoff layer (e.g. Mike, Framing crew):','Takeoff '+((state.layers||[]).length+1))||'').trim(); if(nm){ addLayer(nm); pop.classList.remove('open'); } });
+  document.getElementById('layer-combine-btn').addEventListener('click',()=>{ openCombineDialog(); });
+})();
 
 // Compute the takeoff rollup for ANOTHER project's data (e.g. a previous revision) by briefly
 // swapping in its items + type library. resolveItemDisplay only reads those two, so this is safe.

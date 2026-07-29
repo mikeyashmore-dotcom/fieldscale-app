@@ -6576,15 +6576,19 @@ function applyGeomToState(geom){ GEOM_KEYS.forEach(k=> state[k]= Array.isArray(g
 function activeLayer(){ return (state.layers||[]).find(l=>l.id===state.activeLayerId) || (state.layers&&state.layers[0]) || null; }
 function syncActiveLayerFromState(){ const l=activeLayer(); if(l) l.geom=captureLiveGeom(); }   // call before switching/saving
 function newLayerId(){ return 'ly_'+Math.random().toString(36).slice(2,9); }
+// Your own takeoff layer is named after you (the logged-in user).
+function defaultLayerName(){ try{ return (localStorage.getItem(USERNAME_STORAGE)||'').trim() || 'My takeoff'; }catch(e){ return 'My takeoff'; } }
 // Set up layers on load: use saved layers, or wrap the flat geometry as the first layer (old projects).
 function ensureLayers(data){
   if(data && Array.isArray(data.layers) && data.layers.length){
     state.layers = data.layers.map(l=>({id:l.id||newLayerId(), name:l.name||'Takeoff', geom:l.geom||{}}));
+    // Migrate a lone generic "Takeoff"/"Takeoff 1" layer to the logged-in user's name.
+    if(state.layers.length===1 && /^Takeoff(\s*\d+)?$/i.test(state.layers[0].name)) state.layers[0].name=defaultLayerName();
     state.activeLayerId = (data.activeLayerId && state.layers.some(l=>l.id===data.activeLayerId)) ? data.activeLayerId : state.layers[0].id;
     applyGeomToState(activeLayer().geom);
     (GEOM_KEYS.includes('items')) && (state.items||[]).forEach(o=>{ if(!o.pageNum) o.pageNum=1; });
   } else {
-    state.layers = [{ id:newLayerId(), name:'Takeoff 1', geom:captureLiveGeom() }];
+    state.layers = [{ id:newLayerId(), name:defaultLayerName(), geom:captureLiveGeom() }];
     state.activeLayerId = state.layers[0].id;
   }
 }

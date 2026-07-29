@@ -322,6 +322,47 @@
     if (!FIELD_OK[p]) location.replace('/jobs.html');
   }
 
+  // Guest (prospect) accounts: every header stays visible but only Takeoff works — the rest are
+  // greyed out and un-clickable. This is the visible half; the server blocks the APIs regardless.
+  function applyGuestRole() {
+    var GUEST_OK = { '/': 1, '/index.html': 1 };
+    var p = location.pathname;
+    if (!document.getElementById('fs-guest-css')) {
+      var st = document.createElement('style'); st.id = 'fs-guest-css';
+      st.textContent = '.nav-locked{opacity:.38 !important;cursor:not-allowed !important;pointer-events:auto}'
+        + '.nav-locked:hover{opacity:.38 !important}'
+        + '.fs-guest-badge{color:var(--accent,#E8833A);border:1px solid currentColor;border-radius:4px;'
+        + 'font-size:11px;padding:1px 7px;margin-left:12px;white-space:nowrap;align-self:center}';
+      document.head.appendChild(st);
+    }
+    var nav = document.querySelector('header nav') || document.querySelector('nav.topnav');
+    if (nav) {
+      // Lock every nav link/group except the Takeoff direct link (href="/").
+      nav.querySelectorAll('a[href], .navgroup > .navtop').forEach(function (el) {
+        var href = el.getAttribute && el.getAttribute('href');
+        if (href === '/' ) return;            // Takeoff — leave it working
+        el.classList.add('nav-locked');
+        el.addEventListener('click', function (e) {
+          e.preventDefault(); e.stopPropagation();
+          alert('You have guest access to the Takeoff tool. The rest of Fieldscale is available in the full version.');
+        }, true);
+      });
+      // Drop the owner link + any account links entirely.
+      var owner = document.getElementById('owner-nav'); if (owner) owner.remove();
+      if (!nav.querySelector('.fs-guest-badge')) {
+        var b = document.createElement('span'); b.className = 'fs-guest-badge'; b.textContent = 'GUEST — Takeoff';
+        nav.appendChild(b);
+      }
+    }
+    // Brand/logo should go to the takeoff page (home dashboard is off-limits).
+    document.querySelectorAll('header .brand, .topbar .brand').forEach(function (bnd) {
+      var c = bnd.cloneNode(true); if (bnd.parentNode) bnd.parentNode.replaceChild(c, bnd);
+      c.style.cursor = 'pointer'; c.addEventListener('click', function () { location.href = '/'; });
+    });
+    addThemeToggle();
+    if (!GUEST_OK[p]) location.replace('/'); // bounce off any non-takeoff page
+  }
+
   function logout() {
     try { localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); } catch (e) {}
     location.href = '/';
@@ -348,6 +389,7 @@
   }
   function gate(me) {
     if (me && me.role === 'field') { applyFieldRole(); return; }
+    if (me && me.role === 'guest') { applyGuestRole(); return; }
     var modules = me && me.modules;
     var enabled = null;
     if (Array.isArray(modules)) { enabled = {}; modules.forEach(function (m) { enabled[m] = true; }); }

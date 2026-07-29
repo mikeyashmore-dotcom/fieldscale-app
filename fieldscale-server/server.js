@@ -424,6 +424,7 @@ function loadDB() {
   parsed.customers = parsed.customers || []; // per-customer notes + activity log (records are derived otherwise)
   parsed.audit = parsed.audit || []; // activity log / audit trail (capped)
   parsed.invites = parsed.invites || []; // one-time invite codes for closed (invite-only) signup
+  parsed.guestInvites = parsed.guestInvites || []; // reusable takeoff-only guest links (per company)
   parsed.settings = Object.assign({ allowSignups: true, inviteOnly: true }, parsed.settings || {});
   parsed.users.forEach((u) => {
     if (!u.role) u.role = 'member';
@@ -644,6 +645,18 @@ function fieldAllowed(pathname, method) {
   if (/^\/api\/jobs\/[a-zA-Z0-9_]+$/.test(pathname) && (method === 'GET' || method === 'PUT')) return true;
   if (/^\/api\/jobs\/[a-zA-Z0-9_]+\/receipts$/.test(pathname) && (method === 'GET' || method === 'POST')) return true;
   if (/^\/api\/jobs\/[a-zA-Z0-9_]+\/receipts\/[a-zA-Z0-9_]+$/.test(pathname) && (method === 'GET' || method === 'DELETE')) return true;
+  return false;
+}
+// Guest accounts (prospects invited via a takeoff link) live in their own empty sandbox company and
+// can ONLY touch the takeoff tool: their projects, plan sets, snapshots + their own account basics.
+// The server enforces this so the locked headers in the UI can never be worked around.
+function guestAllowed(pathname, method) {
+  if (pathname === '/api/me' && method === 'GET') return true;
+  if (pathname === '/api/branding' && method === 'GET') return true;
+  if (pathname === '/api/password' && method === 'POST') return true;
+  if (pathname === '/api/projects') return true; // GET list / POST create (own sandbox only)
+  // A single project + its plan PDF, version snapshots, restore and revise — the whole takeoff flow.
+  if (/^\/api\/projects\/[a-zA-Z0-9_]+(\/(pdf|snapshots|restore|revise))?$/.test(pathname)) return true;
   return false;
 }
 function companyAdminCount(companyId) {
@@ -1047,6 +1060,57 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
     }
 
+    // ---- Guest takeoff link: check a link is live (used by the guest sign-up page) ----
+    if (pathname.match(/^\/api\/guest-invite\/([a-f0-9]+)$/) && req.method === 'GET') {
+      const code = pathname.split('/').pop();
+      const inv = (db.guestInvites || []).find(i => i.code === code && !i.revoked);
+      if (!inv) return sendJSON(res, 404, { error: 'This invite link is no longer active.' });
+      const company = companyById(inv.companyId);
+      return sendJSON(res, 200, { ok: true, invitedBy: company ? company.name : 'Fieldscale' });
+    }
+
+    // ---- Guest takeoff link: create a sandboxed, takeoff-only account from a link ----
+    if (pathname === '/api/guest-signup' && req.method === 'POST') {
+      if (rateLimited('guest-signup', req, 10, 60 * 60 * 1000)) return sendJSON(res, 429, TOO_MANY);
+      const gb = await readBody(req);
+      const code = String(gb.code || '').trim();
+      const inv = (db.guestInvites || []).find(i => i.code === code && !i.revoked);
+      if (!inv) return sendJSON(res, 403, { error: 'This invite link is no longer active.' });
+      const nameCheck = validateUsername(gb.username);
+      if (nameCheck.error) return sendJSON(res, 400, { error: nameCheck.error });
+      const pwErr = validatePassword(gb.password);
+      if (pwErr) return sendJSON(res, 400, { error: pwErr });
+      if (db.users.find(u => u.username === nameCheck.uname)) {
+        return sendJSON(res, 409, { error: 'That username is already taken — pick another.' });
+      }
+      // Each guest gets their OWN empty company (sandbox) with only the takeoff module on. They can
+      // never see the inviter's data — every record is scoped by companyId, and this is a fresh one.
+      const userId = 'u_' + crypto.randomBytes(8).toString('hex');
+      const company = {
+        id: 'c_' + crypto.randomBytes(8).toString('hex'),
+        name: nameCheck.uname + ' (guest)',
+        createdAt: Date.now(), ownerId: userId,
+        modules: ['takeoff'],
+        isGuestSandbox: true
+      };
+      const { salt, hash } = hashPassword(gb.password);
+      const user = {
+        id: userId, username: nameCheck.uname, salt, hash,
+        companyId: company.id,
+        role: 'guest',
+        guestInviteCode: code,        // which link they came from (for revoke + tracking)
+        invitedByCompanyId: inv.companyId,
+        platformAdmin: false, disabled: false, tokenVersion: 1, aiCalls: 0,
+        createdAt: Date.now(), lastLoginAt: Date.now()
+      };
+      db.companies.push(company);
+      db.users.push(user);
+      inv.uses = (inv.uses || 0) + 1;
+      inv.lastUsedAt = Date.now();
+      saveDB(db);
+      return sendJSON(res, 200, { token: createToken(user), username: user.username, role: user.role });
+    }
+
     // ---- Auth: login ----
     if (pathname === '/api/login' && req.method === 'POST') {
       const { username, password } = await readBody(req);
@@ -1218,6 +1282,10 @@ const server = http.createServer(async (req, res) => {
       if (me.role === 'field' && !fieldAllowed(pathname, req.method)) {
         return sendJSON(res, 403, { error: 'Your field account doesn’t have access to that.' });
       }
+      // Guest (prospect) accounts are locked to the takeoff tool, server-side.
+      if (me.role === 'guest' && !guestAllowed(pathname, req.method)) {
+        return sendJSON(res, 403, { error: 'This guest account can only use the takeoff tool.' });
+      }
 
       // GET /api/me
       if (pathname === '/api/me' && req.method === 'GET') {
@@ -1260,6 +1328,46 @@ const server = http.createServer(async (req, res) => {
         me.tokenVersion += 1; // log out other devices
         saveDB(db);
         return sendJSON(res, 200, { token: createToken(me), changed: true });
+      }
+
+      // ============ GUEST TAKEOFF LINKS (owner/admin — scoped to YOUR company) ============
+      // A reusable link that lets a prospect create a takeoff-only sandbox account. Never exposes
+      // your data: each guest gets their own empty company.
+      if (pathname === '/api/guest-invites' && req.method === 'GET') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Company owners and admins only.' });
+        const list = (db.guestInvites || []).filter(i => i.companyId === me.companyId)
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .map(i => ({
+            code: i.code, label: i.label || '', createdAt: i.createdAt, revoked: !!i.revoked,
+            uses: i.uses || 0, lastUsedAt: i.lastUsedAt || null,
+            active: db.users.filter(u => u.guestInviteCode === i.code && !u.disabled).length
+          }));
+        return sendJSON(res, 200, { invites: list });
+      }
+      if (pathname === '/api/guest-invites' && req.method === 'POST') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Company owners and admins only.' });
+        const gb = await readBody(req);
+        const inv = {
+          code: crypto.randomBytes(9).toString('hex'), // 18-char link code
+          companyId: me.companyId, createdBy: me.id, createdAt: Date.now(),
+          label: String(gb.label || '').slice(0, 80), revoked: false, uses: 0
+        };
+        db.guestInvites = db.guestInvites || []; db.guestInvites.push(inv);
+        saveDB(db);
+        return sendJSON(res, 200, { invite: inv });
+      }
+      const gInvMatch = pathname.match(/^\/api\/guest-invites\/([a-f0-9]+)$/);
+      if (gInvMatch && req.method === 'DELETE') {
+        if (!isCompanyAdmin(me)) return sendJSON(res, 403, { error: 'Company owners and admins only.' });
+        const inv = (db.guestInvites || []).find(i => i.code === gInvMatch[1] && i.companyId === me.companyId);
+        if (!inv) return sendJSON(res, 404, { error: 'Link not found.' });
+        inv.revoked = true; // no new guests can join from it
+        // Cut off anyone already using it: disable their account + revoke their live sessions.
+        db.users.forEach(u => {
+          if (u.guestInviteCode === inv.code) { u.disabled = true; u.tokenVersion = (u.tokenVersion || 1) + 1; }
+        });
+        saveDB(db);
+        return sendJSON(res, 200, { ok: true });
       }
 
       // ============ COMPANY USER MANAGEMENT (scoped to YOUR company) ============

@@ -135,6 +135,14 @@
       <div id="nu-msg" class="msg"></div>
     </div>
 
+    <div class="backup" id="guest-card" style="display:none">
+      <strong>Guest takeoff links</strong>
+      <p class="muted" style="margin:5px 0 12px;font-size:13px">Send a link to a prospective customer so they can try the <strong>Takeoff</strong> tool. Each person who opens it makes their own login and gets an <strong>empty, private sandbox</strong> — they can never see your projects or data. Every other part of Fieldscale shows in their menu but is locked. <strong>Revoke</strong> a link anytime to cut off the link and everyone who joined through it.</p>
+      <button class="btn" id="guest-create">＋ Create guest link</button>
+      <div id="guest-msg" class="msg"></div>
+      <div id="guest-list" style="margin-top:14px"></div>
+    </div>
+
     <div class="card">
       <table>
         <thead>
@@ -358,7 +366,9 @@ async function init(){
   canManage = (me.role==='owner' || me.role==='admin');
   if(canManage){
     document.getElementById('add-user-card').style.display='';
+    document.getElementById('guest-card').style.display='';
     document.getElementById('th-manage').style.display='';
+    loadGuestInvites();
   }
   if(me.companyName) document.getElementById('page-title').textContent = me.companyName + ' — Team';
   try{
@@ -425,6 +435,45 @@ document.getElementById('nu-create').addEventListener('click', async ()=>{
     await loadTeam();
   }catch(err){ nuMsg(err.message,'err'); }
 });
+
+// ---- Guest takeoff links ----
+function guestLinkUrl(code){ return location.origin + '/guest.html?c=' + code; }
+function gMsg(t, cls){ const m=document.getElementById('guest-msg'); m.textContent=t; m.className='msg '+(cls||''); }
+async function loadGuestInvites(){
+  let data; try{ data = await apiFetch('/api/guest-invites'); }catch(e){ return; }
+  const list = document.getElementById('guest-list');
+  const live = (data.invites||[]).filter(i=>!i.revoked);
+  if(!live.length){ list.innerHTML = '<p class="muted" style="font-size:13px;margin:0">No guest links yet. Create one to share the takeoff tool.</p>'; return; }
+  list.innerHTML = live.map(i=>{
+    const url = guestLinkUrl(i.code);
+    return `<div style="border:1px solid var(--line,#2a3340);border-radius:8px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input readonly value="${escapeHtml(url)}" style="flex:1;min-width:240px;font-size:12.5px;padding:7px 9px" onclick="this.select()" />
+        <button class="btn" data-copy="${escapeHtml(url)}">Copy link</button>
+        <button class="btn" data-revoke="${escapeHtml(i.code)}" style="border-color:#b4443a;color:#d66">Revoke</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:7px">${i.uses||0} joined · ${i.active||0} active now</div>
+    </div>`;
+  }).join('');
+}
+document.getElementById('guest-create').addEventListener('click', async ()=>{
+  gMsg('Creating…','');
+  try{ await apiSend('/api/guest-invites','POST',{}); gMsg('New guest link ready — copy it below and send it.','ok'); await loadGuestInvites(); }
+  catch(err){ gMsg(err.message,'err'); }
+});
+document.getElementById('guest-list').addEventListener('click', async (e)=>{
+  const cp=e.target.closest('[data-copy]');
+  if(cp){ const url=cp.getAttribute('data-copy');
+    try{ await navigator.clipboard.writeText(url); gMsg('Link copied to clipboard.','ok'); }
+    catch(_){ gMsg('Select the link and copy it.',''); }
+    return; }
+  const rv=e.target.closest('[data-revoke]');
+  if(rv){ if(!confirm('Revoke this link? Anyone who joined through it will be signed out and blocked.')) return;
+    try{ await apiSend('/api/guest-invites/'+rv.getAttribute('data-revoke'),'DELETE'); gMsg('Link revoked.','ok'); await loadGuestInvites(); }
+    catch(err){ gMsg(err.message,'err'); }
+  }
+});
+
 // "Sees $" financial-visibility toggle per member.
 document.getElementById('rows').addEventListener('change', async (e)=>{
   const cb=e.target.closest('input[data-act="fin"]'); if(!cb) return;

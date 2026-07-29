@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fieldscale — Guest Takeoff Access</title>
+<link rel="stylesheet" href="/fs-theme.css" />
+<style>
+  :root{ --ink:#1b2430; --steel:#5b6675; --line:#d8dee6; --accent:#E8833A; --surface:#fff; --bg:#f4f6f9; }
+  [data-theme="dark"]{ --ink:#e7ecf2; --steel:#9aa6b4; --line:#2a3340; --surface:#151b23; --bg:#0e131a; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:'IBM Plex Sans',system-ui,sans-serif; background:var(--bg); color:var(--ink);
+        min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; max-width:430px; width:100%;
+         padding:30px 28px; box-shadow:0 10px 40px rgba(0,0,0,.08); }
+  .brand{ font-weight:700; font-size:20px; letter-spacing:-.3px; display:flex; align-items:center; gap:8px; }
+  .brand .plus{ background:var(--accent); color:#fff; width:26px; height:26px; border-radius:6px; display:inline-flex;
+                align-items:center; justify-content:center; font-size:18px; }
+  h1{ font-size:19px; margin:20px 0 4px; }
+  p.sub{ color:var(--steel); font-size:14px; margin:0 0 20px; line-height:1.5; }
+  label{ display:block; font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--steel); margin:14px 0 5px; }
+  input{ width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:8px; background:var(--surface);
+         color:var(--ink); font-size:15px; }
+  input:focus{ outline:none; border-color:var(--accent); }
+  button{ width:100%; margin-top:20px; padding:12px; border:none; border-radius:8px; background:var(--accent); color:#fff;
+          font-size:15px; font-weight:600; cursor:pointer; }
+  button:disabled{ opacity:.55; cursor:default; }
+  .msg{ margin-top:14px; font-size:13.5px; min-height:18px; }
+  .msg.err{ color:#c9483c; }
+  .note{ color:var(--steel); font-size:12px; margin-top:16px; line-height:1.5; }
+  .loading,.dead{ text-align:center; color:var(--steel); padding:20px 0; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="plus">＋</span> FIELDSCALE</div>
+    <div id="checking" class="loading">Checking your invite…</div>
+
+    <div id="dead" class="dead" style="display:none">
+      <h1>This link isn’t active</h1>
+      <p class="sub">The guest link you used has been revoked or is no longer valid. Ask whoever sent it for a new one.</p>
+    </div>
+
+    <form id="form" style="display:none" autocomplete="off">
+      <h1 id="headline">Try the Takeoff tool</h1>
+      <p class="sub" id="sub"></p>
+      <label for="u">Pick a username</label>
+      <input id="u" autocomplete="off" placeholder="e.g. sam.builder" />
+      <label for="p">Create a password</label>
+      <input id="p" type="password" autocomplete="new-password" placeholder="at least 8 characters" />
+      <button id="go" type="submit">Create my guest access</button>
+      <div id="msg" class="msg"></div>
+      <p class="note">You’ll get your own private takeoff workspace. Nothing you do here is shared with anyone else, and you can only reach the Takeoff tool.</p>
+    </form>
+  </div>
+
+<script>
+var CODE = new URLSearchParams(location.search).get('c') || '';
+function show(id){ ['checking','dead','form'].forEach(function(x){ document.getElementById(x).style.display = (x===id)?'':'none'; }); }
+function msg(t, err){ var m=document.getElementById('msg'); m.textContent=t||''; m.className='msg'+(err?' err':''); }
+
+(function init(){
+  if(!CODE){ show('dead'); return; }
+  fetch('/api/guest-invite/' + encodeURIComponent(CODE))
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+    .then(function(d){
+      document.getElementById('sub').textContent =
+        (d.invitedBy ? d.invitedBy + ' invited you' : 'You’ve been invited') + ' to try Fieldscale’s takeoff tool. Set up a quick guest login to start.';
+      show('form');
+    })
+    .catch(function(){ show('dead'); });
+})();
+
+document.getElementById('form').addEventListener('submit', function(e){
+  e.preventDefault();
+  var username = document.getElementById('u').value.trim();
+  var password = document.getElementById('p').value;
+  if(!username){ msg('Pick a username.', true); return; }
+  if((password||'').length < 8){ msg('Password needs at least 8 characters.', true); return; }
+  var btn = document.getElementById('go'); btn.disabled = true; msg('Setting up your workspace…', false);
+  fetch('/api/guest-signup', {
+    method:'POST', headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ code: CODE, username: username, password: password })
+  }).then(function(r){ return r.json().then(function(d){ return { ok:r.ok, d:d }; }); })
+    .then(function(res){
+      if(!res.ok){ btn.disabled=false; msg(res.d.error || 'Could not create your access.', true); return; }
+      try{ localStorage.setItem('fieldscale_token', res.d.token); localStorage.setItem('fieldscale_username', res.d.username); }catch(_){}
+      location.href = '/';
+    })
+    .catch(function(){ btn.disabled=false; msg('Something went wrong. Try again.', true); });
+});
+</script>
+</body>
+</html>

@@ -906,6 +906,20 @@ function sendJSON(res, status, obj) {
   });
   res.end(body);
 }
+// User-uploaded files carry a client-supplied Content-Type. Only PREVIEW known-safe types inline
+// (raster images + PDF); serve anything else (e.g. an uploaded .html/.svg) as a download so it
+// can't execute script on our origin and steal a teammate's session.
+const INLINE_SAFE_MIME = /^(image\/(png|jpe?g|gif|webp|bmp)|application\/pdf)$/i;
+function fileServeHead(res, mime, name, size) {
+  const safe = INLINE_SAFE_MIME.test(String(mime || ''));
+  res.writeHead(200, {
+    'Content-Type': safe ? mime : 'application/octet-stream',
+    'Content-Length': size,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Disposition': (safe ? 'inline' : 'attachment') + '; filename="' + encodeURIComponent(name || 'file') + '"',
+    'Cache-Control': 'private, max-age=3600'
+  });
+}
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let chunks = [];
@@ -2115,8 +2129,7 @@ const server = http.createServer(async (req, res) => {
           const f = subDocPath(sub.id, meta.id);
           if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'File missing.' });
           const stat = fs.statSync(f);
-          res.writeHead(200, { 'Content-Type': meta.mime || 'application/octet-stream', 'Content-Length': stat.size,
-            'Content-Disposition': 'inline; filename="' + encodeURIComponent(meta.name) + '"', 'Cache-Control': 'private, max-age=3600' });
+          fileServeHead(res, meta.mime, meta.name, stat.size);
           const rs = fs.createReadStream(f);
           rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the file.' }); else res.destroy(); });
           rs.pipe(res);
@@ -3042,8 +3055,7 @@ const server = http.createServer(async (req, res) => {
           const f = receiptPath(job.id, meta.id);
           if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'Receipt file missing.' });
           const stat = fs.statSync(f);
-          res.writeHead(200, { 'Content-Type': meta.mime || 'application/octet-stream', 'Content-Length': stat.size,
-            'Content-Disposition': 'inline; filename="' + encodeURIComponent(meta.name) + '"', 'Cache-Control': 'private, max-age=3600' });
+          fileServeHead(res, meta.mime, meta.name, stat.size);
           const rs = fs.createReadStream(f);
           rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the receipt.' }); else res.destroy(); });
           rs.pipe(res);
@@ -3427,8 +3439,7 @@ const server = http.createServer(async (req, res) => {
           const f = leadFilePath(lead.id, meta.id);
           if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'File missing.' });
           const stat = fs.statSync(f);
-          res.writeHead(200, { 'Content-Type': meta.mime || 'application/octet-stream', 'Content-Length': stat.size,
-            'Content-Disposition': 'inline; filename="' + encodeURIComponent(meta.name) + '"', 'Cache-Control': 'private, max-age=3600' });
+          fileServeHead(res, meta.mime, meta.name, stat.size);
           const rs = fs.createReadStream(f); rs.on('error', () => { if (!res.headersSent) sendJSON(res, 500, { error: 'Could not read the file.' }); else res.destroy(); }); rs.pipe(res);
           return;
         }

@@ -1418,7 +1418,8 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/projects' && req.method === 'GET') {
         const list = db.projects
           .filter(p => p.companyId === me.companyId)
-          .map(p => ({ id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt }))
+          .map(p => ({ id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt,
+            revision: p.revision || 1, revisionOf: p.revisionOf || null, supersededBy: p.supersededBy || null }))
           .sort((a, b) => b.updatedAt - a.updatedAt);
         return sendJSON(res, 200, list);
       }
@@ -1538,6 +1539,29 @@ const server = http.createServer(async (req, res) => {
       }
 
       // /api/projects/:id — get / update / delete a single project (must belong to this user)
+      // POST /api/projects/:id/revise — start a new revision of a plan set (slip-sheeting).
+      // Carries the takeoff forward as a starting point; the user uploads the revised PDF next.
+      // The old project is flagged superseded so it can't be bid off by accident.
+      const reviseMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)\/revise$/);
+      if (reviseMatch && req.method === 'POST') {
+        const parent = db.projects.find(p => p.id === reviseMatch[1] && p.companyId === me.companyId);
+        if (!parent) return sendJSON(res, 404, { error: 'Project not found.' });
+        if (parent.supersededBy && db.projects.find(p => p.id === parent.supersededBy)) {
+          return sendJSON(res, 400, { error: 'This plan set already has a newer revision — open that one and revise from there.' });
+        }
+        const rev = (parent.revision || 1) + 1;
+        const base = String(parent.name || 'Untitled Project').replace(/\s·\sRev\s\d+$/, '');
+        const child = { id: 'p_' + crypto.randomBytes(8).toString('hex'), userId, companyId: me.companyId,
+          name: base + ' · Rev ' + rev, hasPdf: false, revisionOf: parent.id, revision: rev,
+          createdAt: Date.now(), updatedAt: Date.now() };
+        ensureProjectDir(child.id);
+        writeJsonAtomic(currentPath(child.id), readTakeoff(parent.id) || {});
+        db.projects.push(child);
+        parent.supersededBy = child.id; parent.updatedAt = Date.now();
+        saveDB(db);
+        return sendJSON(res, 200, { id: child.id, name: child.name, revision: rev });
+      }
+
       const projMatch = pathname.match(/^\/api\/projects\/([a-zA-Z0-9_]+)$/);
       if (projMatch) {
         const id = projMatch[1];
@@ -1549,6 +1573,7 @@ const server = http.createServer(async (req, res) => {
           return sendJSON(res, 200, {
             id: project.id, name: project.name, hasPdf: !!project.hasPdf,
             createdAt: project.createdAt, updatedAt: project.updatedAt,
+            revision: project.revision || 1, revisionOf: project.revisionOf || null, supersededBy: project.supersededBy || null,
             data: readTakeoff(project.id)
           });
         }

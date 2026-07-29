@@ -758,6 +758,17 @@
   .project-row .pr-date{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--steel);white-space:nowrap;}
   .project-row .pr-delete{color:var(--steel);cursor:pointer;font-size:13px;padding:0 3px;}
   .project-row .pr-delete:hover{color:var(--danger);}
+  .project-row .pr-rev{font-family:'IBM Plex Mono',monospace;font-size:9px;background:var(--cyan-dim);color:#fff;border-radius:8px;padding:1px 6px;white-space:nowrap;}
+  .project-row .pr-revise{color:var(--steel);cursor:pointer;font-size:11px;padding:0 4px;white-space:nowrap;}
+  .project-row .pr-revise:hover{color:var(--cyan-dim);}
+  .project-row.superseded .pr-name{opacity:.55;text-decoration:line-through;}
+  .project-row .pr-old{font-size:9px;color:var(--steel);background:var(--surface-2);border-radius:8px;padding:1px 6px;white-space:nowrap;}
+  .rev-banner{position:fixed;left:0;right:0;z-index:200;display:flex;align-items:center;gap:12px;padding:8px 16px;font-size:13px;border-bottom:1px solid;}
+  .rev-banner.warn{background:#FBEAE7;color:#9A2A1E;border-color:#E7B9B2;}
+  .rev-banner.info{background:#EAF2FB;color:#2A5680;border-color:#BCD3EC;}
+  .rev-banner .btn{font-size:12px;padding:4px 11px;background:#fff;border:1px solid currentColor;border-radius:5px;cursor:pointer;color:inherit;}
+  .rev-banner .rev-x{margin-left:auto;cursor:pointer;font-size:15px;opacity:.7;padding:0 4px;}
+  .rev-banner .rev-x:hover{opacity:1;}
 
   /* Draw bar — small, low, and only there while you're drawing.
      position:fixed, not absolute: an absolutely-positioned child of the scrolling
@@ -1102,6 +1113,8 @@
     <label class="btn primary" for="file-input">Upload Plan</label>
     <input type="file" id="file-input" accept="application/pdf" />
   </div>
+
+  <div id="revision-banner" class="rev-banner" style="display:none"></div>
 
   <div class="rail" id="rail">
     <button class="tool" data-tool="pan" title="Pan (or hold Space, or middle-mouse drag)">✥<span class="tip">Pan the sheet — or just hold Space / middle-mouse drag</span></button>
@@ -2373,10 +2386,44 @@ async function openProjectById(id, gotoPage){
     await renderPage();
   }
   if(statusEl) statusEl.textContent = `Loaded "${project.name}".`;
+  showRevisionBanner(project);
   const pop = document.getElementById('projects-popover'); if(pop) pop.classList.remove('open');
   // Remember what's open so returning to the takeoff tab reopens it (main tab only, not ref tabs).
   if(!IS_REF_TAB){ try{ localStorage.setItem('fieldscale.lastProject', project.id); }catch(e){} }
   renderSnapshotList();
+}
+
+// Slip-sheeting: start a new revision of a plan set. The takeoff carries over as a starting point;
+// upload the revised PDF next. The old version is kept and flagged so it can't be bid off by mistake.
+async function reviseProject(id){
+  if(!confirm('Start a new revision of this plan set?\n\nYour current takeoff is copied over as a starting point. Next, upload the revised PDF and re-check the measurements that moved. The old version is kept and marked “superseded.”')) return;
+  const s=document.getElementById('project-save-status');
+  try{
+    const r = await apiFetch('/api/projects/'+id+'/revise', {method:'POST', body:JSON.stringify({})});
+    await refreshProjectList();
+    if(!await confirmDiscardIfDirty('open the new revision')) return;
+    await openProjectById(r.id);
+    showHint('Revision '+r.revision+' created — click <b>Upload Plan</b> to load the revised drawings, then re-check your measurements against them.');
+  }catch(err){ if(s) s.textContent='Revise failed: '+err.message; else alert('Revise failed: '+err.message); }
+}
+function showRevisionBanner(project){
+  const b=document.getElementById('revision-banner'); if(!b) return;
+  const topbar=document.querySelector('.topbar'); if(topbar) b.style.top=topbar.offsetHeight+'px';
+  if(project.supersededBy){
+    b.className='rev-banner warn';
+    b.innerHTML='⚠ A newer revision of this plan set exists — you may be measuring an <b>outdated</b> drawing. '
+      +'<button class="btn" id="rev-open-latest">Open the latest</button><span class="rev-x" id="rev-dismiss">✕</span>';
+    b.style.display='flex';
+    document.getElementById('rev-open-latest').onclick=async ()=>{ if(!await confirmDiscardIfDirty('open the latest revision')) return; try{ await openProjectById(project.supersededBy); }catch(e){} };
+    document.getElementById('rev-dismiss').onclick=()=>{ b.style.display='none'; };
+  } else if(project.revisionOf){
+    b.className='rev-banner info';
+    b.innerHTML='Revision '+(project.revision||2)+' — your takeoff was carried over from an earlier plan set. Double-check the measurements against the new sheets. <span class="rev-x" id="rev-dismiss">✕</span>';
+    b.style.display='flex';
+    document.getElementById('rev-dismiss').onclick=()=>{ b.style.display='none'; };
+  } else {
+    b.style.display='none';
+  }
 }
 
 async function refreshProjectList(){
@@ -2384,16 +2431,22 @@ async function refreshProjectList(){
   try{
     const projects = await apiFetch('/api/projects');
     if(projects.length===0){ container.innerHTML = '<div class="search-empty">No saved projects yet.</div>'; return; }
-    container.innerHTML = projects.map(p=>`
-      <div class="project-row" data-id="${p.id}">
+    container.innerHTML = projects.map(p=>{
+      const superseded = !!p.supersededBy;
+      const revBadge = (p.revision>1) ? `<span class="pr-rev" title="Revision ${p.revision}">Rev ${p.revision}</span>` : '';
+      const oldTag = superseded ? `<span class="pr-old" title="A newer revision exists">superseded</span>` : '';
+      const revise = superseded ? '' : `<span class="pr-revise" data-revise="${p.id}" title="Start a new revision (slip-sheet)">⧉ Revise</span>`;
+      return `<div class="project-row${superseded?' superseded':''}" data-id="${p.id}">
         <span class="pr-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+        ${revBadge}${oldTag}${revise}
         <span class="pr-date">${new Date(p.updatedAt).toLocaleDateString()}</span>
         <span class="pr-delete" data-id="${p.id}">✕</span>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
     container.querySelectorAll('.project-row').forEach(row=>{
       row.addEventListener('click', async (e)=>{
         if(e.target.classList.contains('pr-delete')) return;
+        if(e.target.classList.contains('pr-revise')){ e.stopPropagation(); reviseProject(e.target.dataset.revise); return; }
         // Opening another project replaces everything on screen — check first.
         if(!await confirmDiscardIfDirty('open that project')) return;
         try{ await openProjectById(row.dataset.id); }
@@ -2605,6 +2658,7 @@ function npResetToBlank(name){
   els.pageNav.style.display='none';
   document.getElementById('scale-toggle-btn').disabled = true;
   { const rtb=document.getElementById('rotate-toggle-btn'); if(rtb) rtb.disabled = true; }
+  { const rb=document.getElementById('revision-banner'); if(rb) rb.style.display='none'; }
   document.getElementById('autotag-btn').disabled = true;
   refreshCalibrationUI();
   refreshLegendBtn();

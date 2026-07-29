@@ -1070,6 +1070,7 @@
           <span class="k">This sheet's scale</span>Not set
         </div>
         <div class="sp-note" id="sp-page-context" style="margin-top:0;margin-bottom:8px;"></div>
+        <button class="btn" id="scale-detect-btn" style="width:100%;margin-bottom:10px">🔍 Auto-detect scale from this sheet</button>
         <h4>Set from printed scale</h4>
         <div class="sp-note" style="margin-top:0;margin-bottom:8px;">Exact — computed from the sheet's true page size. Use this if the PDF preserves its original plotted page size.</div>
         <div class="sp-row">
@@ -5300,6 +5301,44 @@ document.getElementById('scale-apply-btn').addEventListener('click', ()=>{
 });
 
 document.getElementById('scale-apply-all-btn').addEventListener('click', applyScaleToAllSheets);
+
+// ---------- Auto-detect scale from the sheet's printed scale note (works on vector/CAD PDFs) ----------
+// factor = real inches per paper inch, matching STANDARD_SCALES (e.g. 1/4"=1'-0" → 48).
+function matchScale(factor){
+  let best=null, bestErr=Infinity;
+  STANDARD_SCALES.forEach(s=>{ const e=Math.abs(s.factor-factor)/s.factor; if(e<bestErr){ bestErr=e; best=s; } });
+  if(best && bestErr<=0.03) return {factor:best.factor, label:best.label};
+  return {factor:Math.round(factor*100)/100, label:'~'+Math.round(factor)+'× (from sheet)'};
+}
+function parseScaleFromText(text){
+  if(!text) return null;
+  const t=String(text).replace(/[“”″]/g,'"').replace(/[‘’′`]/g,"'");
+  // Architectural fraction: a/b" = c'   e.g. 1/4" = 1'-0"
+  let m=t.match(/(\d+)\s*\/\s*(\d+)\s*"?\s*=\s*(\d+)\s*'/);
+  if(m){ const paper=parseInt(m[1],10)/parseInt(m[2],10), feet=parseInt(m[3],10); if(paper>0&&feet>0) return matchScale(feet*12/paper); }
+  // Whole/decimal inch: a" = c'   e.g. 1" = 20'  or  1" = 1'
+  m=t.match(/(\d+(?:\.\d+)?)\s*"\s*=\s*(\d+)\s*'/);
+  if(m){ const paper=parseFloat(m[1]), feet=parseInt(m[2],10); if(paper>0&&feet>0) return matchScale(feet*12/paper); }
+  return null;
+}
+async function currentSheetText(){
+  const idx=state.pdfTextIndex && state.pdfTextIndex.find(x=>x.pageNum===state.pageNum);
+  if(idx && idx.fullText) return idx.fullText;
+  try{ const page=await state.pdfDoc.getPage(state.pageNum); const tc=await page.getTextContent(); return tc.items.map(i=>i.str).join(' '); }
+  catch(e){ return ''; }
+}
+async function autoDetectScale(){
+  const status=document.getElementById('sp-detect-status');
+  if(!state.pdfDoc){ if(status){ status.className='sp-detect-status show warn'; status.textContent='Upload a plan first.'; } return; }
+  if(status){ status.className='sp-detect-status show'; status.textContent='Reading this sheet’s scale note…'; }
+  const text=await currentSheetText();
+  const hit=parseScaleFromText(text);
+  if(!hit){ if(status){ status.className='sp-detect-status show warn'; status.textContent='No scale note found on this sheet (common on scans). Pick a scale above, or use 📏 to calibrate by hand.'; } return; }
+  applyStandardScale(hit.factor, hit.label);
+  const sel=document.getElementById('scale-select'); if(sel){ const opt=[...sel.options].find(o=>parseFloat(o.value)===hit.factor); if(opt) sel.value=opt.value; }
+  if(status){ status.className='sp-detect-status show ok'; status.textContent='Detected '+hit.label+' from the sheet. Double-check one known dimension if this PDF source is new to you.'; }
+}
+document.getElementById('scale-detect-btn').addEventListener('click', autoDetectScale);
 
 // ---------- Popover toggle ----------
 const scaleToggleBtn = document.getElementById('scale-toggle-btn');

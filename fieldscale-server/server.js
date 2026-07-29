@@ -1777,6 +1777,19 @@ const server = http.createServer(async (req, res) => {
         } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
       }
 
+      // ---- Turn a jobsite photo into a punch-list item ----
+      if (pathname === '/api/ai/punchphoto' && req.method === 'POST') {
+        if (aiBlocked()) return;
+        const { image } = await readBody(req);
+        const img = parseImageInput(image);
+        if (!img) return sendJSON(res, 400, { error: 'Attach a photo first (under ~6MB).' });
+        const system = 'You look at a jobsite photo and write ONE concise punch-list item — a defect or task to fix before closeout. Return ONLY JSON: {"text":"short task, e.g. Caulk gap at window trim","location":"where in the building if you can tell, else empty","trade":"e.g. Painting, Electrical, Carpentry, Drywall, else empty"}. Be specific and practical about what you can actually see. If nothing clearly needs fixing, return {"text":"","location":"","trade":""}. No prose outside the JSON.';
+        try { const text = await aiText({ system, user: 'Write the punch-list item for this photo.', images: [img], max_tokens: 300, model: AI_MODEL, mock: () => '{"text":"Caulk gap at window trim","location":"Kitchen","trade":"Painting"}' });
+          const p = parseJSONLoose(text) || {};
+          aiDone(); return sendJSON(res, 200, { item: { text: String(p.text || '').slice(0, 200), location: String(p.location || '').slice(0, 80), trade: String(p.trade || '').slice(0, 60) } });
+        } catch (e) { return sendJSON(res, 502, { error: aiErr(e) }); }
+      }
+
       // ---- Flag jobs at risk of losing money (data-driven, AI explains) ----
       if (pathname === '/api/ai/risk' && req.method === 'POST') {
         if (aiBlocked()) return;

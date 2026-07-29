@@ -288,6 +288,8 @@
         <input id="punch-input" placeholder="Item to fix…" style="flex:2;min-width:160px" />
         <input id="punch-loc" placeholder="Location (e.g. Kitchen)" style="flex:1;min-width:120px" />
         <button class="btn ghost" id="add-punch">＋ Add</button>
+        <button class="btn ghost" id="punch-photo-btn" style="display:none" title="Snap a photo and let AI write the punch item">📷 Photo</button>
+        <input type="file" id="punch-photo-input" accept="image/*" capture="environment" style="display:none" />
       </div>
     </div>
 
@@ -718,6 +720,28 @@ document.getElementById('punch-wrap').addEventListener('input', e=>{
 document.getElementById('punch-wrap').addEventListener('click', e=>{
   const d=e.target.getAttribute('data-pdel'); if(d!==null){ doc.punch.splice(Number(d),1); renderPunch(); }
 });
+// Photo → punch item: snap/upload a jobsite photo and let AI write the punch-list item.
+(function(){
+  const btn=document.getElementById('punch-photo-btn'), inp=document.getElementById('punch-photo-input');
+  if(!btn||!inp||typeof fsAI==='undefined') return;
+  fsAI.status().then(s=>{ if(s.enabled) btn.style.display=''; }).catch(()=>{});
+  btn.addEventListener('click', ()=>inp.click());
+  inp.addEventListener('change', ()=>{
+    const f=inp.files && inp.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{ const image=rd.result; inp.value='';
+      fsAiRun({ title:'📷 Photo → punch item', loading:'Looking at the photo…',
+        run:()=>fsAI.post('/api/ai/punchphoto',{image}),
+        render:(r)=>{ const x=(r&&r.item)||{}; return x.text ? (x.text + (x.location?('\nLocation: '+x.location):'') + (x.trade?('\nTrade: '+x.trade):'')) : 'Nothing obvious to fix in this photo — add the item by hand if needed.'; },
+        insertLabel:'Add to punch list',
+        onInsert:(text,r)=>{ const x=(r&&r.item)||{}; if(!x.text){ toast('Nothing to add.'); return; }
+          doc.punch=doc.punch||[]; doc.punch.push({ id:'pn_'+Math.random().toString(16).slice(2,8), text:x.text, location:x.location||'', done:false });
+          renderPunch(); toast('Added to punch list.'); }
+      });
+    };
+    rd.readAsDataURL(f);
+  });
+})();
 
 // ---- Generic job list sections (selections, materials, inspections) ----
 function bindListSection(key, tbodyId, addBtnId, cols, blank){

@@ -273,6 +273,22 @@
       nav.querySelectorAll('.navgroup.open').forEach(function (o) { o.classList.remove('open'); });
     });
     addThemeToggle();
+    addTrainingLink(nav);
+  }
+
+  // Owner-only: surface the AI Training dashboard in the menu. Hidden for everyone else.
+  function addTrainingLink(nav) {
+    var t = getToken(); if (!t) return;
+    fetch('/api/training/status', { headers: { 'Authorization': 'Bearer ' + t } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.enabled) return;
+        if (nav.querySelector('a[href="/training.html"]')) return;
+        var a = document.createElement('a');
+        a.className = 'navtop navdirect' + (location.pathname === '/training.html' ? ' active' : '');
+        a.href = '/training.html'; a.textContent = 'AI Training';
+        nav.appendChild(a);
+      }).catch(function () {});
   }
 
   // Field employees only get their jobs. Strip the nav to Jobs + Schedule, drop the account links,

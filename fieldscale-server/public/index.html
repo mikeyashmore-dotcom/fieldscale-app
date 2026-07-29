@@ -181,7 +181,7 @@
   @media (max-width:680px){ .pages-resize{display:none;} }
   .pages-filter-wrap{position:relative;flex:none;padding:7px 8px 4px;border-bottom:1px solid var(--paper-line);background:var(--paper);}
   .pages-filter-wrap input{width:100%;box-sizing:border-box;padding:6px 24px 6px 9px;font:13px inherit;
-    border:1px solid var(--paper-line);border-radius:6px;background:var(--surface);color:var(--ink);}
+    border:1px solid var(--paper-line);border-radius:6px;background:var(--surface);color:var(--charcoal);}
   .pages-filter-wrap input:focus{outline:none;border-color:var(--cyan-dim);}
   .pages-filter-wrap #pages-filter-clear{position:absolute;right:16px;top:50%;transform:translateY(-50%);
     cursor:pointer;color:var(--steel);font-size:16px;line-height:1;display:none;padding:0 2px;}
@@ -6031,7 +6031,7 @@ function showFindSimPanel(){
     const st=document.createElement('style'); st.id='findsim-css';
     st.textContent = '#findsim-panel{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9500;'
       +'background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);border-radius:8px;'
-      +'box-shadow:0 10px 30px rgba(14,42,71,.22);padding:12px 14px;min-width:280px;font-size:13px;color:var(--ink,#1C1E22)}'
+      +'box-shadow:0 10px 30px rgba(14,42,71,.22);padding:12px 14px;min-width:280px;font-size:13px;color:var(--charcoal,#1E242C)}'
       +'#findsim-panel .fsp-hd{font-weight:600;margin-bottom:8px}'
       +'#findsim-panel .fsp-row{display:flex;align-items:center;gap:8px;margin:7px 0}'
       +'#findsim-panel input[type=range]{flex:1}'
@@ -6151,13 +6151,13 @@ function showVerifyPanel(){
     const st=document.createElement('style'); st.id='verify-css';
     st.textContent = '#verify-panel{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9500;'
       +'background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);border-radius:8px;'
-      +'box-shadow:0 10px 30px rgba(14,42,71,.22);padding:12px 14px;min-width:300px;font-size:13px;color:var(--ink,#1C1E22)}'
+      +'box-shadow:0 10px 30px rgba(14,42,71,.22);padding:12px 14px;min-width:300px;font-size:13px;color:var(--charcoal,#1E242C)}'
       +'#verify-panel .vp-hd{font-weight:600;margin-bottom:6px}'
       +'#verify-panel .vp-tally{font-size:12.5px;color:var(--steel,#7C8896);margin-bottom:7px}'
       +'#verify-panel .vp-tally b{color:#1E824C}'
       +'#verify-panel .vp-bar{height:7px;border-radius:4px;background:var(--surface-2,#EEF1F5);overflow:hidden;margin-bottom:9px}'
       +'#verify-panel .vp-fill{height:100%;background:#1E824C;width:0;transition:width .15s}'
-      +'#verify-panel .vp-current{font-size:12.5px;margin-bottom:10px;color:var(--ink,#1C1E22)}'
+      +'#verify-panel .vp-current{font-size:12.5px;margin-bottom:10px;color:var(--charcoal,#1E242C)}'
       +'#verify-panel .vp-ft,#verify-panel .vp-ft2{display:flex;gap:8px;flex-wrap:wrap}'
       +'#verify-panel .vp-ft{margin-bottom:6px}'
       +'#verify-panel .btn{font-size:12px;padding:6px 11px}'
@@ -6337,12 +6337,12 @@ function buildTrainingChip(){
   const css=document.createElement('style'); css.id='train-css';
   css.textContent = "#train-chip{position:fixed;left:12px;bottom:12px;z-index:9000;display:flex;align-items:center;gap:7px;"
     +"background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);border-radius:20px;padding:6px 12px;font-size:12.5px;"
-    +"color:var(--ink,#1C1E22);box-shadow:0 4px 14px rgba(14,42,71,.16);cursor:pointer;user-select:none}"
+    +"color:var(--charcoal,#1E242C);box-shadow:0 4px 14px rgba(14,42,71,.16);cursor:pointer;user-select:none}"
     +"#train-chip .tdot{width:8px;height:8px;border-radius:50%;background:#1E824C}#train-chip.paused .tdot{background:#B9C2CB}"
     +"#train-panel{position:fixed;left:12px;bottom:52px;z-index:9001;width:252px;background:var(--surface,#fff);border:1px solid var(--paper-line,#D8DEE6);"
-    +"border-radius:10px;box-shadow:0 12px 34px rgba(14,42,71,.24);padding:14px;font-size:13px;color:var(--ink,#1C1E22);display:none}"
+    +"border-radius:10px;box-shadow:0 12px 34px rgba(14,42,71,.24);padding:14px;font-size:13px;color:var(--charcoal,#1E242C);display:none}"
     +"#train-panel.open{display:block}#train-panel h4{margin:0 0 8px;font-family:'Oswald',sans-serif;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--heading,#15273A)}"
-    +"#train-panel .tp-row{display:flex;justify-content:space-between;margin:5px 0;color:var(--steel,#5A6B7B)}#train-panel .tp-row b{color:var(--ink,#1C1E22)}"
+    +"#train-panel .tp-row{display:flex;justify-content:space-between;margin:5px 0;color:var(--steel,#5A6B7B)}#train-panel .tp-row b{color:var(--charcoal,#1E242C)}"
     +"#train-panel .tp-ft{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}#train-panel .tp-note{font-size:11px;color:var(--steel,#7C8896);margin-top:10px;line-height:1.45}";
   document.head.appendChild(css);
   const chip=document.createElement('div'); chip.id='train-chip'; chip.title='AI training (your account only)';

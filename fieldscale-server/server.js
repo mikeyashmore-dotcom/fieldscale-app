@@ -3197,6 +3197,14 @@ const server = http.createServer(async (req, res) => {
         if (!trainingEnabledFor(me)) return sendJSON(res, 403, { error: 'Not enabled.' });
         return sendJSON(res, 200, { samples: trainingAllMeta() });
       }
+      const trainImg = pathname.match(/^\/api\/training\/images\/(t_[a-f0-9]+)$/);
+      if (trainImg && req.method === 'GET') {
+        if (!trainingEnabledFor(me)) return sendJSON(res, 403, { error: 'Not enabled.' });
+        const fp = path.join(TRAINING_IMG_DIR, trainImg[1] + '.png');
+        if (!fp.startsWith(TRAINING_IMG_DIR) || !fs.existsSync(fp)) return sendJSON(res, 404, { error: 'Not found.' });
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=60' });
+        return fs.createReadStream(fp).pipe(res);
+      }
 
       // ---- Editable Leads-board columns (custom pipeline stages) ----
       if (pathname === '/api/lead-stages' && req.method === 'GET') {

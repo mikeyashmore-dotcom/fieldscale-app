@@ -3002,6 +3002,7 @@ async function renderPage(){
   els.pageLabel.textContent = `${state.pageNum} / ${state.numPages}`;
   const _rtb=document.getElementById('rotate-toggle-btn'); if(_rtb) _rtb.disabled=false;
   if(typeof updateRotUI==='function') updateRotUI();
+  if(typeof renderLayerToggle==='function') renderLayerToggle();  // the plan is on screen now, so the 👥 layers toggle can show
   redrawOverlay();
   renderPagesList();
   renderTakeoffList();   // per-sheet quantities update when you change sheets

@@ -2418,8 +2418,11 @@ function showRevisionBanner(project){
     document.getElementById('rev-dismiss').onclick=()=>{ b.style.display='none'; };
   } else if(project.revisionOf){
     b.className='rev-banner info';
-    b.innerHTML='Revision '+(project.revision||2)+' — your takeoff was carried over from an earlier plan set. Double-check the measurements against the new sheets. <span class="rev-x" id="rev-dismiss">✕</span>';
+    b.innerHTML='Revision '+(project.revision||2)+' — carried over from an earlier plan set. Re-check measurements against the new sheets. '
+      +'<button class="btn" id="rev-diff">What changed vs previous</button><span class="rev-x" id="rev-dismiss">✕</span>';
     b.style.display='flex';
+    b.dataset.parent=project.revisionOf;
+    document.getElementById('rev-diff').onclick=()=>showRevisionDiff(project.revisionOf);
     document.getElementById('rev-dismiss').onclick=()=>{ b.style.display='none'; };
   } else {
     b.style.display='none';
@@ -6491,6 +6494,60 @@ function computeTakeoffSummary(){
     const cost=Math.round(x.cost*100)/100;
     return {label:x.label, qty, unit:x.unit, trade:x.trade, cost, unitCost: qty? Math.round((cost/qty)*100)/100 : 0, description:x.description||'', code:x.code||''};
   }).sort((a,b)=> a.trade<b.trade?-1:a.trade>b.trade?1:(a.label<b.label?-1:1));
+}
+
+// Compute the takeoff rollup for ANOTHER project's data (e.g. a previous revision) by briefly
+// swapping in its items + type library. resolveItemDisplay only reads those two, so this is safe.
+function summaryForData(data){
+  const savedItems=state.items, savedLib=state.typeLibrary;
+  try{
+    state.items = (data && data.items) || [];
+    state.typeLibrary = (data && data.typeLibrary) || {wall:[],linear:[],area:[],count:[]};
+    return computeTakeoffSummary();
+  } finally { state.items=savedItems; state.typeLibrary=savedLib; }
+}
+// Diff this revision's quantities against the previous version and show only what moved.
+async function showRevisionDiff(parentId){
+  let parent;
+  try{ parent = await apiFetch('/api/projects/'+parentId); }
+  catch(e){ alert('Could not load the previous version.'); return; }
+  const cur = computeTakeoffSummary();
+  const prev = summaryForData(parent.data||{});
+  const keyOf = r => (r.trade||'General')+' | '+r.label+' | '+r.unit;
+  const pm={}, cm={}; prev.forEach(r=>pm[keyOf(r)]=r); cur.forEach(r=>cm[keyOf(r)]=r);
+  const rows=[];
+  Array.from(new Set([...Object.keys(pm), ...Object.keys(cm)])).forEach(k=>{
+    const a=pm[k], b=cm[k], was=a?a.qty:0, now=b?b.qty:0;
+    if(Math.abs(now-was) < 0.005) return;   // unchanged — skip
+    const base=b||a;
+    rows.push({label:base.label, unit:base.unit, trade:base.trade, was, now,
+      delta:Math.round((now-was)*100)/100, kind: !a?'added':(!b?'removed':'changed')});
+  });
+  rows.sort((x,y)=> Math.abs(y.delta)-Math.abs(x.delta));
+  let html;
+  if(!rows.length){
+    html = '<p style="margin:0">No quantity changes versus the previous revision. Nothing to re-bid on the numbers so far.</p>';
+  } else {
+    const fmt=n=> (Math.round(n*100)/100).toLocaleString();
+    html = '<p style="margin:0 0 10px;color:#5A6B7B;font-size:12.5px">Compared with the previous revision — only what moved is listed. Green = more, red = less.</p>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+      + '<thead><tr style="text-align:left;color:#7C8896;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em">'
+      + '<th style="padding:6px 4px">Item</th><th style="padding:6px 4px">Trade</th>'
+      + '<th style="padding:6px 4px;text-align:right">Was</th><th style="padding:6px 4px;text-align:right">Now</th><th style="padding:6px 4px;text-align:right">Change</th></tr></thead><tbody>'
+      + rows.map(r=>{
+          const up=r.delta>0, col=up?'#1E824C':'#C0392B', sign=up?'+':'';
+          const tag = r.kind==='added'?' <span style="font-size:10px;color:#1E824C">(new)</span>':r.kind==='removed'?' <span style="font-size:10px;color:#C0392B">(gone)</span>':'';
+          return '<tr style="border-top:1px solid #E4E8EE">'
+            +'<td style="padding:7px 4px"><b>'+escapeHtml(r.label)+'</b> <span style="color:#7C8896">'+escapeHtml(r.unit)+'</span>'+tag+'</td>'
+            +'<td style="padding:7px 4px;color:#5A6B7B">'+escapeHtml(r.trade)+'</td>'
+            +'<td style="padding:7px 4px;text-align:right;font-family:monospace">'+fmt(r.was)+'</td>'
+            +'<td style="padding:7px 4px;text-align:right;font-family:monospace">'+fmt(r.now)+'</td>'
+            +'<td style="padding:7px 4px;text-align:right;font-family:monospace;color:'+col+';font-weight:600">'+sign+fmt(r.delta)+'</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  }
+  if(window.fsModal) window.fsModal({title:'What changed vs the previous revision', bodyHTML:html, buttons:[{label:'Close'}]});
+  else alert(rows.length? (rows.length+' quantities changed vs the previous revision.') : 'No quantity changes vs the previous revision.');
 }
 
 function requireCalibration(){

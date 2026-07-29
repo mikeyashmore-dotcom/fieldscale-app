@@ -72,6 +72,7 @@
       { label: 'Estimates', href: '/proposals.html', module: 'estimating' },
       { label: 'Price Book', href: '/estimates.html', module: 'estimating' },
       { label: 'Field Measure', href: '/fieldmeasure.html', module: 'estimating' },
+      { label: 'Cut List', href: '/cutlist.html', module: 'estimating' },
       { label: 'Floor Plans', href: '/plans.html', module: 'estimating' }
     ] },
     { label: 'Job', items: [

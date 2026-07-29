@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fieldscale — Cut List</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fs-theme.css">
+<meta name="fs-module" content="estimating">
+<script src="/app-nav.js"></script>
+<style>
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media (max-width:760px){ .grid2{grid-template-columns:1fr} }
+  .card{background:var(--surface);border:1px solid var(--paper-line);border-radius:10px;padding:16px 18px;margin-bottom:18px}
+  .card h3{font-family:'Oswald',sans-serif;font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--heading);margin:0 0 12px}
+  table.cuts{width:100%;border-collapse:collapse}
+  table.cuts td,table.cuts th{padding:5px 4px;text-align:left;font-size:13px}
+  table.cuts th{font-size:10px;text-transform:uppercase;color:var(--steel);letter-spacing:.04em}
+  table.cuts input{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--paper-line);border-radius:5px;background:var(--surface);color:var(--ink);font:13px inherit}
+  .cut-del{color:var(--steel);cursor:pointer;font-size:14px;padding:0 4px} .cut-del:hover{color:var(--danger)}
+  .stocks{display:flex;flex-wrap:wrap;gap:8px}
+  .stock-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--paper-line);border-radius:20px;padding:5px 11px;font-size:13px;cursor:pointer;user-select:none}
+  .stock-chip input{margin:0}
+  .stock-chip.on{border-color:var(--cyan-dim);background:rgba(111,195,228,.12)}
+  .res-hero{font-family:'Oswald',sans-serif;font-size:15px;color:var(--heading);margin-bottom:6px}
+  .buy{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+  .buy .b{background:var(--surface-2);border-radius:6px;padding:6px 12px;font-size:14px;font-weight:600;color:var(--ink)}
+  .kpi{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;font-size:13px;color:var(--steel)}
+  .kpi b{color:var(--ink);font-family:'IBM Plex Mono',monospace}
+  .board-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--paper-line);font-size:12.5px}
+  .board-row .bl{font-family:'IBM Plex Mono',monospace;color:var(--steel);min-width:70px}
+  .board-row .bar{flex:1;height:16px;background:var(--surface-2);border-radius:3px;overflow:hidden;display:flex}
+  .seg{height:100%;border-right:1px solid var(--surface);background:var(--cyan-dim);opacity:.85;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;white-space:nowrap}
+  .seg.waste{background:transparent;color:var(--steel);opacity:1}
+  table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  table.cmp td,table.cmp th{padding:6px 4px;text-align:left;border-bottom:1px solid var(--paper-line)}
+  table.cmp th{font-size:10px;text-transform:uppercase;color:var(--steel)}
+  table.cmp td.n{text-align:right;font-family:'IBM Plex Mono',monospace}
+  .warn{background:rgba(232,150,74,.14);border:1px solid var(--orange);color:#9a5a17;border-radius:6px;padding:8px 12px;font-size:12.5px;margin-top:10px}
+  .muted{color:var(--steel);font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>FIELDSCALE</div>
+  <nav></nav>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <a href="#" id="logout-link" style="color:var(--steel-light);font-size:13px;margin-left:14px;text-decoration:none">Log out</a>
+</header>
+
+<div class="wrap">
+  <h1>Cut List Optimizer</h1>
+  <p class="sub">Enter the pieces you need to cut and the stock lengths you can buy — it works out how many boards to buy with the least waste, and the cut plan for each board. Great for studs, plates, blocking, trim, decking.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Pieces to cut</h3>
+      <table class="cuts"><thead><tr><th style="width:46%">Length</th><th style="width:34%">Qty</th><th></th></tr></thead>
+        <tbody id="cut-rows"></tbody></table>
+      <button class="btn ghost" id="add-cut" style="font-size:12px;padding:5px 11px;margin-top:8px">＋ Add piece</button>
+      <p class="muted" style="margin:10px 0 0">Length in feet — type <b>7.5</b> or <b>7' 6"</b> (both = 7&nbsp;ft&nbsp;6&nbsp;in).</p>
+    </div>
+    <div class="card">
+      <h3>Stock lengths you can buy</h3>
+      <div class="stocks" id="stocks"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+        <input id="custom-stock" placeholder="Add length (ft)" style="width:130px;padding:6px 9px;border:1px solid var(--paper-line);border-radius:5px;background:var(--surface);color:var(--ink);font:13px inherit">
+        <button class="btn ghost" id="add-stock" style="font-size:12px;padding:5px 11px">Add</button>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <label class="muted">Saw kerf (blade width):</label>
+        <input id="kerf" type="number" step="0.03125" min="0" value="0.125" style="width:70px;padding:6px 9px;border:1px solid var(--paper-line);border-radius:5px;background:var(--surface);color:var(--ink);font:13px inherit"><span class="muted">in</span>
+      </div>
+      <button class="btn primary" id="optimize" style="width:100%;margin-top:14px">Optimize cut list</button>
+    </div>
+  </div>
+
+  <div class="card" id="result-card" style="display:none">
+    <h3>Result <button class="btn ghost" id="copy-btn" style="float:right;font-size:12px;padding:5px 11px">Copy list</button></h3>
+    <div id="result"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN_STORAGE='fieldscale_token';
+function getToken(){ return localStorage.getItem(TOKEN_STORAGE); }
+document.addEventListener('click',function(e){ if(e.target && e.target.id==='logout-link'){ e.preventDefault(); localStorage.removeItem('fieldscale_token'); localStorage.removeItem('fieldscale_username'); location.href='/'; } });
+if(!getToken()){ location.href='/'; }
+async function apiFetch(path){ const r=await fetch(path,{headers:{'Authorization':'Bearer '+getToken()}}); if(r.status===401){location.href='/';throw new Error('Session expired');} return r.json(); }
+let toastTimer; function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.className='toast show'; clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',2000); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// "7.5" or "7' 6\"" or "7 6" -> decimal feet. Returns NaN if unparseable.
+function parseLen(str){
+  str=String(str||'').trim(); if(!str) return NaN;
+  let m=str.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft|\s)\s*(\d+(?:\.\d+)?)\s*"?$/i);   // 7' 6  |  7 6
+  if(m) return parseFloat(m[1]) + parseFloat(m[2])/12;
+  m=str.match(/^(\d+(?:\.\d+)?)\s*'?\s*$/);   // 7.5  |  7'
+  if(m) return parseFloat(m[1]);
+  return NaN;
+}
+function fmtFt(x){ if(x==null||isNaN(x)) return '—'; const ft=Math.floor(x+1e-9); let inch=Math.round((x-ft)*12); let f=ft; if(inch===12){f++;inch=0;} return inch? (f+"'-"+inch+'"') : (f+"'"); }
+
+// ---- optimizer (pure) ----
+function optimizeCutList(cutList, stocks, kerf){
+  kerf = Number(kerf)||0;
+  const stocksAsc = (stocks||[]).map(Number).filter(s=>s>0).sort((a,b)=>a-b);
+  if(!stocksAsc.length) return { error:'Pick at least one stock length.' };
+  const maxStock = stocksAsc[stocksAsc.length-1];
+  let pieces=[];
+  (cutList||[]).forEach(c=>{ const n=Math.round(c.qty)||0; for(let i=0;i<n;i++){ if(c.len>0) pieces.push(c.len); } });
+  if(!pieces.length) return { error:'Add at least one piece to cut.' };
+  const unfittable = pieces.filter(p=>p>maxStock+1e-9);
+  pieces = pieces.filter(p=>p<=maxStock+1e-9).sort((a,b)=>b-a);
+  // FFD-fill a board of the given stock length from the (desc-sorted) remaining pieces.
+  function fillBoard(stock, rem){
+    const cuts=[]; const idx=[]; let used=0;
+    for(let i=0;i<rem.length;i++){
+      const need = cuts.length? kerf : 0;
+      if(used + need + rem[i] <= stock + 1e-9){ used += need+rem[i]; cuts.push(rem[i]); idx.push(i); }
+    }
+    return { stock, cuts, used, idx };
+  }
+  // Best-fit greedy: for each new board, try every stock that can hold the largest remaining piece,
+  // fill it, and pick the highest utilization (tie → the LONGER stock, so multiples pack together and
+  // board count drops). This both minimises waste and avoids over-buying boards.
+  const rem = pieces.slice(); const boards=[];
+  while(rem.length){
+    let best=null;
+    for(const s of stocksAsc){
+      if(rem[0] > s + 1e-9) continue;            // can't hold the largest remaining piece
+      const b = fillBoard(s, rem);
+      if(!b.cuts.length) continue;
+      const util = b.used / s;
+      if(!best || util > best.util + 1e-9 || (Math.abs(util-best.util) < 1e-9 && s > best.stock)) best={ util, ...b };
+    }
+    if(!best) break;
+    best.idx.slice().reverse().forEach(i=>rem.splice(i,1));
+    boards.push({ stock:best.stock, cuts:best.cuts, used:best.used });
+  }
+  const byStock={}; let totalWaste=0, totalStock=0, totalCut=0;
+  boards.forEach(bd=>{ byStock[bd.stock]=(byStock[bd.stock]||0)+1; totalWaste+=(bd.stock-bd.used); totalStock+=bd.stock; totalCut+=bd.used; });
+  const comparison = stocksAsc.map(s=>{
+    const fit=pieces.filter(p=>p<=s+1e-9).sort((x,y)=>y-x); const rem=fit.slice(); const bd=[];
+    while(rem.length){ const board={used:0,cuts:0}; for(let i=0;i<rem.length;){ const need=board.cuts?kerf:0; if(board.used+need+rem[i]<=s+1e-9){board.used+=need+rem[i];board.cuts++;rem.splice(i,1);} else i++; } bd.push(board); }
+    return { stock:s, boards:bd.length, waste: Math.round((bd.length*s - bd.reduce((x,y)=>x+y.used,0))*100)/100, tooBig: pieces.some(p=>p>s+1e-9) };
+  });
+  return { boards, byStock, totalBoards:boards.length,
+    totalWaste:Math.round(totalWaste*100)/100, totalStock:Math.round(totalStock*100)/100, totalCut:Math.round(totalCut*100)/100,
+    wastePct: totalStock? Math.round(totalWaste/totalStock*1000)/10 : 0, unfittable, comparison };
+}
+window.optimizeCutList=optimizeCutList; window.parseLen=parseLen;
+
+// ---- UI ----
+function addCutRow(len, qty){
+  const tb=document.getElementById('cut-rows');
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td><input class="c-len" placeholder="e.g. 7.5 or 7&#39; 6&quot;" value="'+(len||'')+'"></td><td><input class="c-qty" type="number" min="0" step="1" value="'+(qty||'')+'"></td><td><span class="cut-del">✕</span></td>';
+  tr.querySelector('.cut-del').addEventListener('click', ()=>tr.remove());
+  tb.appendChild(tr);
+}
+const STOCK_PRESETS=[8,10,12,14,16,20];
+function renderStocks(){
+  const el=document.getElementById('stocks');
+  el.innerHTML=STOCK_PRESETS.map(s=>`<label class="stock-chip${[8,10,12,16].includes(s)?' on':''}"><input type="checkbox" value="${s}"${[8,10,12,16].includes(s)?' checked':''}> ${s} ft</label>`).join('');
+  el.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>cb.closest('.stock-chip').classList.toggle('on',cb.checked)));
+}
+function getCuts(){
+  return [...document.querySelectorAll('#cut-rows tr')].map(tr=>({ len:parseLen(tr.querySelector('.c-len').value), qty:parseInt(tr.querySelector('.c-qty').value)||0 }))
+    .filter(c=>c.len>0 && c.qty>0 && !isNaN(c.len));
+}
+function getStocks(){ return [...document.querySelectorAll('#stocks input:checked')].map(cb=>parseFloat(cb.value)); }
+
+let lastResult=null;
+function run(){
+  const cuts=getCuts();
+  const kerfFt=(parseFloat(document.getElementById('kerf').value)||0)/12;
+  const res=optimizeCutList(cuts, getStocks(), kerfFt);
+  const card=document.getElementById('result-card'), out=document.getElementById('result');
+  card.style.display='block';
+  if(res.error){ out.innerHTML='<p class="muted">'+esc(res.error)+'</p>'; lastResult=null; return; }
+  lastResult=res;
+  const buy=Object.keys(res.byStock).map(Number).sort((a,b)=>b-a).map(s=>`<span class="b">${res.byStock[s]} × ${s} ft</span>`).join('');
+  let html='<div class="res-hero">Buy '+res.totalBoards+' board'+(res.totalBoards===1?'':'s')+':</div><div class="buy">'+buy+'</div>';
+  html+='<div class="kpi"><span>Total stock <b>'+res.totalStock+' ft</b></span><span>Cut used <b>'+res.totalCut+' ft</b></span><span>Offcut waste <b>'+res.totalWaste+' ft</b> ('+res.wastePct+'%)</span></div>';
+  if(res.unfittable && res.unfittable.length) html+='<div class="warn">⚠ '+res.unfittable.length+' piece(s) are longer than your longest stock length — add a longer stock or split them.</div>';
+  html+='<h3 style="margin-top:16px">Cut plan</h3>';
+  res.boards.forEach((bd,i)=>{
+    const segs=bd.cuts.map(c=>`<div class="seg" style="width:${(c/bd.stock*100).toFixed(1)}%" title="${fmtFt(c)}">${fmtFt(c)}</div>`).join('');
+    const left=bd.stock-bd.used; const waste=left>0.02?`<div class="seg waste" style="width:${(left/bd.stock*100).toFixed(1)}%" title="offcut">${fmtFt(left)}</div>`:'';
+    html+=`<div class="board-row"><span class="bl">${bd.stock} ft</span><span class="bar">${segs}${waste}</span></div>`;
+  });
+  html+='<h3 style="margin-top:16px">If you used a single length</h3><table class="cmp"><thead><tr><th>Stock</th><th class="n">Boards</th><th class="n">Waste</th></tr></thead><tbody>'+
+    res.comparison.map(c=>`<tr><td>${c.stock} ft${c.tooBig?' <span class="muted">(some pieces don’t fit)</span>':''}</td><td class="n">${c.tooBig?'—':c.boards}</td><td class="n">${c.tooBig?'—':c.waste+' ft'}</td></tr>`).join('')+'</tbody></table>';
+  out.innerHTML=html;
+}
+function copyList(){
+  if(!lastResult){ toast('Optimize first.'); return; }
+  const r=lastResult;
+  let t='CUT LIST\nBuy: '+Object.keys(r.byStock).map(Number).sort((a,b)=>b-a).map(s=>r.byStock[s]+' x '+s+' ft').join(', ')+'\n';
+  t+='Total '+r.totalBoards+' boards, '+r.totalWaste+' ft waste ('+r.wastePct+'%)\n\nCut plan:\n';
+  r.boards.forEach(bd=>{ t+=bd.stock+' ft: '+bd.cuts.map(fmtFt).join(' + ')+'  ('+fmtFt(bd.stock-bd.used)+' left)\n'; });
+  navigator.clipboard.writeText(t).then(()=>toast('Cut list copied.')).catch(()=>toast('Copy failed.'));
+}
+
+document.getElementById('add-cut').addEventListener('click', ()=>addCutRow());
+document.getElementById('optimize').addEventListener('click', run);
+document.getElementById('copy-btn').addEventListener('click', copyList);
+document.getElementById('add-stock').addEventListener('click', ()=>{
+  const v=parseFloat(document.getElementById('custom-stock').value); if(!(v>0)) return;
+  if(STOCK_PRESETS.includes(v)){ document.getElementById('custom-stock').value=''; return; }
+  STOCK_PRESETS.push(v); STOCK_PRESETS.sort((a,b)=>a-b);
+  const el=document.getElementById('stocks');
+  const lab=document.createElement('label'); lab.className='stock-chip on';
+  lab.innerHTML='<input type="checkbox" value="'+v+'" checked> '+v+' ft';
+  lab.querySelector('input').addEventListener('change',(e)=>lab.classList.toggle('on',e.target.checked));
+  el.appendChild(lab); document.getElementById('custom-stock').value='';
+});
+
+async function init(){
+  try{ const me=await apiFetch('/api/me'); document.getElementById('who').textContent=me.username; }catch(e){ return; }
+  renderStocks();
+  addCutRow('7.5', '20'); addCutRow('', '');   // seed one example row + one blank
+}
+init();
+</script>
+</body>
+</html>

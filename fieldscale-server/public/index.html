@@ -995,6 +995,13 @@
           <input type="text" id="doc-search-input" placeholder="Search all sheets & reference docs…" style="flex:1;font-size:13px;padding:7px 8px;border:1px solid var(--steel-light);border-radius:3px;font-family:'IBM Plex Sans',sans-serif;color:var(--charcoal);" disabled />
         </div>
         <div id="search-match-counter" style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--steel);margin-top:5px;"></div>
+        <div id="sheet-search-nav" style="display:none;align-items:center;gap:6px;margin-top:6px;">
+          <button class="btn" id="sheet-search-prev" title="Previous match on this sheet" style="padding:2px 9px;">‹</button>
+          <button class="btn" id="sheet-search-next" title="Next match on this sheet" style="padding:2px 9px;">›</button>
+          <span id="sheet-search-matchcount" style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--steel);"></span>
+        </div>
+        <button class="btn" id="sheet-search-hl" title="Turn every match on this sheet into permanent highlighter marks" style="width:100%;margin-top:8px;display:none;">🖍 Highlight all matches on this sheet</button>
+        <div class="sp-note" id="sheet-search-note" style="margin-top:6px;"></div>
         <div class="sp-note" id="search-index-status" style="margin-top:6px;"></div>
         <div class="sp-divider" style="border-top:1px solid var(--paper-line);margin:10px 0 0;padding-top:10px;">
           <button class="btn" id="autotag-btn" disabled title="Let AI find the detail/section callouts on this sheet and turn them into clickable links to those sheets" style="width:100%;">🏷 Auto-tag reference callouts</button>
@@ -2897,6 +2904,9 @@ document.getElementById('doc-search-input').addEventListener('input', (e)=>{
     state.searchHighlightPage = null;
     state.searchHighlights = [];
   }
+  sheetSearchMatchIdx = -1;
+  const _n=document.getElementById('sheet-search-note'); if(_n) _n.textContent='';
+  if(typeof updateSheetMatchNav==='function') updateSheetMatchNav();   // show the ‹ › + "Highlight all" controls when this sheet has matches
   if(!q.trim()) counterEl.textContent = '';
   else if(results.length===0) counterEl.textContent = 'No matches';
   else counterEl.textContent = `${results.length} sheet${results.length===1?'':'s'} match · Enter to jump, Shift+Enter for previous`;
@@ -3008,6 +3018,16 @@ async function renderPage(){
   const _rtb=document.getElementById('rotate-toggle-btn'); if(_rtb) _rtb.disabled=false;
   if(typeof updateRotUI==='function') updateRotUI();
   if(typeof renderLayerToggle==='function') renderLayerToggle();  // the plan is on screen now, so the 👥 layers toggle can show
+  // If a search is active, re-highlight its matches on the sheet you just moved to.
+  { const dsi=document.getElementById('doc-search-input');
+    if(dsi && dsi.value && dsi.value.trim() && typeof searchDocument==='function'){
+      const cpr=searchDocument(dsi.value).find(r=>r.source==='main' && r.pageNum===state.pageNum);
+      state.searchHighlightPage = cpr ? state.pageNum : null;
+      state.searchHighlights = cpr ? cpr.matchingItems : [];
+      sheetSearchMatchIdx = -1;
+    }
+    if(typeof updateSheetMatchNav==='function') updateSheetMatchNav();
+  }
   redrawOverlay();
   renderPagesList();
   renderTakeoffList();   // per-sheet quantities update when you change sheets
@@ -3158,8 +3178,10 @@ function applyPageHighlights(results){
 }
 function updateSheetMatchNav(){
   const nav=document.getElementById('sheet-search-nav'), cnt=document.getElementById('sheet-search-matchcount');
+  const hl=document.getElementById('sheet-search-hl');
   const n=(state.searchHighlightPage===state.pageNum)?state.searchHighlights.length:0;
-  if(nav) nav.style.display=(sheetSearchActive && n>0)?'flex':'none';
+  if(nav) nav.style.display=(n>0)?'flex':'none';
+  if(hl) hl.style.display=(n>0)?'block':'none';
   if(cnt) cnt.textContent = n ? ((sheetSearchMatchIdx>=0?(sheetSearchMatchIdx+1)+' / ':'')+n+' on this sheet') : '';
 }
 // Which search-match box (if any) is under a point on the current sheet — for right-click convert.

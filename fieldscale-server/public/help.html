@@ -33,7 +33,13 @@
 
 <div class="wrap">
   <h1 style="font-family:'Oswald',sans-serif;font-size:22px;font-weight:600;margin:0 0 4px">Help &amp; FAQ</h1>
-  <p class="sub">Quick answers to common questions. Search or expand a topic below.</p>
+  <p class="sub">Download a full guide, or search the quick answers below.</p>
+
+  <h2 style="font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:18px 0 4px">📘 User guides (PDF)</h2>
+  <p class="sub" style="margin-top:0">Detailed, plain-language guides to each part of Fieldscale. Click to open or download.</p>
+  <div id="guides" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin:10px 0 26px"></div>
+
+  <h2 style="font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:0 0 8px">❓ Quick answers</h2>
   <input class="searchbox" id="q" placeholder="Search help… (e.g. estimate, invoice, employee)" />
   <div id="faqs"></div>
 </div>
@@ -75,6 +81,23 @@ document.getElementById('q').addEventListener('input', e=>{
   render(!q ? FAQ : FAQ.filter(f=> esc(f[0]+' '+f[1]+' '+f[2]).includes(q)));
 });
 render(FAQ);
+
+// Downloadable PDF guides (served from /guides). Jobs guide will be added once that section is finalized.
+const GUIDES=[
+  ['01','Getting Started','What Fieldscale is, signing in, and finding your way around','Fieldscale-01-Getting-Started.pdf'],
+  ['02','Takeoff','Measure quantities straight off your PDF plans','Fieldscale-02-Takeoff.pdf'],
+  ['03','Leads & Customers','Pipeline, customers, and follow-ups','Fieldscale-03-Leads-Customers.pdf'],
+  ['04','Estimating','Estimates, price book, and the field tools','Fieldscale-04-Estimating.pdf'],
+  ['05','Invoicing & Reports','Billing, payments, portal, and reports','Fieldscale-05-Invoicing-Reports.pdf'],
+  ['06','Owner, Team & Settings','Team roles, company profile, AI training, guest links','Fieldscale-06-Owner-Team-Settings.pdf']
+];
+document.getElementById('guides').innerHTML = GUIDES.map(g=>
+  `<a href="/guides/${g[3]}" target="_blank" download style="display:block;border:1px solid var(--steel-light,#d2d8df);border-radius:8px;padding:12px 14px;text-decoration:none;color:inherit;background:var(--surface,#fff)">
+     <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:1px;color:#E8833A;font-weight:700">PART ${g[0]}</div>
+     <div style="font-weight:600;color:var(--charcoal,#12314c);margin:2px 0 3px">${g[1]}</div>
+     <div style="font-size:12px;color:var(--steel,#5b6675);line-height:1.4">${g[2]}</div>
+     <div style="font-size:11.5px;color:#E8833A;margin-top:7px;font-weight:600">⬇ Download PDF</div>
+   </a>`).join('');
 </script>
 </body>
 </html>

@@ -8429,5 +8429,173 @@ document.getElementById('exportset-run').addEventListener('click', ()=>{
   document.querySelectorAll('#cmp-view-btns [data-cmpview]').forEach(b=> b.addEventListener('click', ()=>showView(b.dataset.cmpview)));
 })();
 </script>
+
+<!-- ============ GUIDED TAKEOFF TUTORIAL (self-contained coach-marks) ============ -->
+<script>
+(function(){
+  var SEEN_KEY = 'fs.tour.takeoff.v1';
+  // Each step points at an element (by selector) with plain-language guidance. Steps whose target
+  // is missing/hidden are skipped automatically, so it works whether or not a plan is loaded yet.
+  var STEPS = [
+    { sel:null, title:'Welcome to Takeoff 👋',
+      body:"This is where you measure quantities straight off a PDF plan. Here's the 7-step flow — click <b>Next</b> to walk through it. Nothing you click in this tour changes your plans." },
+    { sel:'#projects-toggle-btn', title:'1 · Projects',
+      body:'Create or open a project here. Each project holds one plan set. A <b>New Project</b> is where you upload your PDF.' },
+    { sel:'label[for="file-input"]', title:'2 · Load your plan',
+      body:'Drop in a PDF plan sheet. Multi-page sets load every sheet — flip between them with the page arrows at the bottom.' },
+    { sel:'[data-tool="calibrate"]', title:'3 · Set the scale (do this first!)',
+      body:'Click <b>📏 Calibrate</b>, draw a line along something you know the length of (a door, a dimension line), then type that real length. <b>Every measurement depends on this.</b>' },
+    { sel:'#scale-toggle-btn', title:'Or pick a known scale',
+      body:"If the sheet says its scale (like 1/4\" = 1'), set it here instead — and you can apply one scale to every sheet at once." },
+    { sel:'#add-tool', title:'4 · Add what you’re measuring',
+      body:'Click <b>＋ Add</b> to make an item — a wall, a line, an area, or a count. Give it a name, colour and unit once; then just measure.' },
+    { sel:'#rail', title:'5 · Draw on the plan',
+      body:'Pick a tool from this rail: click to <b>count</b> symbols, click points for <b>lengths</b>, trace a shape for <b>areas</b>. <b>⧉ Find Similar</b> auto-counts repeated symbols like outlets or doors.' },
+    { sel:'#takeoff-list', title:'6 · Your quantities',
+      body:'Everything you measure tallies here live. Group by trade or folder, and toggle between <b>this sheet</b> and <b>all sheets</b>.' },
+    { sel:'#sheet-search-tool', title:'Search every sheet',
+      body:"Find each “door”, “outlet” or detail callout across all pages at once — matching sheets show with a count." },
+    { sel:'#summary-btn', title:'7 · Finish up',
+      body:'Roll totals up by trade with <b>📋 Summary</b>, turn them into a material order with <b>📦 Materials</b>, or export to CSV / PDF.' },
+    { sel:null, title:'That’s the whole flow 🎉',
+      body:'Your work <b>autosaves</b> as you go, and you can <b>lock</b> a takeoff when the bid is final. Replay this tour anytime with the <b>🎓</b> button up top.' }
+  ];
+
+  var css = ''
+    + '#fs-tour-btn{background:none;border:1px solid var(--steel-light,#c7cdd6);color:var(--steel,#5C6672);'
+    + 'border-radius:4px;font-size:12px;padding:4px 9px;cursor:pointer;white-space:nowrap;font-family:inherit}'
+    + '#fs-tour-btn:hover{color:var(--charcoal,#1E3A57);border-color:var(--charcoal,#1E3A57)}'
+    + '.fst-block{position:fixed;inset:0;z-index:99990;background:rgba(15,20,26,.15)}'
+    + '.fst-spot{position:fixed;z-index:99991;border-radius:8px;pointer-events:none;transition:all .22s ease;'
+    + 'box-shadow:0 0 0 3px rgba(232,131,58,.95), 0 0 0 9999px rgba(15,20,26,.55)}'
+    + '.fst-pop{position:fixed;z-index:99992;width:320px;max-width:calc(100vw - 28px);background:#fff;color:#1E3A57;'
+    + 'border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);padding:16px 17px 14px;'
+    + "font-family:'IBM Plex Sans',system-ui,sans-serif;transition:top .2s ease,left .2s ease}"
+    + '.fst-pop h4{margin:0 0 7px;font-size:15px;color:#12314c;font-weight:600}'
+    + '.fst-pop p{margin:0;font-size:13.5px;line-height:1.5;color:#41505f}'
+    + '.fst-pop b{color:#12314c}'
+    + '.fst-row{display:flex;align-items:center;gap:8px;margin-top:14px}'
+    + '.fst-count{font-size:11.5px;color:#8a97a5;font-family:"IBM Plex Mono",monospace;margin-right:auto}'
+    + '.fst-b{border:1px solid #d2d8df;background:#fff;color:#41505f;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;font-family:inherit}'
+    + '.fst-b:hover{border-color:#12314c;color:#12314c}'
+    + '.fst-b.primary{background:#E8833A;border-color:#E8833A;color:#fff}.fst-b.primary:hover{background:#d9722b}'
+    + '.fst-x{position:absolute;top:9px;right:11px;border:none;background:none;color:#9aa6b4;font-size:18px;cursor:pointer;line-height:1}'
+    + '.fst-x:hover{color:#41505f}';
+  var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+
+  var idx = 0, block = null, spot = null, pop = null, onKey = null, onMove = null;
+
+  function visible(el){ return el && el.offsetParent !== null && el.getClientRects().length > 0; }
+  function stepEl(s){ return s.sel ? document.querySelector(s.sel) : null; }
+  function firstValidFrom(i, dir){
+    while(i >= 0 && i < STEPS.length){
+      if(STEPS[i].sel === null || visible(stepEl(STEPS[i]))) return i;
+      i += dir;
+    }
+    return -1;
+  }
+
+  function place(){
+    if(!pop) return;
+    var s = STEPS[idx], el = stepEl(s);
+    if(el && spot){
+      var r = el.getBoundingClientRect(), pad = 6;
+      spot.style.display = 'block';
+      spot.style.top = (r.top - pad) + 'px'; spot.style.left = (r.left - pad) + 'px';
+      spot.style.width = (r.width + pad*2) + 'px'; spot.style.height = (r.height + pad*2) + 'px';
+      // Prefer below the target, else above, else beside; then clamp to the viewport.
+      var pw = pop.offsetWidth || 320, ph = pop.offsetHeight || 160, m = 12;
+      var top = r.bottom + m, left = r.left;
+      if(top + ph > window.innerHeight - 8){
+        if(r.top - ph - m > 8) top = r.top - ph - m;          // above
+        else { top = Math.min(r.top, window.innerHeight - ph - 8); left = r.right + m; } // beside
+      }
+      left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+      top  = Math.max(8, Math.min(top,  window.innerHeight - ph - 8));
+      pop.style.top = top + 'px'; pop.style.left = left + 'px';
+    } else {
+      if(spot) spot.style.display = 'none';
+      pop.style.top = '50%'; pop.style.left = '50%';
+      pop.style.transform = 'translate(-50%,-50%)';
+      return;
+    }
+    pop.style.transform = 'none';
+  }
+
+  function render(){
+    var s = STEPS[idx];
+    var last = firstValidFrom(idx+1, 1) === -1;
+    var prev = firstValidFrom(idx-1, -1) !== -1;
+    pop.innerHTML =
+      '<button class="fst-x" title="Close">×</button>' +
+      '<h4>'+s.title+'</h4><p>'+s.body+'</p>' +
+      '<div class="fst-row"><span class="fst-count">'+(idx+1)+' of '+STEPS.length+'</span>' +
+      (prev ? '<button class="fst-b" data-a="back">Back</button>' : '') +
+      '<button class="fst-b primary" data-a="next">'+(last ? 'Got it' : 'Next')+'</button></div>';
+    pop.querySelector('.fst-x').onclick = end;
+    pop.querySelectorAll('[data-a]').forEach(function(b){
+      b.onclick = function(){ b.dataset.a === 'back' ? go(-1) : (last ? end() : go(1)); };
+    });
+    place();
+  }
+
+  function go(dir){
+    var n = firstValidFrom(idx + dir, dir);
+    if(n === -1){ if(dir > 0) return end(); return; }
+    idx = n; render();
+  }
+
+  function start(){
+    if(document.getElementById('app-root') && document.getElementById('app-root').style.display === 'none') return;
+    try{ localStorage.setItem(SEEN_KEY, '1'); }catch(e){}
+    if(pop) return; // already running
+    idx = firstValidFrom(0, 1); if(idx === -1) idx = 0;
+    block = document.createElement('div'); block.className = 'fst-block';
+    spot = document.createElement('div'); spot.className = 'fst-spot'; spot.style.display = 'none';
+    pop = document.createElement('div'); pop.className = 'fst-pop';
+    document.body.appendChild(block); document.body.appendChild(spot); document.body.appendChild(pop);
+    onKey = function(e){ if(e.key==='Escape') end(); else if(e.key==='ArrowRight') go(1); else if(e.key==='ArrowLeft') go(-1); };
+    onMove = function(){ place(); };
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onMove); window.addEventListener('scroll', onMove, true);
+    render();
+  }
+
+  function end(){
+    if(onKey) document.removeEventListener('keydown', onKey);
+    if(onMove){ window.removeEventListener('resize', onMove); window.removeEventListener('scroll', onMove, true); }
+    [block, spot, pop].forEach(function(n){ if(n && n.parentNode) n.parentNode.removeChild(n); });
+    block = spot = pop = onKey = onMove = null;
+  }
+
+  // Launch button in the top toolbar (added once the toolbar exists).
+  function addButton(){
+    var bar = document.querySelector('.topbar'); if(!bar || document.getElementById('fs-tour-btn')) return;
+    var b = document.createElement('button');
+    b.id = 'fs-tour-btn'; b.type = 'button'; b.textContent = '🎓 Tutorial';
+    b.title = 'Take a quick guided tour of the takeoff tools';
+    b.onclick = start;
+    var upload = bar.querySelector('label[for="file-input"]');
+    if(upload) bar.insertBefore(b, upload); else bar.appendChild(b);
+  }
+
+  // Auto-run once for a new user — but only after they're logged in and no modal is in the way.
+  function maybeAuto(tries){
+    if(tries <= 0) return;
+    var root = document.getElementById('app-root');
+    var loggedIn = root && root.style.display !== 'none';
+    var modalOpen = !![].slice.call(document.querySelectorAll('.modal-overlay')).find(function(m){
+      return m.offsetParent !== null && getComputedStyle(m).display !== 'none';
+    });
+    var seen = false; try{ seen = !!localStorage.getItem(SEEN_KEY); }catch(e){}
+    if(loggedIn && !modalOpen && !seen){ start(); return; }
+    if(loggedIn && seen) return;
+    setTimeout(function(){ maybeAuto(tries-1); }, 900);
+  }
+
+  function boot(){ addButton(); setTimeout(function(){ maybeAuto(25); }, 1200); }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
 </body>
 </html>

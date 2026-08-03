@@ -862,6 +862,10 @@
   .np-sheet .np-num{flex:0 0 90px;}
   .np-sheet .np-nm{flex:1; min-width:0;}
   .np-sheet .np-scale{flex:0 0 150px;}
+  .np-sheet .np-del{flex:0 0 auto; border:1px solid var(--paper-line); background:var(--surface); color:var(--steel);
+    border-radius:3px; cursor:pointer; font-size:12px; line-height:1; padding:5px 7px;}
+  .np-sheet .np-del:hover{border-color:var(--danger); color:var(--danger); background:var(--surface-2);}
+  .np-sheet .np-num.named, .np-sheet .np-nm.named{border-color:var(--orange); }
   .np-sheet input[type=text], .np-sheet select{
     padding:5px 7px; border:1px solid var(--steel-light); border-radius:3px;
     font-family:'IBM Plex Sans',sans-serif; font-size:12px; color:var(--charcoal);
@@ -1318,13 +1322,15 @@
         <div class="np-sheets-bar">
           <div>
             <h5 style="margin:0;">Sheets</h5>
-            <div class="sp-note" style="margin-top:2px;">Untick what you don't need — hidden sheets stay in the file and can be brought back any time. Set each sheet's scale now and you'll land ready to measure.</div>
+            <div class="sp-note" style="margin-top:2px;">Names fill in automatically as the AI reads each sheet — edit any of them here. Use 🗑 to delete a sheet you don't want, or untick to just hide it. Set each sheet's scale now and you'll land ready to measure.</div>
           </div>
           <div class="np-sheets-actions">
+            <button class="db-btn go" id="np-autoname" title="Read every sheet's title & number with AI">🤖 Auto-name</button>
             <button class="db-btn" id="np-all-on">Select all</button>
             <button class="db-btn" id="np-all-off">Select none</button>
           </div>
         </div>
+        <div class="sp-note" id="np-name-status" style="display:none;margin:0 0 8px;"></div>
 
         <div class="np-bulk">
           <span class="np-bulk-label">Set every included sheet to</span>
@@ -2630,13 +2636,86 @@ function npRenderSheets(){
     <div class="np-sheet ${sh.include?'':'off'}" data-page="${sh.pageNum}">
       <input type="checkbox" class="np-inc" ${sh.include?'checked':''} title="Include this sheet" />
       <span class="np-pn">${sh.pageNum}</span>
-      <input type="text" class="np-num" placeholder="A1.01" value="${escapeHtml(sh.number)}" />
-      <input type="text" class="np-nm" placeholder="Sheet name (left blank, Claude will read it)" value="${escapeHtml(sh.name)}" />
+      <input type="text" class="np-num ${sh.number?'named':''}" placeholder="A1.01" value="${escapeHtml(sh.number)}" />
+      <input type="text" class="np-nm ${sh.name?'named':''}" placeholder="Reading name…" value="${escapeHtml(sh.name)}" />
       <select class="np-scale">
         <option value="">No scale yet</option>
         ${scaleOptions(sh.scaleFactor)}
       </select>
+      <button class="np-del" title="Delete this sheet from the project">🗑</button>
     </div>`).join('');
+}
+
+// Fill in each included sheet's number + name by reading it with AI, right here in the setup window.
+// Names you typed yourself are never touched. Runs automatically when you reach this step, and again
+// on demand from the 🤖 Auto-name button.
+let npNaming = false;
+async function npNameSheets(manual){
+  if(npNaming || !npDoc) return;
+  const statusEl = document.getElementById('np-name-status');
+  const todo = npSheets.filter(s=> s.include && !s.userNamed && !(s.number || s.name)).map(s=> s.pageNum);
+  if(!todo.length){
+    if(manual){ statusEl.style.display='block'; statusEl.textContent='Every included sheet already has a name.'; setTimeout(()=>{ statusEl.style.display='none'; }, 2500); }
+    return;
+  }
+  npNaming = true;
+  const btn = document.getElementById('np-autoname'); if(btn) btn.disabled = true;
+  statusEl.style.display='block';
+  let done = 0;
+  if(window.SheetProgress) SheetProgress.set('naming','Naming sheet', 0, todo.length);
+  try{
+    for(const pageNum of todo){
+      const sh = npSheets.find(x=> x.pageNum === pageNum);
+      if(!sh || !sh.include || sh.userNamed || sh.number || sh.name) continue; // deleted / edited since we started
+      statusEl.textContent = `Reading sheet ${done+1} of ${todo.length}…`;
+      try{
+        const page = await npDoc.getPage(pageNum);
+        const viewport = page.getViewport({scale:1.2});
+        const off = document.createElement('canvas');
+        off.width = viewport.width; off.height = viewport.height;
+        await page.render({canvasContext: off.getContext('2d'), viewport}).promise;
+        const maxW = 1200, scaleDown = Math.min(1, maxW/off.width);
+        let base64;
+        if(scaleDown<1){
+          const off2 = document.createElement('canvas');
+          off2.width = off.width*scaleDown; off2.height = off.height*scaleDown;
+          off2.getContext('2d').drawImage(off, 0,0, off2.width, off2.height);
+          base64 = off2.toDataURL('image/png').split(',')[1];
+        } else { base64 = off.toDataURL('image/png').split(',')[1]; }
+        const promptText = `This is one sheet from a construction/architectural drawing set. Identify the sheet's title (e.g. "FIRST FLOOR PLAN", "FRONT ELEVATION", "ELECTRICAL PLAN") and its sheet number if printed (e.g. "A1.01", "A-2", "S-101"), usually in the title block. Respond ONLY with valid JSON, no markdown fences: {"sheet_name": "string, or empty if not found", "sheet_number": "string, or empty if not found"}`;
+        const textOut = await callClaudeVision(base64, promptText, 200);
+        const parsed = JSON.parse(textOut.replace(/```json|```/g,'').trim());
+        const cur = npSheets.find(x=> x.pageNum === pageNum);
+        if(cur && !cur.userNamed){
+          cur.number = parsed.sheet_number || '';
+          cur.name   = parsed.sheet_name || '';
+          npUpdateSheetRow(cur);
+        }
+      }catch(err){
+        if(err && err.status===429){
+          statusEl.textContent = "Paused — hourly AI limit reached. Name the rest by hand, or they'll finish when you start the takeoff.";
+          break;
+        }
+        // Leave this sheet blank for manual entry.
+      }
+      done++;
+      if(window.SheetProgress) SheetProgress.set('naming','Naming sheet', done, todo.length);
+    }
+  } finally {
+    npNaming = false;
+    if(btn) btn.disabled = false;
+    if(window.SheetProgress) SheetProgress.done('naming');
+    if(statusEl.textContent.indexOf('Reading')===0) statusEl.textContent = 'Sheet names ready — edit any of them above.';
+    setTimeout(()=>{ if(!npNaming) statusEl.style.display='none'; }, 3000);
+  }
+}
+// Update one row's name/number inputs in place (without wiping what someone's actively typing).
+function npUpdateSheetRow(sh){
+  const row = document.querySelector(`#np-sheet-list .np-sheet[data-page="${sh.pageNum}"]`);
+  if(!row) return;
+  const numI = row.querySelector('.np-num'), nmI = row.querySelector('.np-nm');
+  if(numI && document.activeElement!==numI){ numI.value = sh.number; numI.classList.toggle('named', !!sh.number); }
+  if(nmI && document.activeElement!==nmI){ nmI.value = sh.name; nmI.classList.toggle('named', !!sh.name); }
 }
 
 document.getElementById('np-sheet-list').addEventListener('change', (e)=>{
@@ -2647,13 +2726,25 @@ document.getElementById('np-sheet-list').addEventListener('change', (e)=>{
     sh.include = e.target.checked;
     row.classList.toggle('off', !sh.include);
   }
-  if(e.target.classList.contains('np-num'))  sh.number = e.target.value.trim();
-  if(e.target.classList.contains('np-nm'))   sh.name   = e.target.value.trim();
+  // A name/number you type is yours — mark it so the AI pass won't overwrite it.
+  if(e.target.classList.contains('np-num')){ sh.number = e.target.value.trim(); sh.userNamed = true; }
+  if(e.target.classList.contains('np-nm')){  sh.name   = e.target.value.trim(); sh.userNamed = true; }
   if(e.target.classList.contains('np-scale')){
     sh.scaleFactor = e.target.value ? parseFloat(e.target.value) : null;
     sh.scaleLabel = e.target.value ? e.target.selectedOptions[0].textContent : '';
   }
 });
+// Delete a sheet from the set (it won't be part of the project).
+document.getElementById('np-sheet-list').addEventListener('click', (e)=>{
+  const del = e.target.closest('.np-del'); if(!del) return;
+  const row = e.target.closest('.np-sheet'); if(!row) return;
+  const pageNum = parseInt(row.dataset.page);
+  if(npSheets.length <= 1){ npMsg('Keep at least one sheet — delete is disabled on the last one.', 'error'); return; }
+  npSheets = npSheets.filter(x=> x.pageNum !== pageNum);
+  npMsg('');
+  npRenderSheets();
+});
+document.getElementById('np-autoname').addEventListener('click', ()=> npNameSheets(true));
 document.getElementById('np-all-on').addEventListener('click', ()=>{
   npSheets.forEach(s2=> s2.include = true); npRenderSheets();
 });
@@ -2677,6 +2768,7 @@ document.getElementById('np-next').addEventListener('click', ()=>{
   npMsg('');
   npRenderSheets();
   npShowStep('sheets');
+  npNameSheets(); // start reading sheet names right here in the window
 });
 document.getElementById('np-back').addEventListener('click', ()=> npShowStep('details'));
 document.getElementById('np-cancel').addEventListener('click', ()=> npOverlay.classList.remove('open'));
@@ -2733,7 +2825,10 @@ document.getElementById('np-start').addEventListener('click', async ()=>{
   invalidatePdfCache();
   markDirty();   // a brand-new project with a plan loaded is unsaved work
   state.numPages = state.pdfDoc.numPages;
-  state.hiddenPages = npSheets.filter(s2=>!s2.include).map(s2=>s2.pageNum);
+  // Anything not kept — unticked OR deleted from the list — becomes a hidden page in the project.
+  const includedNums = new Set(included.map(s2=>s2.pageNum));
+  state.hiddenPages = [];
+  for(let p=1; p<=state.numPages; p++){ if(!includedNums.has(p)) state.hiddenPages.push(p); }
   state.pageNum = included[0].pageNum;   // land on the first sheet you actually kept
 
   // Names you typed win; blanks get filled in by Claude in the background afterwards.

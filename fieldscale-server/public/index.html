@@ -4028,7 +4028,7 @@ function activateTool(toolName){
   if(toolName==='wall') showHint('Drawing <b>'+activeTypeName('wall')+'</b> — click to trace the wall centerline. Double-click, <b>Enter</b>, or Finish to end it.');
   if(toolName==='area') showHint('Drawing <b>'+activeTypeName('area')+'</b> — click to trace the perimeter. Double-click, <b>Enter</b>, or Finish to close it.');
   if(toolName==='count') showHint('Placing <b>'+activeTypeName('count')+'</b> — click each item to count.');
-  if(toolName==='highlight') showHint('Drag a box to highlight part of this sheet. Click an existing highlight to remove it.');
+  if(toolName==='highlight') showHint('Drag a box to highlight part of this sheet. Click an existing highlight to remove it. Switch to the Select tool (⬚) to move or resize one.');
   if(toolName==='ai-select') showHint('Drag a box around the region you want Claude to analyze.');
   if(toolName==='findsimilar') showHint('Find similar — drag a <b>tight box around ONE symbol</b> (a door, outlet, light). I’ll find and count the matching ones on this sheet.');
   if(toolName!=='findsimilar') closeFindSim();  // leaving the tool clears any in-progress search
@@ -4488,6 +4488,7 @@ function drawSelection(){
       const h = state.highlights.find(x=>x.id===sel.id);
       if(!h || !onPage(h)) return;
       octx.strokeRect(h.x, h.y, h.w, h.h);
+      HL_HANDLES.forEach(hd=> drawHandle(highlightHandlePos(h, hd)));  // grab points to resize
     } else {
       const it = state.items.find(x=>x.id===sel.id);
       if(!it || !it.point || !onPage(it)) return;
@@ -4536,7 +4537,8 @@ function drawHandle(p){
 function selectionSummary(){
   if(!state.selection.length){ hideHint(); return; }
   const n = state.selection.length;
-  showHint(`<b>${n}</b> selected — drag to move, <b>Ctrl+C</b> copy, <b>Ctrl+V</b> paste, <b>Delete</b> to remove.`);
+  const oneHl = n===1 && state.selection[0].kind==='highlight';
+  showHint(`<b>${n}</b> selected — drag to move${oneHl?', drag a corner/edge handle to resize':''}, <b>Ctrl+C</b> copy, <b>Ctrl+V</b> paste, <b>Delete</b> to remove.`);
 }
 
 // ---------- Coordinate helpers ----------
@@ -4594,6 +4596,13 @@ els.overlay.addEventListener('mousedown',(e)=>{
     if(vh){
       state.vertexDrag = vh; state.moveDrag = null;
       isDown = true; els.overlay.style.cursor = 'grabbing';
+      e.preventDefault(); return;
+    }
+    // A resize handle of a selected highlight → drag that edge/corner instead of moving the whole box.
+    const hh = state.locked ? null : highlightHandleAt(p);
+    if(hh){
+      state.hlResize = hh; state.moveDrag = null; state.vertexDrag = null;
+      isDown = true; els.overlay.style.cursor = hh.cursor;
       e.preventDefault(); return;
     }
     const hit = pickAt(p);
@@ -4720,6 +4729,17 @@ els.overlay.addEventListener('mousemove',(e)=>{
       redrawOverlay();
       return;
     }
+    if(state.hlResize){
+      const rz = state.hlResize, h = state.highlights.find(x=>x.id===rz.id);
+      if(h){
+        let left=h.x, right=h.x+h.w, top=h.y, bottom=h.y+h.h;
+        if(rz.l) left=p.x; if(rz.r) right=p.x; if(rz.t) top=p.y; if(rz.b) bottom=p.y;
+        h.x=Math.min(left,right); h.w=Math.abs(right-left);
+        h.y=Math.min(top,bottom); h.h=Math.abs(bottom-top);
+      }
+      redrawOverlay();
+      return;
+    }
     if(state.moveDrag){
       moveSelection(p.x - state.moveDrag.last.x, p.y - state.moveDrag.last.y);
       state.moveDrag.last = p;
@@ -4733,6 +4753,8 @@ els.overlay.addEventListener('mousemove',(e)=>{
       return;
     }
     // Hover feedback, so it's obvious what's grabbable before you click.
+    const hoverH = highlightHandleAt(p);
+    if(hoverH){ els.overlay.style.cursor = hoverH.cursor; return; }
     els.overlay.style.cursor = pickAt(p) ? 'pointer' : 'default';
     return;
   }
@@ -4790,7 +4812,12 @@ els.overlay.addEventListener('mouseup',(e)=>{
   }
   if(state.tool==='select' && isDown){
     isDown = false;
-    if(state.vertexDrag){
+    if(state.hlResize){
+      const h = state.highlights.find(x=>x.id===state.hlResize.id);
+      if(h){ if(h.w<HIGHLIGHT_MIN_PX) h.w=HIGHLIGHT_MIN_PX; if(h.h<HIGHLIGHT_MIN_PX) h.h=HIGHLIGHT_MIN_PX; }  // never let it vanish
+      state.hlResize = null; markDirty();
+      els.overlay.style.cursor = 'default';
+    } else if(state.vertexDrag){
       recomputeItemRaw(state.vertexDrag.kind, state.vertexDrag.id);   // corner moved → update the quantity
       renderTakeoffList(); markDirty();
       state.vertexDrag = null;
@@ -4896,6 +4923,34 @@ function highlightAtPoint(p){
   for(let i=onPage.length-1;i>=0;i--){
     const h = onPage[i];
     if(p.x>=h.x && p.x<=h.x+h.w && p.y>=h.y && p.y<=h.y+h.h) return h;
+  }
+  return null;
+}
+// The 8 resize handles of a highlight box: {nx,ny} are 0..1 positions; l/r/t/b say which edges the
+// handle moves. Corners move two edges, edge-midpoints move one — so a highlight can be made bigger
+// or smaller from any side or corner (with the Select tool).
+const HL_HANDLES = [
+  {nx:0,ny:0,l:1,t:1},   {nx:0.5,ny:0,t:1},   {nx:1,ny:0,r:1,t:1},
+  {nx:0,ny:0.5,l:1},                          {nx:1,ny:0.5,r:1},
+  {nx:0,ny:1,l:1,b:1},   {nx:0.5,ny:1,b:1},   {nx:1,ny:1,r:1,b:1}
+];
+function highlightHandlePos(h, hd){ return {x:h.x+hd.nx*h.w, y:h.y+hd.ny*h.h}; }
+function resizeCursorFor(hd){
+  if((hd.l&&hd.t)||(hd.r&&hd.b)) return 'nwse-resize';
+  if((hd.r&&hd.t)||(hd.l&&hd.b)) return 'nesw-resize';
+  return (hd.l||hd.r) ? 'ew-resize' : 'ns-resize';
+}
+// Which resize handle (if any) of a SELECTED highlight is under the cursor.
+function highlightHandleAt(p){
+  const tol = 7/state.zoom;
+  const selIds = new Set(state.selection.filter(s=>s.kind==='highlight').map(s=>s.id));
+  const list = highlightsOnPage().filter(h=>selIds.has(h.id));
+  for(let i=list.length-1;i>=0;i--){
+    const h = list[i];
+    for(const hd of HL_HANDLES){
+      const hp = highlightHandlePos(h, hd);
+      if(Math.abs(p.x-hp.x)<=tol && Math.abs(p.y-hp.y)<=tol) return {id:h.id, l:!!hd.l, r:!!hd.r, t:!!hd.t, b:!!hd.b, cursor:resizeCursorFor(hd)};
+    }
   }
   return null;
 }

@@ -346,21 +346,42 @@
       .g-ed-deps label{display:flex;gap:6px;align-items:center;font-size:12.5px}
       .g-ed-foot{display:flex;align-items:center;gap:8px;padding:14px 16px;margin-top:12px;border-top:1px solid var(--paper-line)}
       .g-ed-del{color:#D6455C;border-color:#e3b9b9}
+      .g-viewtoggle{display:inline-flex;border:1px solid var(--paper-line);border-radius:6px;overflow:hidden}
+      .g-vbtn{border:none;background:var(--surface);color:var(--steel);font-size:12px;padding:5px 11px;cursor:pointer;font-family:inherit}
+      .g-vbtn+.g-vbtn{border-left:1px solid var(--paper-line)}
+      .g-vbtn.active{background:var(--orange);color:#fff}
+      .g-coloropt{display:inline-flex;align-items:center;gap:4px;margin-left:4px;font-size:12px;color:var(--steel)}
+      #gantt-list{margin-top:2px}
+      .sl-head{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--steel);margin:14px 0 4px;font-weight:700}
+      .sl-row{display:grid;grid-template-columns:auto minmax(0,1fr) 150px 132px auto;align-items:center;gap:10px;padding:8px 6px;border-top:1px solid var(--paper-line)}
+      .sl-row:hover{background:var(--surface-2)}
+      .sl-main{min-width:0}
+      .sl-name{font-size:13.5px;color:var(--charcoal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .sl-meta{display:flex;gap:6px;align-items:center;margin-top:2px}
+      .sl-dates{flex:0 0 150px;font-size:12.5px;color:var(--charcoal)}
+      .sl-status{flex:0 0 130px;display:flex;align-items:center;gap:6px}
+      .sl-badge{font-size:11px;padding:1px 8px;border-radius:9px;font-weight:600;white-space:nowrap}
+      @media(max-width:640px){ .sl-dates{flex-basis:96px} .sl-status{flex-basis:96px} }
     </style>
     <div class="block" id="gantt-block">
-      <h3>Schedule (Gantt)</h3>
-      <p class="g-hint">Plan the job on a timeline. Give each task a start and length, assign a sub or crew, and drag the bars to move or stretch them. Link a task to another (⛓) so it starts when that one finishes — move the first and the rest follow.</p>
+      <h3>Job Schedule</h3>
+      <p class="g-hint">Give each task a start and length and assign a sub or crew. Use the <b>Gantt</b> timeline to drag bars and link tasks, or the <b>Simple list</b> for a plain, date-sorted schedule — same tasks, your choice of view.</p>
       <div class="gantt-toolbar">
-        <button class="btn ghost" id="g-zoom-day">Day</button>
-        <button class="btn ghost" id="g-zoom-week">Week</button>
-        <label style="font-size:12px;color:var(--steel);display:flex;align-items:center;gap:4px;margin-left:4px">Color <select id="g-colorby" style="font-size:12px;padding:3px 5px;border:1px solid var(--paper-line);border-radius:4px;background:var(--surface);color:var(--charcoal)"><option value="trade">by trade</option><option value="assignee">by assignee</option></select></label>
+        <div class="g-viewtoggle">
+          <button class="g-vbtn" data-view="gantt">📊 Gantt</button>
+          <button class="g-vbtn" data-view="list">☰ Simple list</button>
+        </div>
+        <button class="btn ghost" id="g-zoom-day" data-gantt-only>Day</button>
+        <button class="btn ghost" id="g-zoom-week" data-gantt-only>Week</button>
+        <label data-gantt-only class="g-coloropt">Color <select id="g-colorby" style="font-size:12px;padding:3px 5px;border:1px solid var(--paper-line);border-radius:4px;background:var(--surface);color:var(--charcoal)"><option value="trade">by trade</option><option value="assignee">by assignee</option></select></label>
         <span style="flex:1"></span>
-        <button class="btn ghost" id="g-today-btn">Jump to today</button>
+        <button class="btn ghost" id="g-today-btn" data-gantt-only>Jump to today</button>
         <button class="btn ghost" id="g-addtask">＋ Add task</button>
       </div>
       <div id="gantt-empty" style="display:none">No tasks yet — add tasks in the checklist above (or “＋ Add task”), then set each one’s dates here.</div>
       <div class="gantt-scroll" id="gantt-scroll"><div class="gantt-grid" id="gantt-grid"></div></div>
       <div class="g-legend" id="g-legend"></div>
+      <div id="gantt-list" style="display:none"></div>
     </div>
 
     <div class="block">
@@ -916,7 +937,7 @@ function gScrollToToday(){
 async function gLoadPeople(){
   try{ const co=await getCompany(); G.team=(co&&co.team)||[]; }catch(e){}
   try{ const r=await apiFetch('/api/subs'); G.subs=(r&&r.subs)||[]; }catch(e){}
-  renderGantt();
+  renderSchedule();
 }
 // A small floating picker to choose which task(s) this one starts after.
 function gOpenDepPicker(id, anchorEl){
@@ -938,7 +959,7 @@ function gOpenDepPicker(id, anchorEl){
   pop.querySelector('[data-dep-done]').addEventListener('click', ()=>{
     t.dependsOn=Array.from(pop.querySelectorAll('input:checked')).map(i=>i.value);
     if(t.dependsOn.length && !t.start) t.start=gToday();
-    pop.remove(); gApplyDeps(); renderGantt(); renderTasks(); gSave();
+    pop.remove(); gApplyDeps(); renderSchedule(); renderTasks(); gSave();
   });
 }
 document.addEventListener('click', ()=>{ document.querySelectorAll('.g-dep-pop').forEach(p=>p.remove()); });
@@ -987,37 +1008,75 @@ function gOpenEditor(id){
     if(t.dependsOn.length && !t.start) t.start=gToday();
     q('days').disabled=t.milestone;
     const endEl=ov.querySelector('[data-ed-end]'); if(endEl) endEl.textContent=t.milestone?'milestone':(t.start?gFmt(gAddDays(t.start,gDays(t)-1)):'—');
-    gApplyDeps(); renderGantt(); renderTasks(); gSave();
+    gApplyDeps(); renderSchedule(); renderTasks(); gSave();
   }
   ov.querySelectorAll('[data-ef]').forEach(el=>{ el.addEventListener('change',apply); el.addEventListener('input',apply); });
   ov.querySelectorAll('[data-dep]').forEach(el=> el.addEventListener('change',apply));
   ov.querySelectorAll('[data-ed-close]').forEach(b=> b.addEventListener('click',gCloseEditor));
-  ov.querySelector('[data-ed-del]').addEventListener('click',()=>{ if(!confirm('Delete this task?'))return; doc.tasks=(doc.tasks||[]).filter(x=>x.id!==id); gCloseEditor(); gApplyDeps(); renderGantt(); renderTasks(); gSave(); });
+  ov.querySelector('[data-ed-del]').addEventListener('click',()=>{ if(!confirm('Delete this task?'))return; doc.tasks=(doc.tasks||[]).filter(x=>x.id!==id); gCloseEditor(); gApplyDeps(); renderSchedule(); renderTasks(); gSave(); });
 }
 
+// Switch between the Gantt timeline and a plain date-sorted list — same tasks, two views.
+function renderSchedule(){
+  const mode=(doc.scheduleView==='list')?'list':'gantt'; G.mode=mode;
+  const scroll=document.getElementById('gantt-scroll'), list=document.getElementById('gantt-list'),
+        legend=document.getElementById('g-legend'), empty=document.getElementById('gantt-empty');
+  document.querySelectorAll('#gantt-block [data-gantt-only]').forEach(el=> el.style.display = mode==='gantt' ? '' : 'none');
+  document.querySelectorAll('#gantt-block [data-view]').forEach(bn=> bn.classList.toggle('active', bn.getAttribute('data-view')===mode));
+  if(mode==='gantt'){ if(list)list.style.display='none'; if(scroll)scroll.style.display=''; if(legend)legend.style.display=''; renderGantt(); }
+  else { if(scroll)scroll.style.display='none'; if(legend)legend.style.display='none'; if(empty)empty.style.display='none'; if(list)list.style.display=''; renderScheduleList(); }
+}
+const G_STLABEL={todo:'Not started',doing:'In progress',blocked:'Blocked',done:'Done'};
+const G_STCOLOR={todo:'#8A94A6',doing:'#3B82C4',blocked:'#D6455C',done:'#4AA96C'};
+function renderScheduleList(){
+  const wrap=document.getElementById('gantt-list'); if(!wrap) return;
+  const tasks=doc.tasks||[];
+  if(!tasks.length){ wrap.innerHTML='<div style="color:var(--steel);font-size:13px;padding:12px 2px">No tasks yet — add one with “＋ Add task”.</div>'; return; }
+  const sched=tasks.filter(t=>t.start).slice().sort((a,b)=> a.start<b.start?-1:(a.start>b.start?1:0));
+  const unsched=tasks.filter(t=>!t.start);
+  const badge=t=>{ const st=gStatusOf(t); const pct=Math.max(0,Math.min(100,t.pct!==undefined?Number(t.pct):(t.done?100:0)));
+    return '<span class="sl-badge" style="background:'+G_STCOLOR[st]+'22;color:'+G_STCOLOR[st]+'">'+G_STLABEL[st]+'</span>'+((pct&&st!=='done')?' <span class="g-metatxt">'+pct+'%</span>':''); };
+  const meta=t=> (t.trade?'<span class="g-tradetag" style="background:'+gColorFor(t.trade)+'22;color:'+gColorFor(t.trade)+'">'+escapeHtml(t.trade)+'</span>':'')
+    +(t.assignee?'<span class="g-metatxt">'+escapeHtml(t.assignee)+'</span>':'<span class="g-metatxt" style="color:var(--steel)">unassigned</span>');
+  const dates=t=> t.milestone?('◆ '+gFmt(t.start)):(gFmt(t.start)+' – '+gFmt(gAddDays(t.start,gDays(t)-1)));
+  const schedRow=t=>'<div class="sl-row" data-slrow="'+t.id+'">'
+    +'<input type="checkbox" data-gdone="'+t.id+'" '+(t.done?'checked':'')+' title="Done"/>'
+    +'<div class="sl-main"><div class="sl-name">'+(t.milestone?'◆ ':'')+escapeHtml(t.text||'(untitled)')+'</div><div class="sl-meta">'+meta(t)+'</div></div>'
+    +'<div class="sl-dates">'+dates(t)+'</div><div class="sl-status">'+badge(t)+'</div>'
+    +'<button class="g-edit" data-gedit="'+t.id+'" title="Task details">✎</button></div>';
+  const unschedRow=t=>'<div class="sl-row" data-slrow="'+t.id+'">'
+    +'<input type="checkbox" data-gdone="'+t.id+'" '+(t.done?'checked':'')+'/>'
+    +'<div class="sl-main"><div class="sl-name">'+escapeHtml(t.text||'(untitled)')+'</div></div>'
+    +'<div class="sl-dates"><button class="g-add" data-schedule="'+t.id+'" style="position:static">＋ set dates</button></div>'
+    +'<div class="sl-status"></div><button class="g-edit" data-gedit="'+t.id+'" title="Task details">✎</button></div>';
+  wrap.innerHTML = sched.map(schedRow).join('') + (unsched.length?('<div class="sl-head">Unscheduled</div>'+unsched.map(unschedRow).join('')):'');
+}
 (function wireGantt(){
   const grid=document.getElementById('gantt-grid'); if(!grid) return;
+  const block=document.getElementById('gantt-block');
   const dayBtn=document.getElementById('g-zoom-day'), wkBtn=document.getElementById('g-zoom-week');
   dayBtn && dayBtn.addEventListener('click', ()=>{ G.view='day'; G.dayW=28; renderGantt(); });
   wkBtn && wkBtn.addEventListener('click', ()=>{ G.view='week'; G.dayW=12; renderGantt(); });
   const todayBtn=document.getElementById('g-today-btn'); todayBtn && todayBtn.addEventListener('click', gScrollToToday);
   const cb=document.getElementById('g-colorby'); cb && cb.addEventListener('change', ()=>{ G.colorBy=cb.value; renderGantt(); });
+  // Gantt ⇄ Simple list toggle (remembered per job in doc.scheduleView).
+  block.querySelectorAll('[data-view]').forEach(bn=> bn.addEventListener('click', ()=>{ doc.scheduleView=bn.getAttribute('data-view'); renderSchedule(); gSave(); }));
   const addBtn=document.getElementById('g-addtask'); addBtn && addBtn.addEventListener('click', ()=>{
     doc.tasks=doc.tasks||[]; doc.tasks.push({ id:'tk_'+Math.random().toString(16).slice(2,8), text:'New task', done:false, start:gToday(), days:2 });
-    renderGantt(); renderTasks(); gSave();
+    renderSchedule(); renderTasks(); gSave();
   });
-  // clicks: schedule / dep / done
-  grid.addEventListener('click', e=>{
+  // clicks work in BOTH views (delegated on the whole section): schedule / dep / done / edit.
+  block.addEventListener('click', e=>{
     const sch=e.target.closest('[data-schedule]');
-    if(sch){ const t=(doc.tasks||[]).find(x=>x.id===sch.getAttribute('data-schedule')); if(t){ t.start=gToday(); t.days=t.days||3; renderGantt(); gSave(); } return; }
+    if(sch){ const t=(doc.tasks||[]).find(x=>x.id===sch.getAttribute('data-schedule')); if(t){ t.start=gToday(); t.days=t.days||3; renderSchedule(); gSave(); } return; }
     const dep=e.target.closest('[data-gdep]');
     if(dep){ e.stopPropagation(); gOpenDepPicker(dep.getAttribute('data-gdep'), dep); return; }
     const ed=e.target.closest('[data-gedit]');
     if(ed){ gOpenEditor(ed.getAttribute('data-gedit')); return; }
   });
-  grid.addEventListener('change', e=>{
+  block.addEventListener('change', e=>{
     const dn=e.target.closest('[data-gdone]');
-    if(dn){ const t=(doc.tasks||[]).find(x=>x.id===dn.getAttribute('data-gdone')); if(t){ t.done=dn.checked; renderGantt(); renderTasks(); gSave(); } return; }
+    if(dn){ const t=(doc.tasks||[]).find(x=>x.id===dn.getAttribute('data-gdone')); if(t){ t.done=dn.checked; t.status=dn.checked?'done':(t.status==='done'?'todo':t.status); renderSchedule(); renderTasks(); gSave(); } return; }
     const as=e.target.closest('[data-gassign]');
     if(as){ const t=(doc.tasks||[]).find(x=>x.id===as.getAttribute('data-gassign')); if(t){ t.assignee=as.value; t.color=gColorFor(as.value); renderGantt(); gSave(); } return; }
   });
@@ -1172,7 +1231,7 @@ const SECTION_DEFS = [
   ['changeorders','Change orders'],
   ['draws','Progress billing (draws)'],
   ['tasks','Task checklist'],
-  ['gantt','Schedule (Gantt)'],
+  ['gantt','Job Schedule'],
   ['punch','Punch list'],
   ['dailylogs','Daily logs'],
   ['selections','Customer selections & allowances'],
@@ -2069,7 +2128,7 @@ async function init(){
     // No financial access → hide costing/dashboard/change-order/draws sections (server also blocks the data).
     if(hideFin){ document.querySelectorAll('.fin-hide').forEach(el=>el.style.display='none'); }
     setupSectionToggles();
-    renderTasks(); renderGantt();
+    renderTasks(); renderSchedule();
     if(isField){ const tr=document.getElementById('tmpl-row'); if(tr) tr.style.display='none'; }
     else {
       if(!hideFin) refreshDash();

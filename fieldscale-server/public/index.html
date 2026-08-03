@@ -1595,6 +1595,7 @@ async function indexDocument(){
   const searchInput = document.getElementById('doc-search-input');
   for(let p=1; p<=state.numPages; p++){
     statusEl.textContent = `Indexing sheet ${p} of ${state.numPages}…`;
+    if(window.SheetProgress) SheetProgress.set('indexing','Reading sheet', p, state.numPages);
     try{
       const page = await state.pdfDoc.getPage(p);
       const viewport = page.getViewport({scale: state.renderScale});
@@ -1640,6 +1641,7 @@ async function indexDocument(){
     }
   }
   state.indexing = false;
+  if(window.SheetProgress) SheetProgress.done('indexing');
   statusEl.textContent = `Indexed ${state.numPages} sheet${state.numPages===1?'':'s'}. Ready to search.`;
   searchInput.disabled = false;
   if(typeof updateSheetSearchReady==='function') updateSheetSearchReady();
@@ -3378,9 +3380,18 @@ function renderPagesList(){
 // the sheet list shows meaningful names instead of just "Page 1, Page 2…". Works
 // even on drawings with no embedded text, since it reads the image directly.
 let _nameResumeTimer = null;
+function _needsNaming(p){
+  if(isHidden(p)) return false;
+  return !(state.pageNames[p] && (state.pageNames[p].number || state.pageNames[p].name));
+}
 async function namePagesWithAI(){
   if(state._naming) return;               // never run two naming passes at once
   state._naming = true;
+  // Count how many sheets we'll actually name so the top progress bar can show X of N.
+  let _nameTotal = 0;
+  for(let p=1; p<=state.numPages; p++){ if(_needsNaming(p)) _nameTotal++; }
+  let _nameDone = 0;
+  if(window.SheetProgress && _nameTotal>0) SheetProgress.set('naming','Naming sheet', 0, _nameTotal);
   try{
     for(let p=1; p<=state.numPages; p++){
       if(isHidden(p)) continue;                       // don't pay to name sheets you excluded
@@ -3421,10 +3432,13 @@ async function namePagesWithAI(){
         }
         state.pageNames[p] = {name:'', number:'', error: err.message};
       }
+      _nameDone++;
+      if(window.SheetProgress) SheetProgress.set('naming','Naming sheet', _nameDone, _nameTotal);
       renderPagesList(); // update progressively, sheet by sheet
     }
   } finally {
     state._naming = false;
+    if(window.SheetProgress) SheetProgress.done('naming');
   }
 }
 
@@ -8427,6 +8441,58 @@ document.getElementById('exportset-run').addEventListener('click', ()=>{
     }catch(err){ status('Compare failed: '+(err.message||err)); }
   });
   document.querySelectorAll('#cmp-view-btns [data-cmpview]').forEach(b=> b.addEventListener('click', ()=>showView(b.dataset.cmpview)));
+})();
+</script>
+
+<!-- ============ TOP PROGRESS BAR (sheet reading + naming) ============ -->
+<script>
+(function(){
+  var css = ''
+    + '#sheet-progress{position:fixed;top:0;left:0;right:0;height:3px;background:rgba(18,49,76,.10);'
+    + 'z-index:99997;opacity:0;transition:opacity .3s;pointer-events:none}'
+    + '#sheet-progress.on{opacity:1}'
+    + '#sheet-progress .fill{height:100%;width:0;background:#E8833A;transition:width .35s ease;box-shadow:0 0 7px rgba(232,131,58,.65)}'
+    + '#sheet-progress .lbl{position:absolute;top:5px;right:14px;background:#12314c;color:#fff;font-size:11px;'
+    + "font-family:'IBM Plex Sans',system-ui,sans-serif;padding:3px 11px;border-radius:0 0 7px 7px;white-space:nowrap;"
+    + 'box-shadow:0 3px 10px rgba(0,0,0,.22)}';
+  var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+
+  var bar, fill, lbl, tasks = {}, hideTimer = null;
+  // When two jobs run at once (reading + naming), show whichever matters more to the user first.
+  var PRIORITY = ['naming', 'indexing'];
+  function ensure(){
+    if(bar) return;
+    bar = document.createElement('div'); bar.id = 'sheet-progress';
+    fill = document.createElement('div'); fill.className = 'fill';
+    lbl = document.createElement('div'); lbl.className = 'lbl';
+    bar.appendChild(fill); bar.appendChild(lbl);
+    (document.body || document.documentElement).appendChild(bar);
+  }
+  function paint(){
+    var id = PRIORITY.filter(function(k){ return tasks[k]; })[0];
+    if(!id) return;
+    var t = tasks[id];
+    var pct = t.total ? Math.max(3, Math.round(t.cur / t.total * 100)) : 3;
+    fill.style.width = pct + '%';
+    lbl.textContent = t.label + ' ' + t.cur + ' of ' + t.total + '…';
+    bar.classList.add('on');
+  }
+  window.SheetProgress = {
+    set: function(id, label, cur, total){
+      if(!total || total < 1) return;
+      ensure(); if(hideTimer){ clearTimeout(hideTimer); hideTimer = null; }
+      tasks[id] = { label: label, cur: cur, total: total }; paint();
+    },
+    done: function(id){
+      if(!bar){ return; } delete tasks[id];
+      if(PRIORITY.some(function(k){ return tasks[k]; })){ paint(); return; }
+      // Nothing left running — flash "ready", then fade out.
+      fill.style.width = '100%'; lbl.textContent = 'Sheets ready';
+      hideTimer = setTimeout(function(){
+        if(!PRIORITY.some(function(k){ return tasks[k]; })){ bar.classList.remove('on'); fill.style.width = '0'; }
+      }, 1300);
+    }
+  };
 })();
 </script>
 

@@ -1608,15 +1608,21 @@ async function indexDocument(){
       const textContent = await page.getTextContent();
       const items = textContent.items.map(item=>{
         if(!item.str || !item.str.trim()) return null;
-        const x0 = item.transform[4], y0 = item.transform[5];
-        const w = item.width || 1;
-        const h = item.height || Math.hypot(item.transform[2], item.transform[3]) || 8;
-        const p1 = viewport.convertToViewportPoint(x0, y0);
-        const p2 = viewport.convertToViewportPoint(x0+w, y0+h);
+        // Build the glyph run's box from its FOUR corners in device space, so it covers text at any
+        // angle. The old x0+w / y0+h shortcut assumed horizontal text and missed rotated CAD labels
+        // (e.g. a leader note turned 30° or 90°) — the highlight landed near the word but not on it.
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        const angle = Math.atan2(tx[1], tx[0]);
+        const fh = Math.hypot(tx[2], tx[3]) || 8;         // font height in device px
+        const wd = (item.width || 1) * viewport.scale;    // run width in device px
+        const ca = Math.cos(angle), sa = Math.sin(angle), ox = tx[4], oy = tx[5];
+        const xs = [ox, ox+ca*wd, ox+ca*wd+sa*fh, ox+sa*fh];
+        const ys = [oy, oy+sa*wd, oy+sa*wd-ca*fh, oy-ca*fh];
+        const xMin = Math.min(...xs), yMin = Math.min(...ys);
         return {
           str: item.str,
-          x: Math.min(p1[0], p2[0]), y: Math.min(p1[1], p2[1]),
-          width: Math.abs(p2[0]-p1[0]), height: Math.abs(p2[1]-p1[1])
+          x: xMin, y: yMin,
+          width: Math.max(...xs)-xMin, height: Math.max(...ys)-yMin
         };
       }).filter(Boolean);
 

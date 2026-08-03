@@ -287,15 +287,15 @@
       .gantt-scroll{overflow-x:auto;overflow-y:hidden;border:1px solid var(--paper-line);border-radius:6px;background:var(--surface)}
       .gantt-grid{position:relative;min-width:100%}
       .g-header{display:flex;position:sticky;top:0;z-index:4;background:var(--paper);border-bottom:1px solid var(--paper-line)}
-      .g-corner{position:sticky;left:0;z-index:5;background:var(--paper);flex:0 0 300px;box-sizing:border-box;padding:6px 10px;font-size:11px;font-weight:600;color:var(--heading);border-right:1px solid var(--paper-line);display:flex;align-items:flex-end}
+      .g-corner{position:sticky;left:0;z-index:5;background:var(--paper);flex:0 0 330px;box-sizing:border-box;padding:6px 10px;font-size:11px;font-weight:600;color:var(--heading);border-right:1px solid var(--paper-line);display:flex;align-items:flex-end}
       .g-headdays{position:relative;height:38px}
       .g-tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--paper-line);font-size:9.5px;color:var(--steel);padding:2px 0 0 3px;box-sizing:border-box;white-space:nowrap;overflow:hidden}
       .g-tick.month{font-weight:700;color:var(--heading)}
       .g-tick.wend{background:rgba(120,130,140,.06)}
       .g-row{display:flex;align-items:stretch;border-top:1px solid var(--paper-line)}
       .g-row:hover .g-left{background:var(--surface-2)}
-      .g-left{position:sticky;left:0;z-index:3;background:var(--surface);flex:0 0 300px;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding:5px 8px;border-right:1px solid var(--paper-line)}
-      .g-left .g-name{flex:1;border:1px solid transparent;background:transparent;font-size:12.5px;color:var(--charcoal);min-width:0;padding:2px 4px;border-radius:3px}
+      .g-left{position:sticky;left:0;z-index:3;background:var(--surface);flex:0 0 330px;box-sizing:border-box;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px;padding:5px 8px;border-right:1px solid var(--paper-line)}
+      .g-left .g-name{width:100%;box-sizing:border-box;border:1px solid transparent;background:transparent;font-size:12.5px;color:var(--charcoal);min-width:0;padding:2px 4px;border-radius:3px}
       .g-left .g-name:hover,.g-left .g-name:focus{border-color:var(--paper-line);background:var(--paper);outline:none}
       .g-left .g-assignee{font-size:11px;border:1px solid var(--paper-line);border-radius:4px;padding:2px 4px;max-width:104px;background:var(--surface);color:var(--charcoal)}
       .g-dep{font-size:12px;border:none;background:none;cursor:pointer;color:var(--steel);padding:2px}
@@ -313,6 +313,30 @@
       .g-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--steel)}
       .g-legend span{display:inline-flex;align-items:center;gap:4px}
       .g-legend i{width:11px;height:11px;border-radius:2px;display:inline-block}
+      .g-namecol{flex:1 1 0;min-width:0;overflow:hidden;display:flex;flex-direction:column;gap:1px}
+      .g-meta{display:flex;gap:5px;align-items:center;flex-wrap:nowrap;overflow:hidden;width:100%;box-sizing:border-box;font-size:10.5px;line-height:1.3}
+      .g-tradetag{font-size:9.5px;padding:0 5px;border-radius:8px;white-space:nowrap;font-weight:600}
+      .g-metatxt{color:var(--steel);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .g-edit{border:none;background:none;cursor:pointer;color:var(--steel);font-size:13px;padding:2px 3px;flex:0 0 auto}
+      .g-edit:hover{color:var(--orange)}
+      .g-bar.blocked{outline:2px solid #D6455C;outline-offset:-2px}
+      .g-ms{position:absolute;top:12px;width:18px;height:18px;transform:rotate(45deg);border-radius:3px;cursor:grab;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+      .g-mslabel{position:absolute;top:12px;font-size:11px;color:var(--charcoal);white-space:nowrap;pointer-events:none}
+      .g-editor{background:var(--surface);border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.35);width:min(520px,96vw);max-height:90vh;overflow:auto;padding:0}
+      .g-ed-hd{display:flex;align-items:center;font-weight:700;color:var(--heading);font-size:15px;padding:14px 16px;border-bottom:1px solid var(--paper-line);position:sticky;top:0;background:var(--surface)}
+      .g-ed-x{margin-left:auto;border:none;background:none;font-size:16px;color:var(--steel);cursor:pointer}
+      .g-editor .g-ed-l{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--steel);margin:12px 16px 3px}
+      .g-editor .g-ed-i{display:block;width:calc(100% - 32px);margin:0 16px;padding:7px 9px;border:1px solid var(--paper-line);border-radius:5px;background:var(--surface);color:var(--charcoal);font-size:13px;box-sizing:border-box}
+      .g-ed-row{display:flex;gap:10px;align-items:flex-end}
+      .g-ed-row > div{margin:0}.g-ed-row .g-ed-i{width:auto;margin:0}
+      .g-ed-row{padding:0 16px;margin-top:0}
+      .g-ed-row > div .g-ed-l{margin-left:0;margin-right:0}
+      .g-ed-end{font-size:13px;color:var(--charcoal);padding:7px 0;white-space:nowrap}
+      .g-ed-ms{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--charcoal);white-space:nowrap;padding-bottom:7px}
+      .g-ed-deps{display:flex;flex-direction:column;gap:2px;margin:0 16px;max-height:110px;overflow:auto;border:1px solid var(--paper-line);border-radius:5px;padding:6px 8px}
+      .g-ed-deps label{display:flex;gap:6px;align-items:center;font-size:12.5px}
+      .g-ed-foot{display:flex;align-items:center;gap:8px;padding:14px 16px;margin-top:12px;border-top:1px solid var(--paper-line)}
+      .g-ed-del{color:#D6455C;border-color:#e3b9b9}
     </style>
     <div class="block" id="gantt-block">
       <h3>Schedule (Gantt)</h3>
@@ -320,6 +344,7 @@
       <div class="gantt-toolbar">
         <button class="btn ghost" id="g-zoom-day">Day</button>
         <button class="btn ghost" id="g-zoom-week">Week</button>
+        <label style="font-size:12px;color:var(--steel);display:flex;align-items:center;gap:4px;margin-left:4px">Color <select id="g-colorby" style="font-size:12px;padding:3px 5px;border:1px solid var(--paper-line);border-radius:4px;background:var(--surface);color:var(--charcoal)"><option value="trade">by trade</option><option value="assignee">by assignee</option></select></label>
         <span style="flex:1"></span>
         <button class="btn ghost" id="g-today-btn">Jump to today</button>
         <button class="btn ghost" id="g-addtask">＋ Add task</button>
@@ -737,15 +762,20 @@ document.getElementById('save-tmpl').addEventListener('click', async ()=>{
 });
 
 // ===================== Schedule (Gantt) =====================
-const G = { dayW:28, view:'day', subs:[], team:[], saveT:null, drag:null };
-const G_ROWH=36, G_LEFT=300, G_HEADH=38, G_PAL=['#3B82C4','#4AA96C','#E8833A','#B05CD6','#D6455C','#2FA6A0','#C9922B','#6A7BD6'];
+const G = { dayW:28, view:'day', subs:[], team:[], saveT:null, drag:null, colorBy:'trade' };
+const G_ROWH=46, G_LEFT=330, G_HEADH=38, G_PAL=['#3B82C4','#4AA96C','#E8833A','#B05CD6','#D6455C','#2FA6A0','#C9922B','#6A7BD6','#7A8B99','#A0552E'];
+const G_TRADES=['General / Site','Demolition','Excavation / Earthwork','Concrete / Foundation','Masonry','Framing / Carpentry','Roofing','Siding / Exterior','Windows & Doors','Insulation','Drywall','Plumbing','Electrical','HVAC / Mechanical','Flooring','Painting','Tile','Cabinets / Millwork','Countertops','Landscaping','Final Clean','Inspection','Punch / Closeout','Other'];
+const G_STATUS=[['todo','Not started'],['doing','In progress'],['blocked','Blocked'],['done','Done']];
+function gStatusOf(t){ return t.status || (t.done ? 'done' : 'todo'); }
+function gColorKey(t){ return G.colorBy==='assignee' ? (t.assignee||'') : (t.trade||''); }
+function gBarColor(t){ const k=gColorKey(t); return k ? gColorFor(k) : '#9AA6B4'; }
 function gISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function gToday(){ return gISO(new Date()); }
 function gParse(s){ if(!s) return null; const a=s.split('-').map(Number); return new Date(a[0],(a[1]||1)-1,a[2]||1,12,0,0); }
 function gAddDays(s,n){ const d=gParse(s)||new Date(); d.setDate(d.getDate()+n); return gISO(d); }
 function gDiff(a,b){ return Math.round((gParse(b)-gParse(a))/86400000); }
 function gDays(t){ return Math.max(1, Number(t.days)||1); }
-function gTaskEnd(t){ return gAddDays(t.start, gDays(t)); }      // exclusive: first free day after the task
+function gTaskEnd(t){ return t.milestone ? t.start : gAddDays(t.start, gDays(t)); } // exclusive: first free day after the task
 function gScheduled(){ return (doc.tasks||[]).filter(t=>t.start); }
 function gColorFor(name){ if(!name) return '#9AA6B4'; let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))>>>0; return G_PAL[h%G_PAL.length]; }
 function gAssigneeOptions(){
@@ -804,9 +834,11 @@ function gBuildDepSvg(tasks,min,dw,tlW){
 }
 function renderLegend(){
   const el=document.getElementById('g-legend'); if(!el) return;
-  const names=new Set(); gScheduled().forEach(t=>{ if(t.assignee) names.add(t.assignee); });
-  el.innerHTML = Array.from(names).map(n=>'<span><i style="background:'+gColorFor(n)+'"></i>'+escapeHtml(n)+'</span>').join('')
-    + (gScheduled().some(t=>!t.assignee)?'<span><i style="background:#9AA6B4"></i>Unassigned</span>':'');
+  const keys=new Set(); let anyBlank=false;
+  gScheduled().forEach(t=>{ const k=gColorKey(t); if(k) keys.add(k); else anyBlank=true; });
+  const blankLabel = G.colorBy==='assignee' ? 'Unassigned' : 'No trade';
+  el.innerHTML = Array.from(keys).map(n=>'<span><i style="background:'+gColorFor(n)+'"></i>'+escapeHtml(n)+'</span>').join('')
+    + (anyBlank?'<span><i style="background:#9AA6B4"></i>'+blankLabel+'</span>':'');
 }
 function renderGantt(){
   const grid=document.getElementById('gantt-grid'); if(!grid) return;
@@ -823,28 +855,41 @@ function renderGantt(){
     head+='<div class="g-tick'+(isMonth?' month':'')+((dow===0||dow===6)?' wend':'')+'" style="left:'+(i*dw)+'px;width:'+dw+'px">'+label+'</div>';
   }
   head+='</div></div>';
-  const opts=gAssigneeOptions();
   let rows='';
   tasks.forEach(t=>{
-    const optHtml='<option value="">— assign —</option>'+opts.map(n=>'<option'+(t.assignee===n?' selected':'')+'>'+escapeHtml(n)+'</option>').join('');
+    const pct=Math.max(0,Math.min(100, t.pct!==undefined?Number(t.pct):(t.done?100:0)));
+    const st=gStatusOf(t);
     let bar='';
     if(t.start){
-      const left=gDiff(min,t.start)*dw, w=Math.max(dw-2, gDays(t)*dw-2), col=t.color||gColorFor(t.assignee);
-      const pct=Math.max(0,Math.min(100, t.pct!==undefined?Number(t.pct):(t.done?100:0)));
+      const left=gDiff(min,t.start)*dw, col=gBarColor(t);
       const hasDeps=Array.isArray(t.dependsOn)&&t.dependsOn.length;
-      bar='<div class="g-bar'+(hasDeps?' deps':'')+'" data-bar="'+t.id+'" title="'+escapeHtml(t.text||'')+' — drag to move, drag the right edge to change length" style="left:'+left+'px;width:'+w+'px;background:'+col+'">'
-        +'<div class="g-fill" style="width:'+pct+'%"></div><span class="g-blabel">'+escapeHtml(t.text||'')+(pct?(' · '+pct+'%'):'')+'</span>'
-        +'<div class="g-handle" data-resize="'+t.id+'"></div></div>';
+      if(t.milestone){
+        bar='<div class="g-ms" data-bar="'+t.id+'" title="'+escapeHtml(t.text||'')+' (milestone) — drag to move" style="left:'+(left-9)+'px;background:'+col+'"></div>'
+          +'<span class="g-mslabel" style="left:'+(left+12)+'px">'+escapeHtml(t.text||'')+'</span>';
+      } else {
+        const w=Math.max(dw-2, gDays(t)*dw-2);
+        bar='<div class="g-bar'+(hasDeps?' deps':'')+(st==='blocked'?' blocked':'')+'" data-bar="'+t.id+'" title="'+escapeHtml(t.text||'')+' — drag to move, drag the right edge to change length. Click for details." style="left:'+left+'px;width:'+w+'px;background:'+col+'">'
+          +'<div class="g-fill" style="width:'+pct+'%"></div><span class="g-blabel">'+escapeHtml(t.text||'')+(pct?(' · '+pct+'%'):'')+'</span>'
+          +'<div class="g-handle" data-resize="'+t.id+'"></div></div>';
+      }
     } else {
       const left=Math.max(2, gDiff(min,gToday())*dw);
       bar='<button class="g-add" data-schedule="'+t.id+'" style="left:'+left+'px">＋ schedule</button>';
     }
+    // Left column: name + a meta line (trade · assignee · dates) + a details button.
+    const metaBits=[];
+    if(t.trade) metaBits.push('<span class="g-tradetag" style="background:'+gColorFor(t.trade)+'22;color:'+gColorFor(t.trade)+'">'+escapeHtml(t.trade)+'</span>');
+    if(t.assignee) metaBits.push('<span class="g-metatxt">'+escapeHtml(t.assignee)+'</span>');
+    if(t.start) metaBits.push('<span class="g-metatxt">'+gFmt(t.start)+(t.milestone?'':(' – '+gFmt(gAddDays(t.start,gDays(t)-1))))+'</span>');
+    else metaBits.push('<span class="g-metatxt" style="color:var(--steel)">unscheduled</span>');
     rows+='<div class="g-row" data-row="'+t.id+'">'
       +'<div class="g-left">'
-        +'<input type="checkbox" data-gdone="'+t.id+'" '+(t.done?'checked':'')+' title="Done"/>'
-        +'<input class="g-name" data-gname="'+t.id+'" value="'+escapeHtml(t.text||'')+'"/>'
-        +'<button class="g-dep'+((t.dependsOn&&t.dependsOn.length)?' on':'')+'" data-gdep="'+t.id+'" title="Starts after another task">⛓</button>'
-        +'<select class="g-assignee" data-gassign="'+t.id+'">'+optHtml+'</select>'
+        +'<input type="checkbox" data-gdone="'+t.id+'" '+(t.done?'checked':'')+' title="Mark done"/>'
+        +'<div class="g-namecol">'
+          +'<input class="g-name" data-gname="'+t.id+'" value="'+escapeHtml(t.text||'')+'" placeholder="Task name"/>'
+          +'<div class="g-meta">'+(metaBits.join('')||'')+'</div>'
+        +'</div>'
+        +'<button class="g-edit" data-gedit="'+t.id+'" title="Task details">✎</button>'
       +'</div>'
       +'<div class="g-timeline" data-tl="'+t.id+'" style="width:'+tlW+'px;flex:0 0 '+tlW+'px">'+bar+'</div>'
     +'</div>';
@@ -888,6 +933,58 @@ function gOpenDepPicker(id, anchorEl){
   });
 }
 document.addEventListener('click', ()=>{ document.querySelectorAll('.g-dep-pop').forEach(p=>p.remove()); });
+function gFmt(s){ const d=gParse(s); return d? d.toLocaleString(undefined,{month:'short',day:'numeric'}) : ''; }
+function gCloseEditor(){ document.querySelectorAll('.g-editor-ov').forEach(p=>p.remove()); }
+// The full task-detail editor — trade, assignee, dates, duration, %, status, milestone, deps, notes.
+function gOpenEditor(id){
+  gCloseEditor();
+  const t=(doc.tasks||[]).find(x=>x.id===id); if(!t) return;
+  const ov=document.createElement('div'); ov.className='g-editor-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:60;background:rgba(15,20,26,.42);display:flex;align-items:center;justify-content:center;padding:16px';
+  const bad=gDescendants(id); bad.add(id);
+  const depCands=(doc.tasks||[]).filter(x=>!bad.has(x.id));
+  const cur=new Set(t.dependsOn||[]);
+  const assignOpts='<option value="">— unassigned —</option>'+gAssigneeOptions().map(n=>'<option'+(t.assignee===n?' selected':'')+'>'+escapeHtml(n)+'</option>').join('');
+  const tradeOpts='<option value="">— trade —</option>'+G_TRADES.map(n=>'<option'+(t.trade===n?' selected':'')+'>'+escapeHtml(n)+'</option>').join('');
+  const statusOpts=G_STATUS.map(a=>'<option value="'+a[0]+'"'+(gStatusOf(t)===a[0]?' selected':'')+'>'+a[1]+'</option>').join('');
+  const pct=Math.max(0,Math.min(100,t.pct!==undefined?Number(t.pct):(t.done?100:0)));
+  ov.innerHTML='<div class="g-editor" onclick="event.stopPropagation()">'
+    +'<div class="g-ed-hd">Task details<button class="g-ed-x" data-ed-close>✕</button></div>'
+    +'<label class="g-ed-l">Task</label><input class="g-ed-i" data-ef="text" value="'+escapeHtml(t.text||'')+'"/>'
+    +'<div class="g-ed-row"><div style="flex:1"><label class="g-ed-l">Trade</label><select class="g-ed-i" data-ef="trade">'+tradeOpts+'</select></div>'
+      +'<div style="flex:1"><label class="g-ed-l">Assigned to</label><select class="g-ed-i" data-ef="assignee">'+assignOpts+'</select></div></div>'
+    +'<div class="g-ed-row"><div><label class="g-ed-l">Start</label><input type="date" class="g-ed-i" data-ef="start" value="'+(t.start||'')+'"/></div>'
+      +'<div style="width:84px"><label class="g-ed-l">Days</label><input type="number" min="1" class="g-ed-i" data-ef="days" value="'+gDays(t)+'"'+(t.milestone?' disabled':'')+'/></div>'
+      +'<div><label class="g-ed-l">Ends</label><div class="g-ed-end" data-ed-end>'+(t.start&&!t.milestone?gFmt(gAddDays(t.start,gDays(t)-1)):(t.milestone?'milestone':'—'))+'</div></div></div>'
+    +'<div class="g-ed-row"><div style="flex:1"><label class="g-ed-l">Status</label><select class="g-ed-i" data-ef="status">'+statusOpts+'</select></div>'
+      +'<div style="width:96px"><label class="g-ed-l">% done</label><input type="number" min="0" max="100" class="g-ed-i" data-ef="pct" value="'+pct+'"/></div>'
+      +'<label class="g-ed-ms"><input type="checkbox" data-ef="milestone" '+(t.milestone?'checked':'')+'/> Milestone</label></div>'
+    +'<label class="g-ed-l">Starts after (dependencies)</label><div class="g-ed-deps">'
+      +(depCands.length?depCands.map(c=>'<label><input type="checkbox" data-dep="'+c.id+'" '+(cur.has(c.id)?'checked':'')+'/> '+escapeHtml(c.text||'(untitled)')+'</label>').join(''):'<span style="color:var(--steel);font-size:12px">No other tasks to link to.</span>')+'</div>'
+    +'<label class="g-ed-l">Notes</label><textarea class="g-ed-i" data-ef="notes" rows="2">'+escapeHtml(t.notes||'')+'</textarea>'
+    +'<div class="g-ed-foot"><button class="btn ghost g-ed-del" data-ed-del>Delete task</button><span style="flex:1"></span><button class="btn" data-ed-close>Done</button></div>'
+  +'</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', gCloseEditor);
+  const q=s=>ov.querySelector('[data-ef="'+s+'"]');
+  function apply(){
+    t.text=q('text').value; t.trade=q('trade').value; t.assignee=q('assignee').value;
+    t.milestone=q('milestone').checked;
+    t.start=q('start').value||''; t.days=Math.max(1,parseInt(q('days').value)||1);
+    const stv=q('status').value; t.status=stv; t.done=(stv==='done');
+    t.pct=(stv==='done')?100:Math.max(0,Math.min(100,parseInt(q('pct').value)||0));
+    t.notes=q('notes').value;
+    t.dependsOn=Array.from(ov.querySelectorAll('[data-dep]:checked')).map(i=>i.getAttribute('data-dep'));
+    if(t.dependsOn.length && !t.start) t.start=gToday();
+    q('days').disabled=t.milestone;
+    const endEl=ov.querySelector('[data-ed-end]'); if(endEl) endEl.textContent=t.milestone?'milestone':(t.start?gFmt(gAddDays(t.start,gDays(t)-1)):'—');
+    gApplyDeps(); renderGantt(); renderTasks(); gSave();
+  }
+  ov.querySelectorAll('[data-ef]').forEach(el=>{ el.addEventListener('change',apply); el.addEventListener('input',apply); });
+  ov.querySelectorAll('[data-dep]').forEach(el=> el.addEventListener('change',apply));
+  ov.querySelectorAll('[data-ed-close]').forEach(b=> b.addEventListener('click',gCloseEditor));
+  ov.querySelector('[data-ed-del]').addEventListener('click',()=>{ if(!confirm('Delete this task?'))return; doc.tasks=(doc.tasks||[]).filter(x=>x.id!==id); gCloseEditor(); gApplyDeps(); renderGantt(); renderTasks(); gSave(); });
+}
 
 (function wireGantt(){
   const grid=document.getElementById('gantt-grid'); if(!grid) return;
@@ -895,6 +992,7 @@ document.addEventListener('click', ()=>{ document.querySelectorAll('.g-dep-pop')
   dayBtn && dayBtn.addEventListener('click', ()=>{ G.view='day'; G.dayW=28; renderGantt(); });
   wkBtn && wkBtn.addEventListener('click', ()=>{ G.view='week'; G.dayW=12; renderGantt(); });
   const todayBtn=document.getElementById('g-today-btn'); todayBtn && todayBtn.addEventListener('click', gScrollToToday);
+  const cb=document.getElementById('g-colorby'); cb && cb.addEventListener('change', ()=>{ G.colorBy=cb.value; renderGantt(); });
   const addBtn=document.getElementById('g-addtask'); addBtn && addBtn.addEventListener('click', ()=>{
     doc.tasks=doc.tasks||[]; doc.tasks.push({ id:'tk_'+Math.random().toString(16).slice(2,8), text:'New task', done:false, start:gToday(), days:2 });
     renderGantt(); renderTasks(); gSave();
@@ -905,6 +1003,8 @@ document.addEventListener('click', ()=>{ document.querySelectorAll('.g-dep-pop')
     if(sch){ const t=(doc.tasks||[]).find(x=>x.id===sch.getAttribute('data-schedule')); if(t){ t.start=gToday(); t.days=t.days||3; renderGantt(); gSave(); } return; }
     const dep=e.target.closest('[data-gdep]');
     if(dep){ e.stopPropagation(); gOpenDepPicker(dep.getAttribute('data-gdep'), dep); return; }
+    const ed=e.target.closest('[data-gedit]');
+    if(ed){ gOpenEditor(ed.getAttribute('data-gedit')); return; }
   });
   grid.addEventListener('change', e=>{
     const dn=e.target.closest('[data-gdone]');
@@ -928,23 +1028,27 @@ document.addEventListener('click', ()=>{ document.querySelectorAll('.g-dep-pop')
     if(!handle && !barEl) return;
     const id=(handle||barEl).getAttribute(handle?'data-resize':'data-bar');
     const t=(doc.tasks||[]).find(x=>x.id===id); if(!t) return;
-    const mode = handle ? 'resize' : 'move';
-    if(mode==='move' && Array.isArray(t.dependsOn) && t.dependsOn.length) return; // dep-driven start; move the predecessor instead
+    // Resize handle → resize; bar body → move, unless the start is dependency-driven (then it's a
+    // click-to-open only, since you move it by moving its predecessor).
+    let mode = handle ? 'resize' : 'move';
+    if(mode==='move' && Array.isArray(t.dependsOn) && t.dependsOn.length) mode='click';
     e.preventDefault();
-    G.drag={ id, mode, startX:e.clientX, origStart:t.start, origDays:gDays(t) };
-    document.body.style.cursor = mode==='resize'?'ew-resize':'grabbing';
+    G.drag={ id, mode, startX:e.clientX, origStart:t.start, origDays:gDays(t), moved:false };
+    if(mode!=='click') document.body.style.cursor = mode==='resize'?'ew-resize':'grabbing';
   });
   document.addEventListener('mousemove', e=>{
-    if(!G.drag) return;
+    if(!G.drag || G.drag.mode==='click') return;
     const t=(doc.tasks||[]).find(x=>x.id===G.drag.id); if(!t) return;
     const dd=Math.round((e.clientX-G.drag.startX)/G.dayW);
+    if(Math.abs(e.clientX-G.drag.startX) > 3) G.drag.moved=true;
     if(G.drag.mode==='move') t.start=gAddDays(G.drag.origStart, dd);
-    else t.days=Math.max(1, G.drag.origDays+dd);
+    else if(G.drag.mode==='resize') t.days=Math.max(1, G.drag.origDays+dd);
     renderGantt();
   });
   document.addEventListener('mouseup', ()=>{
     if(!G.drag) return;
-    G.drag=null; document.body.style.cursor='';
+    const d=G.drag; G.drag=null; document.body.style.cursor='';
+    if(!d.moved){ gOpenEditor(d.id); return; }   // a click (no drag) opens the details editor
     gApplyDeps(); renderGantt(); gSave();
   });
 })();

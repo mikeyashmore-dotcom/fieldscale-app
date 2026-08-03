@@ -98,6 +98,15 @@
       <button class="btn primary" id="save-btn">Save</button>
     </div>
 
+    <style>
+      .job-tabs{display:flex;gap:2px;border-bottom:2px solid var(--paper-line);margin:2px 0 18px;flex-wrap:wrap}
+      .job-tab{border:none;background:none;padding:9px 16px;font-size:13.5px;font-weight:600;color:var(--steel);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap}
+      .job-tab:hover{color:var(--charcoal)}
+      .job-tab.active{color:var(--orange);border-bottom-color:var(--orange)}
+      .job-tab .g-count{font-size:11px;color:var(--steel);font-weight:400;margin-left:5px}
+    </style>
+    <div class="job-tabs" id="job-tabs"></div>
+
     <div class="block" id="sec-panel">
       <div id="sec-hdr" style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <h3 style="margin:0">Sections on this job</h3>
@@ -1180,6 +1189,60 @@ const SECTION_DEFS = [
   ['notes','Notes'],
   ['clientmsg','Message to client'],
 ];
+// ---- Job page tabs: group the many sections into a few clear tabs so the page isn't one long scroll ----
+const JOB_TABS=[['overview','Overview'],['schedule','Schedule'],['costs','Costs'],['field','Field'],['docs','Docs']];
+const SECTION_TAB={
+  scope:'costs',costing:'costs',budget:'costs',actualcosts:'costs',time:'costs',changeorders:'costs',draws:'costs',
+  tasks:'schedule',gantt:'schedule',inspections:'schedule',
+  punch:'field',dailylogs:'field',materials:'field',photos:'field',safety:'field',equipment:'field',
+  receipts:'docs',rfis:'docs',submittals:'docs',permits:'docs',warranty:'docs',selections:'docs',service:'docs',
+  notes:'overview',clientmsg:'overview'
+};
+let activeJobTab='overview';
+let JOB_BLOCKS=[];
+function buildJobBlocks(){
+  JOB_BLOCKS=[];
+  const content=document.getElementById('content'); if(!content) return;
+  let lastTab='overview';
+  // Walk every top-level element so standalone controls (e.g. an "＋ Add scope line" button that sits
+  // between two sections) follow the tab of the section above them, instead of leaking onto every tab.
+  Array.from(content.children).forEach(el=>{
+    if(el.tagName==='STYLE'||el.classList.contains('pagebar')||el.id==='job-tabs'||el.id==='loading') return;
+    const key=el.getAttribute('data-sec');
+    let tab=null, finHide=el.classList.contains('fin-hide');
+    if(el.id==='sec-panel') tab='overview';
+    else if(el.id==='dash'){ tab='overview'; finHide=true; }
+    else if(el.classList.contains('grid2')) tab='overview';
+    else if(key) tab=SECTION_TAB[key]||'overview';
+    else if(el.classList.contains('block')) tab=lastTab;                                   // an unlabeled section box
+    else if(el.tagName==='DIV' && !el.querySelector('h3') && el.querySelector('button') && getComputedStyle(el).display!=='none') tab=lastTab; // orphan control row
+    if(tab===null) return;   // leave hidden utilities, datalists, etc. untouched
+    lastTab=tab;
+    JOB_BLOCKS.push({el, key, tab, finHide});
+  });
+}
+function jobBlockEligible(b){
+  if(hideFin && b.finHide) return false;                                  // no-money users never see money blocks
+  if(b.key && (new Set(doc.hiddenSections||[])).has(b.key)) return false; // individually switched off for this job
+  return true;
+}
+function tabHasContent(tab){ return JOB_BLOCKS.some(b=> b.tab===tab && jobBlockEligible(b)); }
+function applyJobLayout(){
+  JOB_BLOCKS.forEach(b=>{ b.el.style.display = (b.tab===activeJobTab && jobBlockEligible(b)) ? '' : 'none'; });
+}
+function renderJobTabs(){
+  const bar=document.getElementById('job-tabs'); if(!bar) return;
+  const avail=JOB_TABS.filter(([k])=> k==='overview' || tabHasContent(k));   // hide empty tabs (e.g. money tabs for field crew)
+  if(!avail.some(([k])=>k===activeJobTab)) activeJobTab=(avail[0]||['overview'])[0];
+  bar.innerHTML=avail.map(([k,label])=>'<button class="job-tab'+(k===activeJobTab?' active':'')+'" data-jtab="'+k+'">'+label+'</button>').join('');
+}
+function initJobTabs(){
+  const bar=document.getElementById('job-tabs'); if(!bar || bar._wired) return; bar._wired=true;
+  bar.addEventListener('click', e=>{ const b=e.target.closest('[data-jtab]'); if(!b) return;
+    activeJobTab=b.getAttribute('data-jtab'); renderJobTabs(); applyJobLayout();
+    try{ document.querySelector('.wrap').scrollIntoView({behavior:'smooth',block:'start'}); }catch(_){}
+  });
+}
 function setupSectionToggles(){
   const norm = s => (s||'').replace(/\s+/g,' ').trim().toLowerCase();
   const blocks = Array.from(document.querySelectorAll('#content .block'));
@@ -1192,12 +1255,8 @@ function setupSectionToggles(){
   });
   doc.hiddenSections = Array.isArray(doc.hiddenSections) ? doc.hiddenSections : [];
   const hidden = new Set(doc.hiddenSections);
-  // Apply the saved visibility for everyone (respecting financial hiding).
-  SECTION_DEFS.forEach(([key])=>{
-    const el = els[key]; if(!el) return;
-    if(hideFin && el.classList.contains('fin-hide')) return; // stays hidden regardless
-    el.style.display = hidden.has(key) ? 'none' : '';
-  });
+  // Group every section into tabs and show only the active tab (respecting per-section hide + money hiding).
+  buildJobBlocks(); initJobTabs(); renderJobTabs(); applyJobLayout();
   // Only full-access users configure this shared setting; others just get the applied visibility.
   if(hideFin){ const p=document.getElementById('sec-panel'); if(p) p.style.display='none'; return; }
   const list = document.getElementById('sec-list');
@@ -1232,8 +1291,8 @@ function setupSectionToggles(){
     const key = e.target.getAttribute && e.target.getAttribute('data-seckey'); if(!key) return;
     const el = els[key]; if(!el) return;
     const show = e.target.checked;
-    el.style.display = show ? '' : 'none';
     doc.hiddenSections = SECTION_DEFS.map(([k])=>k).filter(k=>{ const cb=list.querySelector('[data-seckey="'+k+'"]'); return cb && !cb.checked; });
+    renderJobTabs(); applyJobLayout();   // re-show/hide with the tab layout (and drop a tab that just went empty)
     try{ await save(); toast(show?'Section shown.':'Section hidden.'); }catch(err){ toast(err.message,true); }
   });
 }
